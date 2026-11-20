@@ -1,5 +1,69 @@
 {
   "version": "1.4.0",
   "date": "2026-11-20",
-  "notes": "FounderData Pro adds custom dashboards that your AI agent builds over MCP, and AI visibility asks a prompt weekly instead of daily once its answers stop changing. Core refuses cookie writes from other origins, erases RevenueCat ids along with a user, and the guide gets a setup table for every integration."
+  "notes": "The dashboard refuses cookie writes from other origins and sends frame and referrer headers. Erasing a user by id also erases their RevenueCat ids. The guide has a setup table for every integration: what it turns on and which secrets it needs. FounderData Pro: Custom dashboards that your AI agent builds over MCP. AI visibility asks a prompt weekly instead of daily once its answers stop changing.",
+  "releases": [
+    {
+      "version": "1.4.0",
+      "date": "2026-11-20",
+      "core": [
+        "The dashboard refuses cookie writes from other origins and sends frame and referrer headers.",
+        "Erasing a user by id also erases their RevenueCat ids.",
+        "The guide has a setup table for every integration: what it turns on and which secrets it needs."
+      ],
+      "pro": [
+        "Custom dashboards that your AI agent builds over MCP.",
+        "AI visibility asks a prompt weekly instead of daily once its answers stop changing."
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-11-20",
+      "core": [],
+      "pro": [
+        "Mail problems alerts: a domain that fails its daily check, sends that fail, and received mail that FounderData could not store. Every alert channel gets them, and you can switch them off per channel on the Notifications page."
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2026-11-20",
+      "core": [],
+      "pro": [
+        "Pages such as /dashboard or /account can stay out of recordings, and the tracker sends no clicks or errors from those pages."
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-11-20",
+      "core": [
+        "identify() takes traits, and a visitor profile shows every device with the same user id or email.",
+        "Mail hooks and mail scopes for API keys, used by FounderData Pro's mail."
+      ],
+      "pro": [
+        "People: each person's visits, payments and a one-line story.",
+        "Recordings of website visits, with typing hidden. They stay off until you switch them on in Settings, and can wait for consent."
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-11-19",
+      "core": [
+        "Polar webhooks accept the signatures of endpoints made since September 2026, as well as the old key.",
+        "Pro sections show what each report does and the current Pro price."
+      ],
+      "pro": [
+        "The license summary says a Pro license is personal to the buyer."
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-11-18",
+      "core": [
+        "First public release: website and iOS app analytics with revenue attribution, on Cloudflare Workers and D1."
+      ],
+      "pro": [
+        "First release of FounderData Pro."
+      ]
+    }
+  ]
 }

@@ -111,9 +111,10 @@ Pro differs from core in the `pro/` folder and in two one-line files, `src/worke
 
 ## Updates
 
-Settings has an **Updates** card. **Check for updates** reads `release.json` from this repository's `main` branch in
-your browser when you click it, and compares it with the version you deployed. The card gives you the prompt for your
-agent either way. In core, the Pro card under it also reads `offer.json` from GitHub while it is on screen ([Price](#price)).
+Settings has an **Updates** card with the version you run. **Check for updates** reads `release.json` from this
+repository's `main` branch in your browser when you click it. If you are behind, it lists every release since your
+version with what changed. Core lists its own changes first, then what Pro got. Pro lists both.
+[CHANGELOG.md](../CHANGELOG.md) has the same list. The card gives you the prompt for your agent either way. In core, the Pro card under it also reads `offer.json` from GitHub while it is on screen ([Price](#price)).
 
 - Core: `git fetch upstream && git merge upstream/main`, with `upstream` pointing at this repository.
 - Pro: `git fetch pro && git merge pro/main`. Every Pro release contains the core release of the same version, so one

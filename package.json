@@ -29,6 +29,7 @@
     "dev:web": "vite",
     "build": "vite build",
     "bundle:report": "node scripts/bundle-report.mjs",
+    "release": "node scripts/release.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate:local": "node scripts/wrangler.mjs d1 migrations apply DB --local",
