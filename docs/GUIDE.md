@@ -2927,7 +2927,7 @@ The list has four filters:
 | People you know | Signed in, paid, came back on another day, or use your app |
 | Customers | Paid at least once. Newest payment first, with the day of the payment |
 | Has recordings | At least one recorded visit |
-| Had trouble | A recorded visit with an error, or 3 or more fast clicks on one thing (a rage click) |
+| Had trouble | A recorded visit with an error, or one where someone clicked one thing again and again (3 or more clicks, each within a second) |
 
 Recorded visits have their own section, **Recordings**, right after People. See
 [The Recordings page](#the-recordings-page). A Watch button on a person's visit still opens the player in place.
