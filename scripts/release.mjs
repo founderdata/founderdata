@@ -102,7 +102,8 @@ function run(cmd, args) {
 }
 
 function dirtyFiles() {
-  return git('status', '--porcelain')
+  // Not git(): its trim() would eat the status column of the first line.
+  return execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' })
     .split('\n')
     .filter(Boolean)
     .map((l) => l.slice(3));
