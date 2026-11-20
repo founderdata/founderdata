@@ -85,6 +85,8 @@ describe('section row', () => {
     expect(ALL_VIEWS).toEqual(all);
     expect(SECTION_GROUPS.find((g) => g.id === 'paid')!.views).toEqual(['paid', 'ads', 'asa']);
     expect(SECTION_GROUPS.find((g) => g.id === 'organic')!.views).toEqual(['seo', 'ai', 'aso']);
+    // Recordings sit in Analytics right after People (pro/docs/recordings-agents-plan.md, R6).
+    expect(SECTION_GROUPS.find((g) => g.id === 'analytics')!.views).toEqual(['overview', 'people', 'recordings', 'content', 'dropoff', 'app']);
   });
 
   it('links each section to a path that opens it, Apple Search Ads at /ads/asa next to Meta ads at /ads', () => {
@@ -103,7 +105,7 @@ describe('section row', () => {
     // A website without Meta, an app or subscriptions: those sections are muted, not gone.
     const muted = (s: Site) => ALL_VIEWS.filter((v) => sectionState(s, v).muted);
     expect(muted(webOnly)).toEqual(['app', 'aso', 'paid', 'ads', 'asa', 'subscriptions', 'appstore']);
-    expect(muted(appOnly)).toEqual(['content', 'seo', 'ai', 'paid', 'ads', 'asa']);
+    expect(muted(appOnly)).toEqual(['recordings', 'content', 'seo', 'ai', 'paid', 'ads', 'asa']);
     expect(muted(both)).toEqual([]);
     // Apple Search Ads without the deployment's ASA_* secrets is muted but opens its own setup steps.
     expect(sectionState({ ...both, has_asa: false }, 'asa')).toEqual({ muted: true, setup: null });
@@ -118,7 +120,7 @@ describe('section row', () => {
     expect(sectionState(appOnly, 'seo').setup).toMatchObject({ title: 'This section needs a website', settings: 'general' });
     expect(sectionState(webOnly, 'subscriptions').setup).toMatchObject({ settings: 'payments' });
     expect(sectionState(webOnly, 'overview')).toEqual({ muted: false, setup: null });
-    expect(viewsFor(webOnly)).toEqual(['plan', 'overview', 'people', 'content', 'dropoff', 'seo', 'ai', 'paid', 'ads']);
+    expect(viewsFor(webOnly)).toEqual(['plan', 'overview', 'people', 'recordings', 'content', 'dropoff', 'seo', 'ai', 'paid', 'ads']);
     expect(viewsFor(appOnly)).toEqual(['plan', 'overview', 'people', 'dropoff', 'app', 'aso', 'paid', 'asa', 'subscriptions', 'appstore']);
     // The plan needs neither a website nor an app.
     expect(sectionState(appOnly, 'plan')).toEqual({ muted: false, setup: null });
@@ -128,6 +130,8 @@ describe('section row', () => {
   it('carries the period and filters to another section, not the section\'s own tab, view or visitor', () => {
     const search = '?period=7d&filters=%7B%22country%22%3A%22DE%22%7D&tab=source&view=keyword&visitor=v1';
     expect(carriedSearch(search)).toBe('?period=7d&filters=%7B%22country%22%3A%22DE%22%7D');
+    // The filters of Recordings and the second a recording opens at stay on Recordings too.
+    expect(carriedSearch('?period=7d&page=%2Fpricing&exit=%2Fpricing&signal=dead&outcome=none&device=mobile&sort=newest&t=27')).toBe('?period=7d');
     expect(sectionUrl('s1', 'seo', search)).toBe('/site/s1/seo?period=7d&filters=%7B%22country%22%3A%22DE%22%7D');
     expect(sectionUrl('s1', 'overview', '')).toBe('/site/s1');
   });
@@ -149,7 +153,7 @@ describe('section row on the page', () => {
   };
   const nav = (html: string) => html.slice(html.indexOf('<nav aria-label="Sections"'), html.indexOf('</nav>', html.indexOf('<nav aria-label="Sections"')));
 
-  it('draws all 13 sections on every page of every kind of site, the open one marked and the unset ones muted', async () => {
+  it('draws all 15 sections on every page of every kind of site, the open one marked and the unset ones muted', async () => {
     for (const s of [webOnly, appOnly, both]) {
       for (const view of ALL_VIEWS) {
         const html = nav(await render(s, view));

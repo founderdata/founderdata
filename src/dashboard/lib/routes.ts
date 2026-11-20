@@ -27,6 +27,9 @@ const DASHBOARD: [RegExp, View][] = [
   // The agent's growth plan (FounderData Pro). /seo/plan below is the SEO tab's own view, a different page.
   [/^\/site\/([\w-]+)\/plan\/?$/, 'plan'],
   [/^\/site\/([\w-]+)\/dropoff\/?$/, 'dropoff'],
+  // Recordings (FounderData Pro): the list, and /recordings/<session id> opens the player. /people/recordings, where the
+  // list used to be, opens it too; the section moves the address to /recordings.
+  [/^\/site\/([\w-]+)\/(?:people\/)?recordings(?:\/[\w-]+)?\/?$/, 'recordings'],
   // /people, and anything under it (/people/recordings, one person's page): People reads the rest of the path.
   [/^\/site\/([\w-]+)\/people(?:\/[^?#]*)?$/, 'people'],
   // /content/page/<path> is one page's detail (ContentSection reads the rest of the path).

@@ -250,6 +250,8 @@ export function Dashboard({ siteId, view }: { siteId: string; view: View }) {
                 <Views.asa />
               ) : view === 'people' ? (
                 <Views.people />
+              ) : view === 'recordings' ? (
+                <Views.recordings />
               ) : (
                 <Views.dropoff appOnly={appOnly} />
               )}
@@ -317,6 +319,8 @@ function OverviewView({ overview, platformTabs, controls }: { overview: Overview
         )}
       </div>
       <ProSlot name="xPosts" />
+      {/* Visits worth watching (FounderData Pro): one small card when a recorded visit scores 40 or more. */}
+      <ProSlot name="recordingsCard" />
       <div className="mt-4">
         <GoalsPanel totalVisitors={overview?.current.visitors ?? 0} notes={notes} impacts={impacts} />
       </div>

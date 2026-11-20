@@ -4232,6 +4232,14 @@
             }
           },
           {
+            "name": "exit",
+            "in": "query",
+            "description": "Only recordings whose last page was this path.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "signal",
             "in": "query",
             "description": "Only recordings with this.",

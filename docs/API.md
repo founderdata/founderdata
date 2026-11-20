@@ -2123,6 +2123,7 @@ scanned) and up to 3 `examples`:
 | --- | --- |
 | `sort` | `score` (default): the scanned recordings by score, highest first. `newest`: newest first, with `next`. |
 | `page` | Recordings that saw this path. |
+| `exit` | Recordings whose last page was this path. |
 | `signal` | `rage`, `dead`, `error`, `abandoned` or `quick_back`. |
 | `outcome` | `paid`, `signed_up`, `goal` or `none`. |
 | `device` | `desktop`, `mobile` or `tablet`. |

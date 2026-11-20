@@ -11,6 +11,10 @@ export const PRO_SECTIONS: Partial<Record<View, { title: string; body: string; c
     body: 'Everyone you know by name, email or payment, with one story from their first visit to what they paid. Watch a visit like a video and see where someone got stuck.',
     collected: 'Core already stores who signed in and who paid, so the list shows your history the day you switch.',
   },
+  recordings: {
+    title: 'Recordings',
+    body: 'Watch visits to your website like a video. A list of what to fix comes first: buttons people click that do nothing, errors, forms they leave. Your AI agent reads the same list.',
+  },
   content: {
     title: 'Content',
     body: 'Every page with its visitors, Google clicks and position, the revenue it brought, and the pages losing traffic.',

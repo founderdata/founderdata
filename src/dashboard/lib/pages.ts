@@ -46,6 +46,7 @@ export const Views: Record<Exclude<View, 'overview'>, Preloadable<ComponentType<
   dropoff: proView('dropoff'),
   plan: proView('plan'),
   people: proView('people'),
+  recordings: proView('recordings'),
 };
 
 /** The command palette loads when it first opens (App.tsx); this is its chunk. */
