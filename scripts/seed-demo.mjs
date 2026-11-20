@@ -1323,6 +1323,11 @@ const seoParts = (() => {
 // signed in; Lea's recorded visit had nothing go wrong; Mia found the iPhone app on the App Store and subscribed there,
 // without a web visit. Each recorded visit has an index row (`replays`); the recording itself would be
 // in R2, which the seed does not fill. Page activity is the `activity` event the tracker sends (collect.ts parseActivity).
+// Each recorded visit also has the digest the recorder would have sent (replays.digest, migration 0082; its format is in
+// FounderData Pro's pro/docs/RECORDINGS.md, "The digest"): pages with time and scroll, clicks that changed nothing, form
+// fields changed and sent. Together they fill every list of the Recordings page's "What to fix": "Compare plans" on
+// /pricing changes nothing, fields left on /settings and /integrations, a quick back from /faq, and ten blog readers who
+// stop at the top of /blog/launch-checklist (a shallow page needs 10 recorded visits).
 {
   const MIN = 60_000;
   const HOUR = 60 * MIN;
@@ -1336,11 +1341,28 @@ const seoParts = (() => {
       browser: o.os === 'iOS' ? 'Mobile Safari' : 'Chrome', os: o.os ?? 'Mac OS', device: o.os === 'iOS' ? 'Mobile' : 'Desktop',
     });
     const step = (o.minutes * MIN) / (pages.length + 1);
-    insertEvents(site, sid, vid, pages.map((path, i) => ({ ts: start + Math.round(i * step), type: 'pageview', path })));
-    for (const [name, i] of o.goals ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round((i + 0.6) * step), type: 'goal', name, path: pages[i] }]);
-    for (const [i, act] of o.activity ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round((i + 0.9) * step), type: 'activity', path: pages[i], props: act }]);
-    if (o.recorded) insert('replays', { site_id: site, session_id: sid, visitor_id: vid, started_at: start, entry_page: pages[0] });
+    // `times`: when each page was shown, in ms from the start; else evenly spread.
+    const at = (i) => (o.times ? o.times[Math.min(i, o.times.length - 1)] : Math.round(i * step));
+    const next = (i) => (i + 1 < pages.length ? at(i + 1) : o.minutes * MIN);
+    insertEvents(site, sid, vid, pages.map((path, i) => ({ ts: start + at(i), type: 'pageview', path })));
+    for (const [name, i] of o.goals ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round(at(i) + 0.6 * (next(i) - at(i))), type: 'goal', name, path: pages[i] }]);
+    // Activity times count from the page's start (`s`), as the tracker sends them.
+    for (const [i, act] of o.activity ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round(at(i) + 0.9 * (next(i) - at(i))), type: 'activity', path: pages[i], props: { s: start + at(i), ...act } }]);
+    if (!o.recorded) return;
+    // The digest: `d[i]` adds sd (scroll %), dc (dead clicks, `t` in ms from the page's start), f (fields), fs, qb.
+    const digest = {
+      s: start,
+      v: o.os === 'iOS' ? [390, 844] : [1440, 900],
+      p: pages.map((u, i) => {
+        const extra = (o.digest ?? [])[i] ?? {};
+        const dc = extra.dc?.map((c) => ({ ...c, t: at(i) + c.t }));
+        return { u, a: at(i), g: 0, ms: next(i) - at(i), ...extra, ...(dc ? { dc } : {}) };
+      }),
+      x: pages.at(-1),
+    };
+    insert('replays', { site_id: site, session_id: sid, visitor_id: vid, started_at: start, entry_page: pages[0], digest: JSON.stringify(digest) });
   };
+  const COMPARE = { l: 'Compare plans', s: 'div.plan-card' };
   const BERLIN = ['DE', 'Berlin', 'Berlin'];
   // Anna: her Mac's visitor id is kept in cookies (Remember visitors), so its visits join; identify() names it and her iPhone.
   insert('visitors', {
@@ -1352,14 +1374,17 @@ const seoParts = (() => {
   web('people-anna-mac', 'people-anna-s1', now - 21 * DAY, { geo: BERLIN, minutes: 6, source: 'Google', channel: 'Organic Search', referrer: 'www.google.com', domain: 'google.com', pages: ['/', '/blog/launch-checklist', '/pricing'] });
   web('people-anna-mac', 'people-anna-s2', now - 9 * DAY, {
     geo: BERLIN, minutes: 8, pages: ['/pricing', '/signup', '/dashboard'], goals: [['signup', 1]], recorded: true,
+    digest: [{ sd: 64, dc: [{ ...COMPARE, n: 2, t: 9000 }] }, { sd: 100, f: ['email', 'company', 'password'], fs: 1 }, { sd: 35 }],
     activity: [[0, { c: [{ t: 4200, l: 'Start free trial', k: 'button' }] }], [1, { c: [{ t: 21000, l: 'Create account', k: 'submit' }] }]],
   });
   web('people-anna-iphone', 'people-anna-s3', now - 3 * DAY, {
     geo: BERLIN, minutes: 5, os: 'iOS', pages: ['/dashboard', '/billing'], recorded: true,
+    digest: [{ sd: 40 }, { sd: 72, f: ['card_name'], fs: 1 }],
     activity: [[1, { c: [{ t: 6100, l: 'Pay now', k: 'button', n: 5, r: 1 }, { t: 15400, l: 'Pay now', k: 'button' }], e: [{ t: 6900, m: "TypeError: Cannot read properties of undefined (reading 'card')", s: 'https://shipkit.example.com/assets/billing.js:212' }] }]],
   });
   insert('payments', { id: 'pay_people_anna', site_id: site, provider: 'stripe', ts: now - 3 * DAY + 4 * MIN, amount: 4900, kind: 'payment', currency: 'USD', visitor_id: 'people-anna-iphone', session_id: 'people-anna-s3', customer_id: 'cus_people_anna', email: 'anna.weber@example.com', name: 'Anna Weber', product: 'shipkit_pro_monthly', matched_by: 'metadata', channel: 'Organic Search', source: 'Google' });
-  web('people-anna-mac', 'people-anna-s4', now - 2 * HOUR, { geo: BERLIN, minutes: 4, pages: ['/dashboard', '/settings', '/docs/webhooks'], recorded: true, activity: [[1, { c: [{ t: 3000, l: 'Invite teammate', k: 'button' }] }]] });
+  web('people-anna-mac', 'people-anna-s4', now - 2 * HOUR, { geo: BERLIN, minutes: 4, pages: ['/dashboard', '/settings', '/docs/webhooks'], recorded: true, activity: [[1, { c: [{ t: 3000, l: 'Invite teammate', k: 'button' }] }]],
+    digest: [{ sd: 30 }, { sd: 55, f: ['teammate_email', 'role'] }, { sd: 18 }] });
 
   // Anna's iPhone app: the SDK's identify() joins the install to her by user id. App visits are never recorded.
   const app = (vid, sid, start, o) => {
@@ -1384,26 +1409,45 @@ const seoParts = (() => {
 
   // Ben: found ShipKit on X, signed up, and saw an error on the next visit.
   insert('visitors', { site_id: site, id: 'people-ben-1', first_seen: now - 6 * DAY, user_id: 'usr_ben', name: 'Ben Okafor', email: 'ben.okafor@example.com', first_source: 'X', first_channel: 'Organic Social', traits: json({ plan: 'Trial', company: 'Okafor Studio' }) });
-  web('people-ben-1', 'people-ben-s1', now - 6 * DAY, { geo: ['GB', 'England', 'London'], minutes: 7, source: 'X', channel: 'Organic Social', referrer: 't.co', domain: 't.co', pages: ['/', '/features', '/signup'], goals: [['signup', 2]], recorded: true, activity: [[2, { c: [{ t: 9000, l: 'Create account', k: 'submit' }] }]] });
+  web('people-ben-1', 'people-ben-s1', now - 6 * DAY, { geo: ['GB', 'England', 'London'], minutes: 7, source: 'X', channel: 'Organic Social', referrer: 't.co', domain: 't.co', pages: ['/', '/features', '/signup'], goals: [['signup', 2]], recorded: true, activity: [[2, { c: [{ t: 9000, l: 'Create account', k: 'submit' }] }]],
+    digest: [{ sd: 80 }, { sd: 22, dc: [{ l: 'Live demo', s: 'img.hero-shot', n: 1, t: 15000 }] }, { sd: 100, f: ['email', 'company'], fs: 1 }] });
   web('people-ben-1', 'people-ben-s2', now - 26 * HOUR, {
     geo: ['GB', 'England', 'London'], minutes: 3, pages: ['/dashboard', '/integrations'], recorded: true,
+    digest: [{ sd: 20 }, { sd: 45, f: ['stripe_key'] }],
     activity: [[1, { c: [{ t: 2500, l: 'Connect Stripe', k: 'button' }], e: [{ t: 2700, m: 'Error: Request failed with status 500', s: 'https://shipkit.example.com/assets/app.js:88' }] }]],
   });
 
   // Kenji: no name, but his visitor id came back on three days (Remember visitors).
   insert('visitors', { site_id: site, id: 'people-kenji-1', first_seen: now - 12 * DAY, first_source: 'Reddit', first_channel: 'Organic Social' });
   web('people-kenji-1', 'people-kenji-s1', now - 12 * DAY, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 4, source: 'Reddit', channel: 'Organic Social', referrer: 'www.reddit.com/r/SaaS', domain: 'reddit.com', pages: ['/blog/stripe-webhooks', '/pricing'] });
-  web('people-kenji-1', 'people-kenji-s2', now - 5 * DAY, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 2, pages: ['/pricing'], recorded: true, activity: [[0, { c: [{ t: 8000, l: 'Monthly', k: 'button', n: 4, r: 1 }, { t: 12000, l: 'Yearly', k: 'button' }] }]] });
-  web('people-kenji-1', 'people-kenji-s3', now - 50 * MIN, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 3, pages: ['/pricing', '/faq'], recorded: true });
+  web('people-kenji-1', 'people-kenji-s2', now - 5 * DAY, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 2, pages: ['/pricing'], recorded: true, activity: [[0, { c: [{ t: 8000, l: 'Monthly', k: 'button', n: 4, r: 1 }, { t: 12000, l: 'Yearly', k: 'button' }] }]],
+    digest: [{ sd: 58, dc: [{ ...COMPARE, n: 3, t: 20000 }] }] });
+  // Kenji opened the FAQ and went back to pricing 3 seconds later: a quick back.
+  web('people-kenji-1', 'people-kenji-s3', now - 50 * MIN, {
+    geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 3, pages: ['/pricing', '/faq', '/pricing'], times: [0, 60_000, 63_000], recorded: true,
+    digest: [{ sd: 50, dc: [{ ...COMPARE, n: 1, t: 30000 }] }, { sd: 10, qb: 1 }, { sd: 66 }],
+  });
 
   // Lea: one calm recorded visit.
   insert('visitors', { site_id: site, id: 'people-lea-1', first_seen: now - 4 * HOUR });
-  web('people-lea-1', 'people-lea-s1', now - 4 * HOUR, { geo: ['ES', 'Madrid', 'Madrid'], minutes: 2, source: 'ChatGPT', channel: 'AI', referrer: 'chatgpt.com', domain: 'chatgpt.com', pages: ['/', '/features'], recorded: true, activity: [[1, { c: [{ t: 5000, l: 'See pricing', k: 'link' }] }]] });
+  web('people-lea-1', 'people-lea-s1', now - 4 * HOUR, { geo: ['ES', 'Madrid', 'Madrid'], minutes: 2, source: 'ChatGPT', channel: 'AI', referrer: 'chatgpt.com', domain: 'chatgpt.com', pages: ['/', '/features'], recorded: true, activity: [[1, { c: [{ t: 5000, l: 'See pricing', k: 'link' }] }]],
+    digest: [{ sd: 30 }, { sd: 24 }] });
+
+  // Ten blog readers from Google, each gone from the top of /blog/launch-checklist within a minute or so.
+  const READERS = [['US', 'California', 'San Francisco'], ['DE', 'Hamburg', 'Hamburg'], ['FR', 'Ile-de-France', 'Paris'], ['IN', 'Karnataka', 'Bengaluru'], ['BR', 'Sao Paulo', 'Sao Paulo']];
+  for (let i = 0; i < 10; i++) {
+    const vid = `people-reader-${i}`;
+    insert('visitors', { site_id: site, id: vid, first_seen: now - (i + 1) * 7 * HOUR, first_source: 'Google', first_channel: 'Organic Search' });
+    web(vid, `people-reader-s${i}`, now - (i + 1) * 7 * HOUR, {
+      geo: READERS[i % READERS.length], minutes: 1, source: 'Google', channel: 'Organic Search', referrer: 'www.google.com', domain: 'google.com',
+      os: i % 3 ? 'Mac OS' : 'iOS', pages: ['/blog/launch-checklist'], recorded: true, digest: [{ sd: 6 + ((i * 7) % 19) }],
+    });
+  }
 }
 
 flushInserts();
 // ShipKit records visits (People and recordings). After the flush: the sites row is one of the rows it writes.
-out.push(`UPDATE sites SET record_visits = 1 WHERE id = ${q(shipkit)};`);
+out.push(`UPDATE sites SET record_visits = 1, record_on_at = ${now - 30 * DAY} WHERE id = ${q(shipkit)};`);
 // The snapshot parts go in after the rows above: each is one row, its text appended in chunks under the statement limit.
 for (const [part, value] of Object.entries(seoParts)) {
   const text = JSON.stringify(value);
