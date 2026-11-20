@@ -21,8 +21,8 @@ starts lower and rises in steps ([Price](#price)). Pro adds:
 - Plan: a growth project your AI agent runs for each site, with your rules for all of them, goals, tasks that say what they should move, session notes, and a measured result for each change against that
 - Home across all your sites with the Growth row, next actions, and a verdict on every change you log
 - Mail on your own domains through Cloudflare, with an API that answers like Resend's, an inbox and templates ([MAIL.md](MAIL.md))
-- People with one story each, from the first visit to the payment, and recordings of their visits, off until you turn
-  them on ([GUIDE.md](GUIDE.md#people-and-recordings-pro))
+- People with one story each, from the first visit to the payment, and recordings of their visits in their own
+  Recordings section, with what to fix first, off until you turn them on ([GUIDE.md](GUIDE.md#people-and-recordings-pro))
 - All 39 MCP tools, the `query` tool, custom dashboards that agents build, alert rules, the alert inbox, the research log and agent skills
 - Teammates with their own login
 

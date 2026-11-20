@@ -2929,6 +2929,9 @@ The list has four filters:
 | Has recordings | At least one recorded visit |
 | Had trouble | A recorded visit with an error, or 3 or more fast clicks on one thing (a rage click) |
 
+Recorded visits have their own section, **Recordings**, right after People. See
+[The Recordings page](#the-recordings-page). A Watch button on a person's visit still opens the player in place.
+
 ### Identify people
 
 Call `identify()` when a person signs in, and again each time your app starts while they are signed in. Without it,
@@ -2987,7 +2990,8 @@ Recordings are of your website only. The iPhone app is never recorded: its visit
 1. Run `npm run setup -- --replay`. It creates the R2 bucket `<database name>-replay` in the database's jurisdiction,
    adds a rule that deletes each file 90 days after upload, and binds the bucket as `REPLAY_BUCKET`. Cloudflare asks
    for a payment method once to turn on R2, even when you stay inside the free tier.
-2. Open the site's Settings, then Data and privacy, and turn on **Record visits**.
+2. Open the site's Settings, then Data and privacy, and turn on **Record visits**. The Recordings page has the same
+   switch while recording is off.
 3. Decide on consent. In the EU and the UK, recording a visitor's screen usually needs their consent. By default a
    visit is recorded whether or not the visitor accepted your cookie banner. Turn on **Wait for consent** under
    Advanced, and a visit records only after your banner calls `founderdata('consent', true)`, or on pages with
@@ -3000,6 +3004,80 @@ Recordings are of your website only. The iPhone app is never recorded: its visit
 The script tag stays the same. For a visit the server picks, the script loads `/js/replay.js` from your Worker. Other
 visits load nothing more. Your own visits with `?rt_ignore=true` and bots are never recorded. Recording sets no
 cookie and stores nothing in the browser.
+
+**The checklist.** The Record visits card (Settings, Data and privacy, or `/site/<id>/settings#record-visits`) shows
+four lines and checks them again every 15 seconds while one is open:
+
+1. Storage ready: step 1 above is done.
+2. Recording is on.
+3. Your site sent a visit since then. Open your site in a new tab to send one.
+4. First recording received, with the time of the newest one, such as "Last recording 3 minutes ago". A recording
+   shows up a minute or two after the visit.
+
+When visits arrive and no recording does, after 10 visits or 30 minutes, the card lists what can cause it: Wait for
+consent is on, only a share of visits is recorded, today's maximum is reached, the visit only saw pages that are never
+recorded, the upload came from a domain that is not the site's, or your site's Content-Security-Policy blocks the
+recorder. A policy needs your FounderData host in two places:
+
+```
+script-src https://founderdata.example.com
+connect-src https://founderdata.example.com
+```
+
+**Copy AI prompt** on the card gives your coding agent the whole setup as one prompt: run `npm run setup -- --replay`
+in your FounderData folder when storage is missing, add the two policy lines, put `data-fd-mask` and `data-fd-block` on
+private text, list the logged-in paths for **Pages that are never recorded**, and call `founderdata('consent', true)`
+from your cookie banner.
+
+### The Recordings page
+
+Open **Recordings** in the Analytics group of the site's sections, or go to `/site/<id>/recordings`. The period picker
+sets the dates. The page has two parts.
+
+**What to fix** puts the patterns across recorded visits in plain sentences, biggest first, such as "14 visits clicked
+"Compare plans" on /pricing and nothing happened". It covers clicks that changed nothing on the page within 2.5
+seconds, rage clicks, errors, form fields filled in and never sent, pages left within 5 seconds for the page before,
+and pages most visits scroll less than a quarter of. Each line has **Watch** and up to two more examples, which open
+the player 3 seconds before the moment. **Copy AI prompt** copies the whole list as text for your coding agent, with
+the element, the example ids and how to dig further with `get_recordings`. The part shows from 5 recorded visits, and
+under 30 it says to treat each line as a lead.
+
+**Worth watching** lists the recorded visits with the most going on first, each with one sentence on what happened,
+such as "Saw the error "TypeError: plan is undefined" on /signup, then clicked "Buy" 4 times fast on /signup." A visit
+scores points for an error (30), clicks that did nothing (20, or 30 for 3 or more), rage clicks (25), a form left
+behind (15), going right back (10), paying or signing up (15) and leaving from a pricing or checkout page without
+converting (10). Visits under 5 seconds lose 30. Switch to **Newest** for every recording by time. Filters sit in the
+address, so a filtered list can be shared:
+
+| Filter | Address | Keeps the visits that |
+| --- | --- | --- |
+| Page | `?page=/pricing` | saw that page. Type to pick from the pages recorded visits saw |
+| What happened | `?signal=dead`, `rage`, `error`, `abandoned`, `quick_back` | had that signal |
+| Result | `?outcome=paid`, `signed_up`, `none` | paid, signed up, or did neither |
+| Device | `?device=desktop`, `mobile`, `tablet` | used that device |
+| Left from | `?exit=/pricing` | ended on that page (Drop-off's links set it) |
+
+**The player** opens at `/site/<id>/recordings/<session id>?t=<seconds>` and starts at that second. **Copy link**
+copies that address at the second on screen, so you can send someone the exact moment. The header shows the sentence
+on what happened and how far down the page on screen the visitor scrolled. A click that changed nothing is a small
+amber dot on the bar and a step in the list: Clicked "Compare plans" 3 times and nothing happened. When a visitor left
+before the first part of the video could be saved, the player says "This visit was too short to save the video. Its
+steps are below." and lists the steps. The old address `/site/<id>/people/recordings` opens the Recordings page.
+
+Three reports link here when the period has recorded visits:
+
+- Content: **Watch visits** next to a page opens the visits that saw it.
+- Drop-off: **Watch visits that left here** next to a web exit page opens the visits that ended there without buying.
+- Overview: a small card, such as "3 visits worth watching", when a visit of the period scores 40 or more.
+
+### Let your agent read recordings
+
+An agent can't watch a video, so FounderData gives it the facts behind each recording. The MCP tool `get_recordings`
+answers with the same patterns, list and steps the page shows ([MCP.md](MCP.md#recordings-pro)). A good order is
+`view` `patterns` first, then one or two examples with `view` `one` and the example's `session_id`, then the site's
+code. The answer never guesses why a visitor did something, and every `watch_url` in it opens the player at the
+moment for you. When recording is off or caught nothing yet, the answer says what you need to do instead. The
+`founderdata-recordings-review` skill ([Skills](MCP.md#skills-pro)) runs this order and logs each fix with `add_note`.
 
 ### What a recording hides
 
