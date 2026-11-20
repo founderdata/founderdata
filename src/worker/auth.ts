@@ -269,6 +269,7 @@ export async function revokeStaleDevices(env: Env, now = Date.now()): Promise<nu
   await env.DB.batch([
     env.DB.prepare('DELETE FROM device_site_prefs WHERE device_id IN (SELECT id FROM devices WHERE revoked_at IS NOT NULL)'),
     env.DB.prepare('DELETE FROM device_product_prefs WHERE device_id IN (SELECT id FROM devices WHERE revoked_at IS NOT NULL)'),
+    env.DB.prepare('DELETE FROM device_mail_prefs WHERE device_id IN (SELECT id FROM devices WHERE revoked_at IS NOT NULL)'),
   ]);
   return res.meta.changes;
 }
@@ -353,11 +354,13 @@ export const MAIL_ADMIN_PATH = /^\/api\/mail-admin(\/|$)/;
 export function denied(role: Exclude<Role, 'admin'>, method: string, path: string, env: Env): string | null {
   // Mail holds other people's addresses and message text, which scrub() would not hide: owners only, whatever the
   // method, and a teammate with the viewer role counts as a viewer.
-  if (MAIL_ADMIN_PATH.test(path)) return role === 'device' ? 'Mail is not available on the phone. Open it in the dashboard.' : 'Mail is for owners. Ask an owner.';
+  // A phone reads mail through its own routes, /api/mobile/mail/* (FounderData Pro, docs/MOBILE-API.md section 10).
+  if (MAIL_ADMIN_PATH.test(path)) return role === 'device' ? 'Mail on a phone goes through /api/mobile/mail, not the dashboard routes.' : 'Mail is for owners. Ask an owner.';
   const read = method === 'GET' || method === 'HEAD';
   if (!read) {
-    // A phone may sign itself out (DELETE /api/mobile/devices/<its id>, checked in mobile.ts), add or delete chart
-    // notes, and review a change (kept, reverted, iterated).
+    // A phone may sign itself out (DELETE /api/mobile/devices/<its id>, checked in mobile.ts), act on its mail (the
+    // /api/mobile/mail/* routes: read state, archive, reply), add or delete chart notes, and review a change (kept,
+    // reverted, iterated).
     if (role === 'device' && path.startsWith('/api/mobile/')) return null;
     if (role === 'device' && /^\/api\/sites\/[^/]+\/notes(\/[^/]+)?$/.test(path) && (method === 'POST' || method === 'DELETE')) return null;
     if (role === 'device' && method === 'POST' && /^\/api\/sites\/[^/]+\/notes\/[^/]+\/review$/.test(path)) return null;
@@ -390,7 +393,8 @@ export function hidesPersonalData(role: Role, env: Pick<Env, 'VIEWER_PII' | 'PHO
 /**
  * Dashboard cookie (admin or viewer) or a device's bearer token. The owner can do anything. A viewer and a phone only
  * read: every other method gets 403 (a phone may still sign itself out), share tokens, read keys and alert channels
- * get 403, and secrets in every response are set to null. A phone may add, delete and review chart notes, gets no raw export,
+ * get 403, and secrets in every response are set to null. A phone may add, delete and review chart notes and act on its
+ * mail through /api/mobile/mail/* (FounderData Pro), gets no raw export,
  * and sees names, emails and user ids unless PHONE_PII is 0; the viewer sees them and exports only with VIEWER_PII on.
  * `role` is set for the handlers.
  */

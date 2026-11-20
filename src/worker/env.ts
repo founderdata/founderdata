@@ -121,8 +121,10 @@ export interface Env {
   VIEWER_PASSWORD?: string;
   /** "1": the viewer login sees names, emails and user ids. Default: hidden. */
   VIEWER_PII?: string;
-  /** "0": phones signed in to the iPhone app see no names, emails or user ids. Default: they see them. */
+  /** "0": phones signed in to the iPhone app see no names, emails or user ids, and get no mail. Default: they see them. */
   PHONE_PII?: string;
+  /** Replies one phone may send from the iPhone app's mail in 24 hours, 1 to 1,000; 50 when unset (FounderData Pro). */
+  PHONE_MAIL_DAILY_REPLIES?: string;
   /** Optional key for the daily visitor id salt; without it the salt derives from SESSION_SECRET (src/worker/identity.ts). */
   VISITOR_SALT_SECRET?: string;
   /** Months of visit data to keep, default 24 (src/worker/retention.ts). */
@@ -167,6 +169,10 @@ export interface Device {
   live_topic: string | null;
   /** ms of the last Live Activity update push: at most one a minute. */
   live_pushed_at: number | null;
+  /** Mail pushes (migration 0080, FounderData Pro): on, first message of a thread only, no push for likely spam. 1 or 0. */
+  mail_push: number;
+  mail_new_threads_only: number;
+  mail_skip_spam: number;
 }
 
 export interface Site {
