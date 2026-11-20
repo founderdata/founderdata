@@ -89,7 +89,7 @@ const read = (f) => readFileSync(path.join(ROOT, f), 'utf8');
 const readJson = (f) => JSON.parse(read(f));
 const writeJson = (f, data) => writeFileSync(path.join(ROOT, f), `${JSON.stringify(data, null, 2)}\n`);
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
-const edition = () => (existsSync(path.join(ROOT, 'pro/worker/index.ts')) && !read('src/worker/edition.ts').includes('= null') ? 'pro' : 'core');
+const edition = () => (existsSync(path.join(ROOT, 'pro/worker/index.ts')) && !/^export const pro\b[^\n]*= null/m.test(read('src/worker/edition.ts')) ? 'pro' : 'core');
 
 function fail(msg) {
   console.error(`release: ${msg}`);
