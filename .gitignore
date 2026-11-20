@@ -10,3 +10,7 @@ wrangler.local.jsonc
 .build/
 .swiftpm/
 
+
+# Local notes and research that never ship
+/.notes/
+/private/
