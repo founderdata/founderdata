@@ -59,7 +59,9 @@ export function parseSkipList(v: unknown): { text: string | null } | { error: st
  * Copies the recording settings in a PATCH body onto `next`, or returns the error to answer. Switches take 0, 1, true or
  * false; the numbers must be whole and in range; `record_skip` follows parseSkipList.
  */
-export function patchRecording(b: Record<string, unknown>, next: Site): string | null {
+export function patchRecording(b: Record<string, unknown>, next: Site, now = Date.now()): string | null {
+  // Turning Record visits on starts the count of visits since then (record_on_at, migration 0082).
+  if (b.record_visits !== undefined && b.record_visits && !next.record_visits) next.record_on_at = now;
   for (const k of ['record_visits', 'record_only_active', 'record_consent', 'remember_visitors'] as const) {
     if (b[k] !== undefined) next[k] = b[k] ? 1 : 0;
   }
@@ -84,4 +86,14 @@ export function patchRecording(b: Record<string, unknown>, next: Site): string |
     next.record_skip = skip.text;
   }
   return null;
+}
+
+/**
+ * The columns and values an UPDATE of the site row sets after patchRecording: those the body named, plus record_on_at
+ * when the switch went on. Core's PATCH /api/sites/:id and Pro's PATCH /api/sites/:id/recording both use it.
+ */
+export function recordingColumns(b: Record<string, unknown>, site: Site, next: Site): [string, unknown][] {
+  const cols: [string, unknown][] = RECORDING_FIELDS.filter((k) => k in b).map((k) => [k, next[k] ?? null]);
+  if ((next.record_on_at ?? null) !== (site.record_on_at ?? null)) cols.push(['record_on_at', next.record_on_at ?? null]);
+  return cols;
 }

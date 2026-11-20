@@ -20,6 +20,9 @@ const overview = (tab?: string): Target => ({ path: '', params: tab ? { tab } : 
 function targetOf(route: string, q: URLSearchParams): Target | null {
   if (route.startsWith('app/')) return { path: '/app' };
   if (/^notes\/[^/]+\/impact$/.test(route)) return overview('changes');
+  // Recordings (FounderData Pro): the list, the patterns, and one recording's player.
+  if (route === 'recordings' || route === 'recordings/patterns') return { path: '/recordings' };
+  if (/^recordings\/[\w-]+$/.test(route)) return { path: `/recordings/${route.slice('recordings/'.length)}` };
   switch (route) {
     case 'stats/overview':
     case 'stats/timeseries':

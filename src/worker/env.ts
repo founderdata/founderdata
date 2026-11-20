@@ -231,6 +231,10 @@ export interface Site {
   record_consent?: number;
   /** Pages that are never recorded: path prefixes, one per line; null for none (migration 0076, recording.ts). */
   record_skip?: string | null;
+  /** When Record visits was last turned on (ms), null before (migration 0082, recording.ts patchRecording). */
+  record_on_at?: number | null;
+  /** The newest reason recordings did not arrive, as JSON (migration 0082). FounderData Pro writes it. */
+  record_health?: string | null;
   /** Remember visitors (migration 0072): 1 = the tracker keeps the visitor id in first-party cookies, as with consent. */
   remember_visitors?: number;
 }

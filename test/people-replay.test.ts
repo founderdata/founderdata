@@ -6,6 +6,7 @@ import { forgetSite } from '../src/worker/env';
 import { installPro, proHooks, type Pro, type RecordConfig } from '../src/worker/pro-hooks';
 import { isSkipped, parseSkipList, patchRecording, skipList } from '../src/worker/recording';
 import { startWorker, type TestWorker } from './helpers/worker';
+import { app } from '../src/worker/index';
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129 Safari/537.36';
 const REC: RecordConfig = { mask: '[data-fd-mask]', block: '[data-fd-block]', v: '1' };
@@ -74,8 +75,8 @@ describe('traitsOf', () => {
 describe('patchRecording', () => {
   it('takes switches and numbers in range, and refuses the rest', () => {
     const next: any = {};
-    expect(patchRecording({ record_visits: true, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 }, next)).toBeNull();
-    expect(next).toEqual({ record_visits: 1, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 });
+    expect(patchRecording({ record_visits: true, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 }, next, 1000)).toBeNull();
+    expect(next).toEqual({ record_on_at: 1000, record_visits: 1, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 });
     expect(patchRecording({ record_sample: 0 }, {} as any)).toMatch(/1 to 100/);
     expect(patchRecording({ record_sample: 50.5 }, {} as any)).toMatch(/1 to 100/);
     expect(patchRecording({ record_keep_days: 14 }, {} as any)).toMatch(/7, 30 or 90/);
@@ -219,6 +220,41 @@ describe('people and recordings in the Worker', () => {
     const views = await w.db.prepare("SELECT COUNT(*) AS n FROM events WHERE site_id = ? AND session_id = 'recsession0001' AND type = 'pageview'").bind(site.id).first<{ n: number }>();
     expect(views?.n).toBe(3);
     decide = async (_e, s, sid) => (decisions.push({ siteId: s.id, sid }), REC);
+  });
+
+  it('never asks Pro to record a visit from a hosting network', async () => {
+    await setSite({ record_visits: 1 });
+    const req = new Request('http://localhost/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '3.3.3.3' },
+      body: JSON.stringify({ w: site.id, t: 'pageview', u: 'https://people.example/', vid: 'dcvisitor00001', sid: 'dcsession00001' }),
+    });
+    Object.defineProperty(req, 'cf', { value: { asn: 16509 } });
+    const res = await app.fetch(req, w.env as any, { waitUntil() {}, passThroughOnException() {}, props: {} } as any);
+    expect(res.status).toBe(202);
+    expect(await res.text()).toBe('');
+    expect(decisions).toEqual([]);
+  });
+
+  it('keeps when Record visits was turned on, and the migration 0082 columns', async () => {
+    const at = async () => (await w.db.prepare('SELECT record_on_at, record_health FROM sites WHERE id = ?').bind(site.id).first<any>())!;
+    await setSite({ record_visits: 0 });
+    const t0 = Date.now();
+    await setSite({ record_visits: 1 });
+    const first = (await at()).record_on_at;
+    expect(first).toBeGreaterThanOrEqual(t0);
+    expect((await at()).record_health).toBeNull();
+    // On again, or another setting: the time stays.
+    await setSite({ record_visits: 1, record_sample: 100 });
+    expect((await at()).record_on_at).toBe(first);
+    const cols = await w.db.prepare("SELECT name FROM pragma_table_info('replays') WHERE name = 'digest'").all();
+    expect(cols.results).toHaveLength(1);
+    // patchRecording itself: off to on sets the time, on to on keeps it.
+    const next = { record_visits: 0 } as any;
+    expect(patchRecording({ record_visits: true }, next, 1234)).toBeNull();
+    expect(next.record_on_at).toBe(1234);
+    expect(patchRecording({ record_visits: 1 }, next, 5678)).toBeNull();
+    expect(next.record_on_at).toBe(1234);
   });
 
   it('adds c: 1 to cfg.rec when the site waits for consent', async () => {

@@ -213,7 +213,7 @@ export async function handleEvent(c: Context<AppEnv>) {
   // A pageview asks Pro whether to record this visit while it writes, so the answer costs no extra round trip.
   const [written, cfg] = await Promise.all([
     ingest(c.env.DB, site, body, url, ua, geoOf(c), now, facts),
-    body.t === 'pageview' ? trackerConfig(c.env, site, body.sid, now) : null,
+    body.t === 'pageview' ? trackerConfig(c.env, site, body.sid, now, facts) : null,
   ]);
   c.executionCtx.waitUntil(spend(c.env.DB, site, written, now));
   // The tracker keeps the ids in memory (never in storage) so later events and attribution() use them. `cfg` is there
@@ -232,12 +232,19 @@ export interface TrackerConfig {
 
 /**
  * The tracker config of one pageview, or null when every switch is off. A site with Record visits off asks nothing; one
- * with it on asks Pro (a read), and records nothing without Pro or without the REPLAY_BUCKET binding.
+ * with it on asks Pro (a read), and records nothing without Pro or without the REPLAY_BUCKET binding. A visit from a
+ * hosting network (datacenter.ts) is never recorded: it is almost always a bot, and Pro is not asked.
  */
-export async function trackerConfig(env: AppEnv['Bindings'], site: Site, sid: string, now: number): Promise<TrackerConfig | null> {
+export async function trackerConfig(
+  env: AppEnv['Bindings'],
+  site: Site,
+  sid: string,
+  now: number,
+  facts: Pick<RequestFacts, 'datacenter'> = { datacenter: 0 },
+): Promise<TrackerConfig | null> {
   const cfg: TrackerConfig = {};
   if (site.remember_visitors) cfg.rm = 1;
-  const decide = site.record_visits && env.REPLAY_BUCKET ? proHooks()?.recordDecision : undefined;
+  const decide = site.record_visits && env.REPLAY_BUCKET && !facts.datacenter ? proHooks()?.recordDecision : undefined;
   if (decide) {
     const rec = await Promise.resolve()
       .then(() => decide(env, site, sid, now))

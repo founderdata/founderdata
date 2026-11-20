@@ -55,7 +55,7 @@ import { registerPrimaryGoal } from './primary-goal';
 import { registerProductType, typeOnCreate } from './product-type';
 import { NO_MAIL_HANDLER } from './mail-reject';
 import { settings } from './reporting';
-import { patchRecording, RECORDING_FIELDS } from './recording';
+import { patchRecording, recordingColumns } from './recording';
 
 // Core modules read Pro through proHooks() (pro-hooks.ts); this is where the build's edition is installed.
 installPro(pro);
@@ -496,7 +496,7 @@ app.patch('/api/sites/:id', async (c) => {
   if ('app_commission' in b) extra.push(['app_commission', commissionOf(next)]);
   if ('vitals_sample' in b) extra.push(['vitals_sample', next.vitals_sample ?? 100]);
   if ('show_datacenter' in b) extra.push(['show_datacenter', next.show_datacenter ?? 0]);
-  for (const col of RECORDING_FIELDS) if (col in b) extra.push([col, next[col]]);
+  extra.push(...recordingColumns(b as Record<string, unknown>, site, next));
   await c.env.DB.prepare(
     `UPDATE sites SET name = ?, domain = ?, timezone = ?, currency = ?, dodo_webhook_secret = ?, app_bundle_id = ?, accept_sandbox = ?,
        stripe_webhook_secret = ?, stripe_unpinned = ?, revenuecat_auth = ?, asc_app_id = ?, asc_sku = ?, app_store_id = ?, write_cap_on = ?, write_cap = ?${extra
