@@ -7,6 +7,23 @@ const SCRIPT = '../scripts/setup.mjs';
 const ID = '3f2b9c1e-8d4a-4f6b-9e2d-1a7c5b8e0f42';
 
 describe('scripts/setup.mjs', () => {
+  it('reads --record and ends --replay with each site\'s Record visits link', async () => {
+    const { readRecord, replayNextStep } = await import(/* @vite-ignore */ SCRIPT);
+    expect(readRecord(['--replay'])).toBeNull();
+    expect(readRecord(['--replay', '--record', 'all'])).toBe('all');
+    expect(readRecord(['--record=site1'])).toBe('site1');
+    expect(() => readRecord(['--record', '--replay'])).toThrow(/needs a site id or all/);
+    const url = 'https://founderdata.example.com';
+    const sites = [{ id: 'a1', name: 'Acme' }, { id: 'b2', domain: 'acme.example' }];
+    expect(replayNextStep(url, sites)).toEqual([
+      '  Next: turn on Record visits for each site you want to record:',
+      `    Acme: ${url}/site/a1/settings#record-visits`,
+      `    acme.example: ${url}/site/b2/settings#record-visits`,
+    ]);
+    expect(replayNextStep(url, sites, ['a1'])[1]).toBe(`    Acme (on): ${url}/site/a1/settings#record-visits`);
+    expect(replayNextStep(url, [])).toEqual([`  Next: add a site in ${url}, then turn on Record visits in its settings.`]);
+  });
+
   it('finds a database by name in `wrangler d1 list --json` output', async () => {
     const { findDatabase } = await import(/* @vite-ignore */ SCRIPT);
     const list = `\n ⛅️ wrangler 4\n[{ "uuid": "${ID}", "name": "founderdata" }, { "uuid": "other", "name": "blog" }]`;
