@@ -3068,7 +3068,7 @@ Three reports link here when the period has recorded visits:
 
 - Content: **Watch visits** next to a page opens the visits that saw it.
 - Drop-off: **Watch visits that left here** next to a web exit page opens the visits that ended there without buying.
-- Overview: a small card, such as "3 visits worth watching", when a visit of the period scores 40 or more.
+- Overview: a small card under the numbers, such as "3 visits worth watching", when a visit of the period scores 40 or more.
 
 ### Let your agent read recordings
 

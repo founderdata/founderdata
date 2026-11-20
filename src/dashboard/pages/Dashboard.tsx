@@ -305,6 +305,8 @@ function OverviewView({ overview, platformTabs, controls }: { overview: Overview
   return (
     <>
       <OverviewCard data={overview} notes={notes} controls={controls} />
+      {/* Visits worth watching (FounderData Pro): one small card under the numbers when a recorded visit scores 40 or more. */}
+      <ProSlot name="recordingsCard" />
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {/* The four breakdown cards (src/shared/dashboard-tabs.ts); each keeps its open tab in ?tab=. */}
         {BREAKDOWN_CARDS.map((tabs) => (
@@ -319,8 +321,6 @@ function OverviewView({ overview, platformTabs, controls }: { overview: Overview
         )}
       </div>
       <ProSlot name="xPosts" />
-      {/* Visits worth watching (FounderData Pro): one small card when a recorded visit scores 40 or more. */}
-      <ProSlot name="recordingsCard" />
       <div className="mt-4">
         <GoalsPanel totalVisitors={overview?.current.visitors ?? 0} notes={notes} impacts={impacts} />
       </div>
