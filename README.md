@@ -333,8 +333,9 @@ site's Settings.
 
 FounderData Pro comes with an iPhone app for your deployment. It signs in with your admin password and shows today, 7
 day and 30 day totals per site, with Home Screen and Lock Screen widgets. Add an APNs key to the Worker and it sends a
-push for every payment. You build it with your own Apple team, and the steps are in the Pro repository. The
-phone's token can read every dashboard number but can't change a site; a new admin password signs every phone out.
+push for every payment. With mail on your own domains it also reads the inbox, replies in plain text inside a thread
+and pushes received mail. You build it with your own Apple team, and the steps are in the Pro repository. The phone's
+token can read every dashboard number but can't change a site; a new admin password signs every phone out.
 
 ## What it costs
 
@@ -433,6 +434,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Next actions, computed once a day on the minute-50 tick | 2 per site a day (the claim, then the items) |
 | Resend email event: the first of its type for an email / a retry or a second open | 2 / 0 |
 | Mail ([docs/MAIL.md](docs/MAIL.md)): an app sends to one address / the dashboard or an agent sends / a status event / a received message that starts a thread | 18, or 21 with an idempotency key / 23 or 24 / 5 / 15 |
+| Mail on the iPhone app ([docs/MOBILE-API.md](docs/MOBILE-API.md#10-mail)): a reply / a mail push switch / a received message that pushes | 22 / 1, or 0 when it is already so / 15, the same as without the push |
 | Mail health alerts, hourly at minute 20: a quiet hour / a domain's daily check / an alert / a received message that could not be read or stored | 0 / 1, plus 1 when its problems change / 2 / 1 |
 | Meta ads import: a new ad and day / a new campaign, ad set or ad name / a run that finds nothing new | 2 (the row and its index entry) / 1 / 1. Today's rows change every hour as spend comes in, so 20 active ads write about 500 rows a day |
 | Meta Conversions API: an event sent or skipped / a tick with nothing pending | 1, plus 1 for the site's status when it changes / 0 |

@@ -279,8 +279,9 @@ to `1` if the viewer needs them, which also allows the raw CSV exports. `GET /ap
 The viewer cookie is bound to `VIEWER_PASSWORD`: changing it signs out every viewer and leaves the owner signed in.
 Removing the secret turns the viewer login off. Use a different password from `ADMIN_PASSWORD`; when both match, the
 login signs in as the owner. Phones sign in with the admin password only. A phone sees names, emails and user ids,
-because the owner's app locks itself with Face ID; set `PHONE_PII=0` to hide them on phones too. A phone never gets
-a raw CSV export, so a lost phone does not hold your customer list as a file.
+because the owner's app locks itself with Face ID; set `PHONE_PII=0` to hide them on phones too. That also turns mail
+off on phones (Pro, [MOBILE-API.md](MOBILE-API.md#10-mail)). A phone never gets a raw CSV export, so a lost phone does
+not hold your customer list as a file.
 
 ### Team (Pro)
 
