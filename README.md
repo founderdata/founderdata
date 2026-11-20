@@ -165,7 +165,8 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
   clicks that changed nothing, fields people left, errors and pages nobody scrolls, each with example visits that open
   at the moment. Your agent reads the same with the MCP tool `get_recordings`. Recording is off by default and never covers
   the iPhone app. Every input is masked, and `data-fd-mask` and `data-fd-block` hide more. The recordings sit in an R2
-  bucket on your own account that `npm run setup -- --replay` creates. See
+  bucket on your own account that `npm run setup -- --replay` creates; `--record <site id|all>` turns recording on in
+  the same run, and `--consent` records only visitors who accept your cookie banner. See
   [People and recordings](docs/GUIDE.md#people-and-recordings-pro).
 - An iPhone app with widgets and a push notification for every payment.
 - An alert inbox keeps every alert for 90 days, one row per message and site, so an agent can read what fired since its
@@ -444,6 +445,30 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 
 The [guide](docs/GUIDE.md#what-the-free-plan-covers) has every write path. ASO for 3 apps with 30 keywords in 3
 countries writes under 100 rows a day.
+
+### Recordings (Pro)
+
+For 200, 1,000 and 3,000 recorded visits a day, kept the default 30 days:
+
+| Recorded visits a day | 200 | 1,000 | 3,000 | Free plan |
+| --- | --- | --- | --- | --- |
+| D1 rows written a day | 7,800 | 39,000 | 117,000 | 100,000 a day |
+| Worker requests a day | 2,400 | 12,000 | 36,000 | 100,000 a day |
+| R2 writes a month (Class A) | 48,000 | 240,000 | 720,000 | 1 million a month |
+| R2 reads a month (Class B) | 18,000 | 90,000 | 270,000 | 10 million a month |
+| R2 storage | 0.9 GB | 4.5 GB | 13.5 GB | 10 GB |
+
+The free plan ends near 2,200 recorded visits a day, where storage passes 10 GB; D1 rows pass 100,000 near 2,500. Before
+that, FounderData's daily write cap stops all sites together at 80,000 rows a day, about 2,000 recorded visits, and one
+site at 40,000 when there are several, unless you change it (Settings, Data and privacy). Visits you don't record write their own rows on top. The default maximum of 1,000
+recorded visits a day stays inside every limit; keeping recordings 7 days instead of 30 cuts storage to a quarter.
+
+The table assumes each recorded visit is a new visitor with 3 page loads of a minute each and clicks on one page. Per
+visit that is 39 rows (21 for the three pageviews, 6 for the pings with page speed, 4 for the clicks, 3 for the
+recording's row and 5 digest updates, the counts `pro/test/cost.test.ts` pins), 12 requests (3 pageviews, 3 pings,
+6 chunks: one 30 seconds into each page and one as it is left), 8 R2 writes (6 chunks and 2 lists when a later page finds
+the chunks before it) and 3 R2 reads (a check per page). Storage assumes 150 KB a visit, gzipped; a minute on a busy
+dashboard page measured 30 to 60 KB. Watching a recording reads one R2 object per chunk.
 
 The tracker endpoint is public, so each site has a daily write cap, on by default: your sites share 80,000 rows a day,
 and a busy site can use what quiet sites leave, up to half. Fake traffic can't use up the free plan or run up a paid bill. Past the

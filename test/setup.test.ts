@@ -24,6 +24,21 @@ describe('scripts/setup.mjs', () => {
     expect(replayNextStep(url, [])).toEqual([`  Next: add a site in ${url}, then turn on Record visits in its settings.`]);
   });
 
+  it('lists every flag with --help, says what recording means for EU visitors, and asks before it records several sites', async () => {
+    const { HELP, consentNote, asksFirst } = await import(/* @vite-ignore */ SCRIPT);
+    const text = readFileSync(new URL('../scripts/setup.mjs', import.meta.url), 'utf8');
+    // Every flag the script reads from its own arguments is in the help.
+    const flags = new Set([...text.matchAll(/args\.(?:includes|indexOf)\('(--[a-z]+)'\)|a === '(--[a-z]+)'/g)].map((m) => m[1] ?? m[2]));
+    expect(flags.size).toBeGreaterThanOrEqual(7);
+    for (const f of flags) expect(HELP, f).toContain(f);
+    for (const f of ['--name', '--jurisdiction', '--mail', '--replay', '--record', '--consent', '--yes', '--help']) expect(HELP).toContain(f);
+    expect(consentNote(false)).toMatch(/^In the EU and the UK, recording usually needs each visitor's consent\. Without --consent, every visitor is recorded/);
+    expect(consentNote(true)).toMatch(/^Wait for consent goes on too/);
+    expect(asksFirst(['a', 'b'], false)).toBe(true);
+    expect(asksFirst(['a', 'b'], true)).toBe(false);
+    expect(asksFirst(['a'], false)).toBe(false);
+  });
+
   it('finds a database by name in `wrangler d1 list --json` output', async () => {
     const { findDatabase } = await import(/* @vite-ignore */ SCRIPT);
     const list = `\n ⛅️ wrangler 4\n[{ "uuid": "${ID}", "name": "founderdata" }, { "uuid": "other", "name": "blog" }]`;

@@ -2985,69 +2985,111 @@ app visit shows "Opened the app" and the screens viewed, and a subscription show
 
 ### Turn on recordings
 
-Recordings are of your website only. The iPhone app is never recorded: its visits show as screens and events.
+Recordings are of your website only. The iPhone app is never recorded: its visits show as screens and events. Do the
+first four steps before you turn the switch on, so the first recording already follows them.
 
-1. Run `npm run setup -- --replay`. It creates the R2 bucket `<database name>-replay` in the database's jurisdiction,
-   adds a rule that deletes each file 90 days after upload, and binds the bucket as `REPLAY_BUCKET`. Cloudflare asks
-   for a payment method once to turn on R2, even when you stay inside the free tier.
-2. Open the site's Settings, then Data and privacy, and turn on **Record visits**. The Recordings page has the same
-   switch while recording is off.
-3. Decide on consent. In the EU and the UK, recording a visitor's screen usually needs their consent. By default a
-   visit is recorded whether or not the visitor accepted your cookie banner. Turn on **Wait for consent** under
-   Advanced, and a visit records only after your banner calls `founderdata('consent', true)`, or on pages with
-   `data-cookies="on"`. Then add the paragraph from [PRIVACY.md](PRIVACY.md#recordings-pro) to your privacy policy.
-4. List the pages that must never be recorded, such as an account area or an admin dashboard that shows your
-   customers' data. Open **Advanced** and enter them under **Pages that are never recorded**, one per line, such as
+1. **Storage.** Run `npm run setup -- --replay` in your FounderData folder. It creates the R2 bucket
+   `<database name>-replay` in the database's jurisdiction, adds a rule that deletes each file 90 days after upload,
+   binds the bucket as `REPLAY_BUCKET`, and deploys the Worker again, as every run of `npm run setup` does. R2 must be
+   on for the Cloudflare account: Cloudflare asks for a payment method once to turn it on, even when you stay inside
+   the free tier. `npm run setup -- --help` lists every flag.
+2. **Consent.** In the EU and the UK, recording a visitor's screen usually needs their consent. By default a visit is
+   recorded whether or not the visitor accepted your cookie banner. Turn on **Wait for consent** under Advanced, and a
+   visit records only after your banner calls `founderdata('consent', true)`, or on pages with `data-cookies="on"`.
+   Add the paragraph from [PRIVACY.md](PRIVACY.md#recordings-pro) to your privacy policy; the Record visits card has a
+   sentence you can copy.
+3. **Pages that are never recorded.** List the pages that show your customers' data, such as an account area or an
+   admin dashboard. Open **Advanced** and enter them under **Pages that are never recorded**, one per line, such as
    `/dashboard`. A page is skipped when its path is `/dashboard` or starts with `/dashboard/`, so `/dashboards` is
    still recorded. Up to 20 paths.
+4. **Masking.** Typing is always hidden. Put `data-fd-mask` on text that must not show, such as a name or an address,
+   and `data-fd-block` on whole parts of a page, such as an embedded document ([What a recording hides](#what-a-recording-hides)).
+5. **Content-Security-Policy.** If your site sends one, add your FounderData host to the `script-src` and
+   `connect-src` it already has, and keep what is there:
+
+   ```
+   script-src 'self' https://founderdata.example.com
+   connect-src 'self' https://founderdata.example.com
+   ```
+
+   A policy with only `default-src` covers scripts and uploads too: add a `script-src` and a `connect-src` that each
+   repeat what `default-src` allows, plus the host, or the recorder stays blocked. When the tracker loads through a
+   proxy on your own domain, the host is that domain, which `'self'` already allows; the proxy must pass
+   `/js/replay.js` and `/api/rec` on to FounderData as well.
+6. **The switch.** Open the site's Settings, then Data and privacy, and turn on **Record visits**. The Recordings page
+   has the same switch while recording is off. `npm run setup -- --replay --record <site id>` (or `--record all`)
+   turns it on from the terminal; it prints what recording means for visitors in the EU and the UK, asks before it
+   turns on more than one site unless you add `--yes`, and with `--consent` turns on Wait for consent in the same step.
 
 The script tag stays the same. For a visit the server picks, the script loads `/js/replay.js` from your Worker. Other
 visits load nothing more. Your own visits with `?rt_ignore=true` and bots are never recorded. Recording sets no
 cookie and stores nothing in the browser.
 
 **The checklist.** The Record visits card (Settings, Data and privacy, or `/site/<id>/settings#record-visits`) shows
-four lines and checks them again every 15 seconds while one is open:
+four lines. While one is open it checks them again every 15 seconds for 10 minutes, then every minute, and not while
+the tab is hidden:
 
 1. Storage ready: step 1 above is done.
 2. Recording is on.
 3. Your site sent a visit since then. Open your site in a new tab to send one.
-4. First recording received, with the time of the newest one, such as "Last recording 3 minutes ago". A recording
-   shows up a minute or two after the visit.
+4. First recording received. A recording shows up a minute or two after the visit.
 
-When visits arrive and no recording does, after 10 visits or 30 minutes, the card lists what can cause it: Wait for
-consent is on, only a share of visits is recorded, today's maximum is reached, the visit only saw pages that are never
-recorded, the upload came from a domain that is not the site's, or your site's Content-Security-Policy blocks the
-recorder. A policy needs your FounderData host in two places:
+Once all four are done, the card shows one line instead, such as "Recording works. Last recording 3 minutes ago."
+When visits arrive and no recording does, after 10 visits or 30 minutes, the card lists the causes that apply.
 
-```
-script-src https://founderdata.example.com
-connect-src https://founderdata.example.com
-```
+**No recording arrives.** What can cause it, and what to do:
 
-**Copy AI prompt** on the card gives your coding agent the whole setup as one prompt: run `npm run setup -- --replay`
-in your FounderData folder when storage is missing, add the two policy lines, put `data-fd-mask` and `data-fd-block` on
-private text, list the logged-in paths for **Pages that are never recorded**, and call `founderdata('consent', true)`
-from your cookie banner.
+| Cause | What you see | What to do |
+| --- | --- | --- |
+| R2 is not on, or `--replay` never ran | Line 1 of the checklist is open | Run `npm run setup -- --replay`. Turn on R2 in the Cloudflare dashboard first if it asks |
+| The Content-Security-Policy blocks the recorder or its upload | Visits arrive, recordings don't. A blocked script leaves a note on the card | Add the host to `script-src` and `connect-src` (step 5) |
+| An ad blocker | Some visitors' recordings are missing, and the card may say a browser could not load the recorder | Nothing for those visitors. Proxying the script through your own domain helps |
+| Wait for consent is on | Only visitors who accepted the banner are recorded | Accept your own banner when you test |
+| Only a share of visits is recorded | Few recordings on a quiet site | Set **Record every visit, or only some** to every visit while you test |
+| Today's maximum is reached | No new recordings until 00:00 UTC | Raise **Most visits recorded a day**, or wait |
+| The visit saw only pages that are never recorded | No recording for that visit | Test on another page |
+| A bot, an automated browser, or a visit from a hosting network (a cloud server, many VPNs) | No recording, by design | Test from a normal browser on a home or office connection |
+| Your own visit with `?rt_ignore=true` | No recording, by design | Open the site without it |
+| A very short visit | A recording with steps and no video ("too short to save the video") | Stay on the page a few seconds |
+| The upload came from another domain | The card names the domain an upload came from | Check the site's domain in Settings, Site |
+
+**Copy AI prompt** on the card gives your coding assistant the whole setup as one prompt: the setup command when
+storage is missing (it asks you before it runs it, since it deploys), the two policy lines, `data-fd-mask` and
+`data-fd-block` on private text, the logged-in paths for **Pages that are never recorded**, and a call to
+`founderdata('consent', true)` from your cookie banner.
 
 ### The Recordings page
 
 Open **Recordings** in the Analytics group of the site's sections, or go to `/site/<id>/recordings`. The period picker
 sets the dates. The page has two parts.
 
-**What to fix** puts the patterns across recorded visits in plain sentences, biggest first, such as "14 visits clicked
-"Compare plans" on /pricing and nothing happened". It covers clicks that changed nothing on the page within 2.5
-seconds, rage clicks, errors, form fields filled in and never sent, pages left within 5 seconds for the page before,
-and pages most visits scroll less than a quarter of. Each line has **Watch** and up to two more examples, which open
-the player 3 seconds before the moment. **Copy AI prompt** copies the whole list as text for your coding agent, with
-the element, the example ids and how to dig further with `get_recordings`. The part shows from 5 recorded visits, and
-under 30 it says to treat each line as a lead.
+**What to fix** puts the patterns across recorded visits in plain sentences, such as "12 people clicked "Compare
+plans" on /pricing and nothing happened", with the recorded visits under each. Errors, clicks that did nothing, clicks
+again and again and forms left behind come first, the ones that hit the most people on top; within one kind, a
+checkout, pricing or signup page, or a page where a goal fired, comes first. Pages people went right back from and
+pages most visits scroll less than a quarter of follow under **Also worth a look**, so a blog post nobody scrolled
+never ranks above a broken pricing button. The words mean the same everywhere on the page:
+
+| Words | What happened |
+| --- | --- |
+| Error | A JavaScript error on the page |
+| Clicked, nothing happened | A click after which the page did not change for 2.5 seconds, and nothing scrolled, opened or was copied |
+| Clicked again and again | 3 or more clicks on one element, each within a second of the last |
+| Left a form | Typed in a field and never sent its form |
+| Went right back | Left a page within 5 seconds for the page before |
+
+Each line has **Watch** and up to two more examples, which open the player 3 seconds before the moment. **Copy AI
+prompt** copies the whole list as text for your coding assistant, with the element, the example ids and how to dig
+further with `get_recordings`; paste it into your coding assistant (Claude Code, Cursor) in your website's folder. The
+part shows from 5 recorded visits, and under 30 it says to treat each line as a lead. The page and device filters below
+narrow it too. What happened, Result and Left from pick visits for the list only, and the part says so while one is on.
 
 **Worth watching** lists the recorded visits with the most going on first, each with one sentence on what happened,
-such as "Saw the error "TypeError: plan is undefined" on /signup, then clicked "Buy" 4 times fast on /signup." A visit
-scores points for an error (30), clicks that did nothing (20, or 30 for 3 or more), rage clicks (25), a form left
-behind (15), going right back (10), paying or signing up (15) and leaving from a pricing or checkout page without
-converting (10). Visits under 5 seconds lose 30. Switch to **Newest** for every recording by time. Filters sit in the
-address, so a filtered list can be shared:
+in the order it happened, such as "Saw the error "TypeError: plan is undefined" on /signup, then clicked "Buy" again and
+again, 4 times on /signup." A visit scores points for an error (30), a click that did nothing (20, or 30 for 3 or
+more), clicking again and again (25), leaving a form (15), going right back (10), paying or signing up (15) and
+leaving from a pricing or checkout page without converting (10). Visits under 5 seconds lose 30. Switch to **Newest**
+for every recording by time. Filters sit in the address, so a filtered list can be shared:
 
 | Filter | Address | Keeps the visits that |
 | --- | --- | --- |
@@ -3057,12 +3099,14 @@ address, so a filtered list can be shared:
 | Device | `?device=desktop`, `mobile`, `tablet` | used that device |
 | Left from | `?exit=/pricing` | ended on that page (Drop-off's links set it) |
 
-**The player** opens at `/site/<id>/recordings/<session id>?t=<seconds>` and starts at that second. **Copy link**
-copies that address at the second on screen, so you can send someone the exact moment. The header shows the sentence
-on what happened and how far down the page on screen the visitor scrolled. A click that changed nothing is a small
-amber dot on the bar and a step in the list: Clicked "Compare plans" 3 times and nothing happened. When a visitor left
-before the first part of the video could be saved, the player says "This visit was too short to save the video. Its
-steps are below." and lists the steps. The old address `/site/<id>/people/recordings` opens the Recordings page.
+**The player** opens at `/site/<id>/recordings/<session id>?t=<seconds>` and starts at that second, also when you open
+it from People or a person's page, so a reload keeps it open. Closing it puts the list's address back, so Back does not
+open it again. **Copy link** copies the address at the second on screen and says "Copied". The header shows the
+sentence on what happened, the visit's length (the same length as in the list) and how far down the page on screen the
+visitor scrolled. A click that did nothing is a small amber dot on the bar and a step in the list; at that step, and
+at a click again and again, a ring on the cursor shows where the click was. When a visitor left before the first part
+of the video could be saved, the player says "This visit was too short to save the video. Its steps are below." and
+lists the steps. The old address `/site/<id>/people/recordings` opens the Recordings page.
 
 Three reports link here when the period has recorded visits:
 
@@ -3091,29 +3135,38 @@ moment for you. When recording is off or caught nothing yet, the answer says wha
 
 Put `data-fd-mask` on anything that shows personal data, such as the name and address on an account page.
 
-A recorded visit also notes clicks on links and buttons, form submits, rage clicks (3 or more clicks on one element,
-each within a second of the last) and JavaScript errors. They travel with the ping the script already sends when a page
-is hidden. A click's label is the button's visible text, cut to 40 characters. Inside `data-fd-mask` or
-`data-fd-block` it is the tag name instead, such as `button`.
+A recorded visit also notes clicks on links and buttons, form submits, clicks again and again (3 or more clicks on one
+element, each within a second of the last, with the element's tag and class) and JavaScript errors. They travel with
+the ping the script already sends when a page is hidden. A click's label is the button's visible text, cut to 40
+characters, without the text of anything inside it that is masked, blocked, editable or a form field. Inside
+`data-fd-mask` or `data-fd-block` it is the tag name instead, such as `button`. A click on a large block that is no
+button or link, holding several elements, is named by its tag and class, such as `div.card`, never by its text.
 
 ### What it costs
 
-A site with 100 recorded visits a day stays far inside the free tiers: about 1,500 rows written and 700 requests a
-day, and 21,000 R2 writes and about 450 MB of storage a month.
+What recordings cost, for 200, 1,000 and 3,000 recorded visits a day, kept the default 30 days:
 
-The numbers behind it, per recorded visit of 3 minutes with clicks on 3 pages:
+| Recorded visits a day | 200 | 1,000 | 3,000 | Free plan |
+| --- | --- | --- | --- | --- |
+| D1 rows written a day | 7,800 | 39,000 | 117,000 | 100,000 a day |
+| Worker requests a day | 2,400 | 12,000 | 36,000 | 100,000 a day |
+| R2 writes a month (Class A) | 48,000 | 240,000 | 720,000 | 1 million a month |
+| R2 reads a month (Class B) | 18,000 | 90,000 | 270,000 | 10 million a month |
+| R2 storage | 0.9 GB | 4.5 GB | 13.5 GB | 10 GB |
 
-| What | Per visit | Free tier |
-| --- | --- | --- |
-| D1 rows written | 3 for the index row, plus 4 for each page with clicks or errors: 15 | 100,000 a day |
-| Worker requests | 1 per chunk, a chunk about every 30 seconds: 7 | 100,000 a day |
-| R2 writes | 1 per chunk: 7 | 1 million a month |
-| R2 storage | About 150 KB, gzipped. A minute on a busy dashboard page measured 30 to 60 KB | 10 GB |
+The free plan ends near 2,200 recorded visits a day, where storage passes 10 GB; D1 rows pass 100,000 near 2,500. Before
+that, FounderData's daily write cap stops all sites together at 80,000 rows a day, about 2,000 recorded visits, and one
+site at 40,000 when there are several, unless you change it (Settings, Data and privacy). Visits you don't record write their own rows on top. The default maximum of 1,000
+recorded visits a day stays inside every limit; keeping recordings 7 days instead of 30 cuts storage to a quarter.
 
-At the default limit of 1,000 recorded visits a day that is 15,000 rows and 7,000 requests a day, out of 100,000 of
-each, and 210,000 R2 writes a month. To record fewer, lower **Most visits recorded a day** or **Record every visit, or
-only some** under Advanced.
+The table assumes each recorded visit is a new visitor with 3 page loads of a minute each and clicks on one page. Per
+visit that is 39 rows (21 for the three pageviews, 6 for the pings with page speed, 4 for the clicks, 3 for the
+recording's row and 5 digest updates, the counts `pro/test/cost.test.ts` pins), 12 requests (3 pageviews, 3 pings,
+6 chunks: one 30 seconds into each page and one as it is left), 8 R2 writes (6 chunks and 2 lists when a later page finds
+the chunks before it) and 3 R2 reads (a check per page). Storage assumes 150 KB a visit, gzipped; a minute on a busy
+dashboard page measured 30 to 60 KB. Watching a recording reads one R2 object per chunk.
 
+To record fewer, lower **Most visits recorded a day** or **Record every visit, or only some** under Advanced.
 ### Settings
 
 The **Record visits** switch is all most sites need. **Advanced** holds the rest:
@@ -3123,7 +3176,7 @@ The **Record visits** switch is all most sites need. **Advanced** holds the rest
 | Record every visit, or only some | Every visit |
 | Keep recordings for | 30 days (7, 30 or 90) |
 | Most visits recorded a day | 1,000. After that, new visits are not recorded until 00:00 UTC |
-| Keep only visits where someone signed up, hit a goal or paid | Off. When on, the other recordings go after 24 hours, also the ones with an error |
+| Keep only visits where someone signed up, hit a goal or paid | Off. When on, the other recordings go after 24 hours, also the ones where someone got stuck, which What to fix is built from |
 | Wait for consent | Off. When on, a visit records only after the visitor consents to cookies |
 | Pages that are never recorded | None. Up to 20 paths, one per line, such as `/dashboard` or `/account` |
 

@@ -7,6 +7,8 @@
 //   npm run setup -- --mail       # FounderData Pro mail: also the R2 bucket, the queue and their bindings
 //   npm run setup -- --replay     # FounderData Pro recordings: also the R2 bucket for recorded visits and its binding
 //   npm run setup -- --replay --record all    # ...and turn on Record visits for every site (or --record <site id>)
+//   npm run setup -- --replay --record all --consent    # ...recording only visitors who accept the cookie banner
+//   npm run setup -- --help       # every flag
 //
 // 1. Signs in to Cloudflare with Wrangler if needed.
 // 2. Creates the D1 database, or finds it when it already exists. wrangler.jsonc names it and holds no id: Wrangler
@@ -27,7 +29,8 @@
 //    a backstop behind Pro's own retention job, and writes the R2 binding REPLAY_BUCKET into wrangler.local.jsonc. R2
 //    works on the free plan; Cloudflare asks for a payment method once to turn it on. After the deploy it prints the
 //    next step with each site's Record visits settings link. With --record <site id> or --record all it also turns
-//    Record visits on for those sites, after the privacy note.
+//    Record visits on for those sites, after the privacy note and the consent note; for more than one site it asks
+//    first, unless --yes. With --consent it turns on Wait for consent in the same step.
 // 6. Builds the dashboard, applies the database migrations and deploys the Worker with both secrets.
 //
 // Running it again is safe: it reuses the database, the secrets, the buckets, the rule and the queue, and deploys the
@@ -306,9 +309,48 @@ export function readRecord(args) {
   return value;
 }
 
+/** Every flag, for --help. */
+export const HELP = `Deploys FounderData to your Cloudflare account, or updates a deployment. Run it again to deploy new code.
+
+Usage: npm run setup -- [flags]
+
+  --name <name>            The D1 database name. Default: founderdata, or the one wrangler.local.jsonc names.
+  --jurisdiction <eu|fedramp>
+                           Create a new database (and its buckets) in that jurisdiction. Cloudflare can't move one
+                           that exists.
+  --mail                   FounderData Pro mail: also the R2 bucket, the queue and their bindings. Needs Workers Paid.
+  --replay                 FounderData Pro recordings: also the R2 bucket for recorded visits and its binding.
+  --record <site id|all>   With --replay: turn on Record visits for one site or for every site.
+  --consent                With --record: record only visitors who accept your cookie banner (Wait for consent).
+  --yes                    With --record all: turn it on for more than one site without asking.
+  --help, -h               This list.
+
+Every run deploys the Worker. docs/GUIDE.md has the details.`;
+
 /** The privacy note printed before Record visits goes on. */
 export const RECORD_NOTE =
   'Recordings replay what visitors saw. Typing is always hidden; mark other private parts of your pages with data-fd-mask (text hidden) or data-fd-block (left out).';
+
+/** What recording means for visitors in the EU and the UK, with and without --consent. */
+export const consentNote = (consent) =>
+  consent
+    ? 'Wait for consent goes on too: a visit records only after your cookie banner calls founderdata(\'consent\', true).'
+    : 'In the EU and the UK, recording usually needs each visitor\'s consent. Without --consent, every visitor is recorded, whether or not they accepted your cookie banner. Add --consent to record only those who did.';
+
+/** Whether turning recording on for these sites asks first: more than one site, without --yes. */
+export const asksFirst = (ids, yes) => ids.length > 1 && !yes;
+
+/** Asks a yes or no question on the terminal. No terminal: no. */
+async function confirm(question) {
+  if (!process.stdin.isTTY) return false;
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return /^y(es)?$/i.test((await rl.question(`${question} [y/N] `)).trim());
+  } finally {
+    rl.close();
+  }
+}
 
 /** The lines that end `setup --replay`: what to do next, with each site's Record visits link. */
 export function replayNextStep(url, sites, turnedOn = []) {
@@ -425,6 +467,10 @@ function deploy(secretsFile) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(HELP);
+    return;
+  }
   const nameAt = args.indexOf('--name');
   let jurisdiction;
   try {
@@ -441,6 +487,9 @@ async function main() {
     fail(e.message);
   }
   if (record && !replay) fail('--record goes with --replay: npm run setup -- --replay --record all');
+  const consent = args.includes('--consent');
+  const yes = args.includes('--yes');
+  if (consent && !record) fail('--consent goes with --record: npm run setup -- --replay --record all --consent');
   if (!existsSync(CONFIG)) fail(`Run this from the repository root (no ${CONFIG} here).`);
   if (!existsSync('node_modules')) fail('Run `npm install` first.');
 
@@ -589,10 +638,15 @@ async function main() {
       sites = login.sites;
       if (record) {
         console.log(`  ${RECORD_NOTE}`);
-        const ids = record === 'all' ? sites.map((s) => s.id) : [record];
+        console.log(`  ${consentNote(consent)}`);
+        let ids = (record === 'all' ? sites.map((s) => s.id) : [record]).filter((i) => sites.some((s) => s.id === i));
         if (record !== 'all' && !sites.some((s) => s.id === record)) console.log(`  note: no site with the id ${record}. The sites are listed below.`);
-        for (const id of ids.filter((i) => sites.some((s) => s.id === i))) {
-          const r = await login.call(`/api/sites/${id}/recording`, { method: 'PATCH', body: JSON.stringify({ record_visits: 1 }) });
+        if (asksFirst(ids, yes) && !(await confirm(`  Turn on Record visits for ${ids.length} sites?`))) {
+          console.log('  Record visits stays off. Run it again with --yes, or turn it on in each site\'s settings.');
+          ids = [];
+        }
+        for (const id of ids) {
+          const r = await login.call(`/api/sites/${id}/recording`, { method: 'PATCH', body: JSON.stringify({ record_visits: 1, ...(consent ? { record_consent: 1 } : {}) }) });
           if (r.ok) turnedOn.push(id);
           else console.log(`  note: Record visits stayed off for ${id}: ${r.status === 404 ? 'it needs FounderData Pro' : ((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`)}`);
         }

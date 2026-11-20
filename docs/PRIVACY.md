@@ -190,8 +190,9 @@ European Union" and not "processed only in the European Union". The policy text 
 
 Always:
 
-- **Cloudflare, Inc.**: Workers, D1, Workers Logs, Cache. Cloudflare's DPA is part of its self-serve terms
-  (cloudflare.com/cloudflare-customer-dpa), with the EU Standard Contractual Clauses.
+- **Cloudflare, Inc.**: Workers, D1, Workers Logs, Cache, and R2 once you set up recordings (Pro) or mail (Pro).
+  Cloudflare's DPA is part of its self-serve terms (cloudflare.com/cloudflare-customer-dpa), with the EU Standard
+  Contractual Clauses.
 
 Only when you turn the feature on. Each one receives what is listed, nothing else:
 
@@ -203,6 +204,8 @@ Only when you turn the feature on. Each one receives what is listed, nothing els
 | Apple App Store Connect, Apple Ads | `ASC_*` or `ASA_*` secrets | Nothing about visitors. The Worker downloads your sales and ad reports |
 | Meta Platforms Ireland (Marketing API) | `META_ACCESS_TOKEN` and an ad account in a site's settings | Nothing about visitors. The Worker downloads your ad account's numbers and the ads' thumbnails |
 | Meta Platforms Ireland (Conversions API) | A dataset id and a mode other than Off in a site's Meta settings | Per purchase: SHA-256 of the buyer's email, of the payment provider's customer id, of the visit's country and city; the ad click id (`fbc`); the Meta browser id (`fbp`) of a visit with marketing consent; the user agent; the landing page URL; amount, currency, payment id and product. Per mapped goal from an ad visit: the same without the purchase fields. No IP address, no name |
+| Cloudflare R2 | `npm run setup -- --replay` (recordings) or `--mail` | The recording files: the page as the visitor saw it, with masked text and inputs, mouse moves, scrolls and clicks. Mail bodies and attachments for mail. In the EU when the database is |
+| Your AI agent's model provider | A key you give an agent, and the agent calling `get_recordings` | Click labels, form field names, page paths and error messages from recordings, as the agent's input. No video, no names or emails |
 | Frankfurter (ECB rates) | Always, when a payment is in another currency | A currency code and a date |
 | Apple App Store search hints | Typing in the ASO tab's Add keywords box | The typed word and a country, from the Worker. No visitor data |
 | The websites you track | Opening the dashboard | A request for `/favicon.ico` from the Worker, with no visitor data |
@@ -267,8 +270,13 @@ clicks and the size of the window. Recording sets no cookie and stores nothing i
   characters: the size of the window, and for each page its path, the seconds on it, how far down the visitor
   scrolled, the label of each click that changed nothing, the names of form fields the visitor changed (such as
   `email`, never what they typed) and whether a form was sent. A field inside `data-fd-mask` or `data-fd-block`, or a
-  password field, is never named, and a click label inside them is the tag name. Your agents read the digest with a
-  read key; it holds no name, email or user id. It goes with the recording: same days, same erase.
+  password field, is never named. A click label leaves out the text of anything masked, blocked, editable or a form
+  field inside the element, and inside `data-fd-mask` or `data-fd-block` it is the tag name. Your agents read the
+  digest with a read key; it holds no name, email or user id. It goes with the recording: same days, same erase.
+- **Clicks and errors.** A recorded visit also sends, with the ping it already sends, each page's clicks (the same
+  labels, and a rage click's element tag and class) and JavaScript error messages with their file and line. They are
+  `activity` rows in `events`, and live as long as the visit's other events: `RETENTION_MONTHS`, 24 months by
+  default, not the recording's days. Erasing a person deletes them too.
 - **Who can watch.** People who sign in to the dashboard. Share links show no recordings.
 - **Erase.** Erasing a person deletes their recordings, files and rows, and the erase log counts them.
 - **Which visits.** Your own visits with `?rt_ignore=true`, bots and visits from hosting networks (datacenter visits)
@@ -279,16 +287,31 @@ clicks and the size of the window. Recording sets no cookie and stores nothing i
   Record visits, Advanced), it records only after the visitor consents to cookies: your banner calls
   `founderdata('consent', true)`, or the page has `data-cookies="on"`. Until then it loads no recorder and sends no
   clicks or errors. Remember visitors does not count as consent.
-- **Your privacy policy.** Say that you record visits, what is hidden, where the recordings are and how long you keep
-  them. A paragraph you can adapt, with your own days and company name:
+- **Your AI agent.** When an agent reads recordings with `get_recordings` or the read API, the click labels, form
+  field names, page paths and error messages in the answer go into that agent's prompt, so its model provider
+  (Anthropic, OpenAI or whoever runs it) receives them. The video, the page's own text, what visitors typed, mouse
+  movement and names and emails never go. To keep text out of click labels and error messages, mark it with
+  `data-fd-mask`; a label inside it is the tag name. Use a model provider you have a data processing agreement with,
+  or don't give the agent a read key.
+- **Your privacy policy.** Say that you record visits, what is recorded and hidden, where the recordings are and how
+  long you keep each part. A paragraph you can adapt, with your own days, retention and company name:
 
-  > We record how visitors use this website: the pages, mouse moves, scrolling, clicks and errors. Anything you type is
-  > hidden before it leaves your browser. We use the recordings to find and fix problems on the site. They are stored
-  > with Cloudflare, our hosting provider, for 30 days, and nobody else gets them. We record your visit only after you
-  > accept cookies. You can ask us to delete your recordings at any time.
+  > We record some visits to this website to find and fix problems. A recording shows the pages as you saw them,
+  > including their text, with your mouse moves, scrolling and clicks. Anything you type into a form is never
+  > recorded, and we hide other personal details on our pages. We also keep the names of form fields you filled in,
+  > the words on buttons you clicked and error messages, without what you typed. Recordings are stored with
+  > Cloudflare, our hosting provider, and deleted after 30 days; the clicks and error messages are kept with our other
+  > visit statistics for 24 months. Nobody else gets them. You can ask us to delete your recordings at any time.
 
-  Drop the second-to-last sentence if you leave **Wait for consent** off. Ask your counsel whether that is allowed
-  where your visitors live.
+  The Record visits card has a shorter sentence with your own days and a copy button. If you turn on **Wait for
+  consent**, you can add: "We record your visit only after you accept cookies." Ask your counsel whether recording
+  without that is allowed where your visitors live.
+- **A data protection assessment.** If you write one (a DPIA under GDPR Article 35, which large-scale monitoring of
+  behavior can require), the facts it needs are here: the purpose (finding faults on the site), the data (the page as
+  shown, with masked inputs; clicks, scrolls, field names and error messages; a pseudonymous visitor id, no IP address),
+  who can see it (dashboard logins, and agents with a read key, which get no video), where it lives (your Cloudflare
+  account, in the EU when the database is), how long (the days above), and the controls (off by default, masking,
+  never-record pages, Wait for consent, a daily maximum, a share of visits, erase per person).
 
 **Remember visitors.** A site setting that keeps a visitor id in first-party cookies (`rt_vid`, `rt_sid` and
 `rt_consent=r`) without the visitor's consent, so People can follow someone across days. It is off by default. Storing
