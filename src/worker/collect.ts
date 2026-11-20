@@ -77,12 +77,15 @@ const DAY_MS = 86_400_000;
  * nothing to keep. Shape: { p: path, s: page start (ms), c: clicks [{ t, l, k, r?, n? }], e: errors [{ t, m, s }] },
  * `t` in ms since `s`. Clicks keep the newest 30, errors the newest 5.
  */
+/** The CSS hint of a rage click's element: a tag name, optionally with .class or #id. */
+const CLICK_HINT = /^[a-z][a-z0-9-]{0,20}([#.][\w-]{1,40})?$/i;
+
 export function parseActivity(a: unknown): { path: string | null; props: string } | null {
   if (!a || typeof a !== 'object' || Array.isArray(a)) return null;
   const x = a as { p?: unknown; s?: unknown; c?: unknown; e?: unknown };
   const ms = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= DAY_MS ? Math.round(v) : null);
   const text = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
-  const clicks: { t: number; l: string; k: string; r?: 1; n?: number }[] = [];
+  const clicks: { t: number; l: string; k: string; r?: 1; n?: number; s?: string }[] = [];
   for (const c of Array.isArray(x.c) ? x.c.slice(-MAX_CLICKS) : []) {
     const t = ms(c?.t);
     const l = text(c?.l, 40);
@@ -91,6 +94,8 @@ export function parseActivity(a: unknown): { path: string | null; props: string 
     const n = Number(c.n);
     if (Number.isInteger(n) && n >= 2) click.n = Math.min(n, 1000);
     if (c.r === 1 && (click.n ?? 0) >= 3) click.r = 1;
+    // A rage click's element: a tag, with a class or id ("button.buy"). Anything else is dropped.
+    if (click.r && typeof c.s === 'string' && CLICK_HINT.test(c.s)) click.s = c.s;
     clicks.push(click);
   }
   const errors: { t: number; m: string; s: string }[] = [];

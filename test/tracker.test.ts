@@ -47,10 +47,18 @@ interface FakeEl {
   href?: string;
   masked?: boolean;
   attrs?: Record<string, string>;
+  /** Child elements after the text, as the label walker reads them. */
+  kids?: any[];
+  isContentEditable?: boolean;
 }
 function el(tag: string, text = '', more: Partial<FakeEl> = {}) {
-  const e: any = { tagName: tag.toUpperCase(), innerText: text, textContent: text, attributes: [], ...more };
+  const e: any = { nodeType: 1, tagName: tag.toUpperCase(), innerText: text, textContent: text, attributes: [], ...more };
+  // The children as DOM nodes: the text first, then the child elements, each linked to the next.
+  const nodes = [...(text ? [{ nodeType: 3, data: text }] : []), ...(more.kids ?? [])];
+  nodes.forEach((n, i) => (n.nextSibling = nodes[i + 1] ?? null));
+  e.firstChild = nodes[0] ?? null;
   e.getAttribute = (n: string) => e.attrs?.[n] ?? null;
+  e.matches = (sel: string) => (sel.includes('data-fd-mask') && e.masked) || (sel.includes('[hidden]') && e.attrs?.hidden !== undefined);
   e.closest = (sel: string) => {
     if (sel.includes('data-fd-mask')) return e.masked ? {} : null;
     if (sel.includes('button')) return /^(A|BUTTON|INPUT)$/.test(e.tagName) || e.attrs?.role === 'button' ? e : null;
@@ -445,12 +453,18 @@ describe('tracker: config from the server', () => {
     // Before the answer arrives: kept, in case the server records the visit.
     t.press(el('button', '  Start\n trial  '));
     await tick();
-    const buy = el('button', 'Buy');
+    const buy = el('button', 'Buy', { classList: ['buy', 'big'] } as any);
     for (let i = 0; i < 4; i++) t.press(buy);
     t.press(el('a', 'Pricing', { href: 'https://example.com/pricing' }));
     t.press(el('div', 'Not a control'));
     t.press(el('button', 'Anna Example', { masked: true }));
     t.press(el('input', '', { type: 'submit', form: {}, attrs: { 'aria-label': 'Send' } }));
+    // A button with a masked name, an editable part, a field and hidden text in it: only the rest is its label.
+    t.press(
+      el('button', 'Hello', {
+        kids: [el('span', 'Anna Example', { masked: true }), el('span', 'typed', { isContentEditable: true }), el('input', ''), el('span', 'secret', { attrs: { hidden: '' } }), el('b', 'there')],
+      }),
+    );
     t.fire('error', { message: 'TypeError: x is undefined', filename: 'https://example.com/app.js?v=3', lineno: 12 });
     t.fire('error', { message: 'TypeError: x is undefined', filename: 'https://example.com/app.js?v=3', lineno: 12 });
     t.fire('unhandledrejection', { reason: new Error('fetch failed') });
@@ -459,12 +473,15 @@ describe('tracker: config from the server', () => {
     expect(ping).toMatchObject({ t: 'ping', vid: SERVER_IDS.vid });
     expect(ping.a.p).toBe('/pricing');
     expect(typeof ping.a.s).toBe('number');
+    // A rage click names its element by tag and first class, never by text.
+    expect(ping.a.c[1].s).toBe('button.buy');
     expect(ping.a.c.map((c: any) => [c.l, c.k, c.n, c.r])).toEqual([
       ['Start trial', 'button', undefined, undefined],
       ['Buy', 'button', 4, 1],
       ['Pricing', 'link', undefined, undefined],
       ['button', 'button', undefined, undefined],
       ['Send', 'submit', undefined, undefined],
+      ['Hello there', 'button', undefined, undefined],
     ]);
     expect(ping.a.e).toEqual([
       { t: expect.any(Number), m: 'TypeError: x is undefined', s: 'https://example.com/app.js:12' },

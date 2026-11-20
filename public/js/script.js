@@ -309,14 +309,23 @@
     lastEl = null;
     return n && rec && !skip(actPath) ? a : undefined;
   }
+  // The text of an element, without what stays hidden: [data-fd-mask], [data-fd-block], editable parts, form fields.
+  // pro/js/lib/digest.ts visibleText reads it the same way, so a click's label matches in both.
+  function seen(el) {
+    for (var s = '', c = el.firstChild; c && s.length < 200; c = c.nextSibling) {
+      s += c.nodeType == 3 ? c.data : c.nodeType != 1 || /^(INPUT|TEXTAREA|SELECT|OPTION|SCRIPT|STYLE|NOSCRIPT|TEMPLATE|SVG|CANVAS|IFRAME|OBJECT)$/i.test(c.tagName) || c.isContentEditable || c.getAttribute('contenteditable') != null || c.matches('[data-fd-mask],[data-fd-block],[hidden],[aria-hidden="true"]') ? '' : ' ' + seen(c);
+    }
+    return s;
+  }
   function noteClick(el, kind) {
     var now = Date.now();
     if (el === lastEl && now - lastAt < 1000) {
       var c = clicks[clicks.length - 1];
       c.n = (c.n || 1) + 1;
-      if (c.n > 2) c.r = 1;
+      // A rage click names its element too: tag plus first class, else id ("button.buy"), never text.
+      if (c.n > 2) { c.r = 1; c.s = el.tagName.toLowerCase() + (el.classList && el.classList[0] ? '.' + el.classList[0] : el.id ? '#' + el.id : ''); }
     } else {
-      var text = el.closest('[data-fd-mask],[data-fd-block]') || el.tagName === 'INPUT' ? '' : el.innerText || el.textContent || '';
+      var text = el.closest('[data-fd-mask],[data-fd-block]') || el.tagName === 'INPUT' ? '' : seen(el);
       text = text.replace(/\s+/g, ' ').trim() || el.getAttribute('aria-label') || el.tagName.toLowerCase();
       clicks.push({ t: now - actAt, l: text.slice(0, 40), k: kind });
       if (clicks.length > 30) clicks.shift();

@@ -3635,7 +3635,8 @@ Visits with `?rt_ignore=true`, browsers driven by automation (`navigator.webdriv
 When `/js/replay.js` fails to load (the page's Content-Security-Policy, an ad blocker, the network), the script sends
 one `POST <url>/<site id>?s=<sid>&h=blocked` with the body `1`. Pro stores it as the site's recording health, so the
 Record visits card can say why no recording arrives. It carries nothing about the visitor. The tracker grew by
-50 bytes gzipped for it: 5,276 to 5,326 bytes minified and gzipped.
+50 bytes gzipped for it: 5,276 to 5,326 bytes minified and gzipped. Click labels that leave out hidden parts and the
+rage click's element took it to 5,551 bytes, 1,270 more than before recordings (4,281).
 
 ### Page activity
 
@@ -3644,14 +3645,17 @@ activity in `a`:
 
 ```json
 { "p": "/pricing", "s": 1767225600000,
-  "c": [{ "t": 5200, "l": "Start trial", "k": "button" }, { "t": 9100, "l": "Buy", "k": "button", "n": 5, "r": 1 }],
+  "c": [{ "t": 5200, "l": "Start trial", "k": "button" }, { "t": 9100, "l": "Buy", "k": "button", "n": 5, "r": 1, "s": "button.buy" }],
   "e": [{ "t": 9300, "m": "TypeError: x is undefined", "s": "https://acme.example/app.js:120" }] }
 ```
 
 `p` is the page's path, `s` when it was shown (the browser's clock, in ms), and each `t` is ms after `s`. A click has
-its label `l` (visible text up to 40 characters, else `aria-label`, else the tag name, and the tag name inside
-`data-fd-mask` or `data-fd-block`) and its kind `k`: `button`, `link`, `submit` or `other`. Clicks on one element, each
-within 1 second of the last, count as one entry with `n`, the number of clicks; `r: 1` marks 3 or more, a rage click. An
+its label `l` and its kind `k`: `button`, `link`, `submit` or `other`. The label is the element's text up to 40
+characters, without the text of anything inside it marked `data-fd-mask` or `data-fd-block`, editable, a form field or
+marked `hidden`; else its `aria-label`; else the tag name. Inside `data-fd-mask` or `data-fd-block` it is the tag name.
+Clicks on one element, each within 1 second of the last, count as one entry with `n`, the number of clicks; `r: 1`
+marks 3 or more, a rage click, and a rage click carries `s`, the element's tag with its first class or else its id
+(`button.buy`), which the server keeps only when it is one. An
 error has its message `m` (200 characters) and its source `s`, the file without its query and the line. A page keeps
 at most 30 clicks, the newest, and 5 errors, the first. When the body would pass 8 KB, the script drops the oldest
 clicks first. A page in `rec.x` sends no `a`.

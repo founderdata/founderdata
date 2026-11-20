@@ -26,8 +26,9 @@ describe('parseActivity', () => {
   it('marks a rage click only with 3 or more clicks, and checks every field', () => {
     const a = parseActivity({
       c: [
-        { t: 1, l: 'Buy', k: 'button', n: 5, r: 1 },
-        { t: 2, l: 'Twice', k: 'link', n: 2, r: 1 },
+        { t: 1, l: 'Buy', k: 'button', n: 5, r: 1, s: 'button.buy' },
+        { t: 2, l: 'Twice', k: 'link', n: 2, r: 1, s: 'a.twice' },
+        { t: 2, l: 'Bad hint', k: 'button', n: 3, r: 1, s: '<img onerror=x>' },
         { t: 3, l: 'Odd kind', k: 'script' },
         { t: -1, l: 'Bad time', k: 'button' },
         { t: 4, l: '', k: 'button' },
@@ -38,8 +39,9 @@ describe('parseActivity', () => {
     })!;
     const props = JSON.parse(a.props);
     expect(props.c).toEqual([
-      { t: 1, l: 'Buy', k: 'button', n: 5, r: 1 },
+      { t: 1, l: 'Buy', k: 'button', n: 5, r: 1, s: 'button.buy' },
       { t: 2, l: 'Twice', k: 'link', n: 2 },
+      { t: 2, l: 'Bad hint', k: 'button', n: 3, r: 1 },
       { t: 3, l: 'Odd kind', k: 'other' },
       { t: 5, l: 'x'.repeat(40), k: 'submit' },
     ]);
