@@ -133,7 +133,9 @@ function load(o: Opts = {}) {
     };
     window.performance = { getEntriesByType: (t: string) => (t === 'navigation' ? [perf.navigation ?? {}] : []), now: () => 60_000 };
   }
-  const fetch = async (_url: string, init: RequestInit) => {
+  const urls: string[] = [];
+  const fetch = async (url: string, init: RequestInit) => {
+    urls.push(url);
     const body = JSON.parse(String(init.body));
     requests.push(body);
     const cfg = body.t === 'pageview' && o.cfg ? { cfg: o.cfg } : {};
@@ -185,7 +187,7 @@ function load(o: Opts = {}) {
   const fire = (type: string, e: unknown) => {
     for (const l of listeners) if (l.type === `window:${type}`) l.fn(e);
   };
-  return { ml, window, store, jar, cookieWrites, storageWrites, requests, beacons, scripts, click, press, fire, emit, hide, show };
+  return { ml, window, store, jar, cookieWrites, storageWrites, requests, urls, beacons, scripts, click, press, fire, emit, hide, show };
 }
 
 describe('tracker: cookieless by default', () => {
@@ -420,6 +422,16 @@ describe('tracker: config from the server', () => {
     t.ml('pageview');
     await tick();
     expect(t.scripts).toHaveLength(1);
+  });
+
+  it('reports a recorder that cannot load once, to the upload route, with nothing about the visitor', async () => {
+    const t = load({ cfg: { rec: REC } });
+    await tick();
+    const sent = t.urls.length;
+    t.scripts[0].onerror();
+    await tick();
+    expect(t.urls.slice(sent)).toEqual([`https://stats.example/api/rec/site123?s=${SERVER_IDS.sid}&h=blocked`]);
+    expect(t.requests.at(-1)).toBe(1);
   });
 
   it('sends chunks next to a proxied data-api endpoint', async () => {

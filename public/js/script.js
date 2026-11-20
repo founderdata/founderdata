@@ -234,6 +234,11 @@
     var el = d.createElement('script');
     el.async = true;
     el.src = host + '/js/replay.js' + (rec.v ? '?v=' + encodeURIComponent(rec.v) : '');
+    // A recorder that cannot load (the page's Content-Security-Policy, an ad blocker) is reported once, so the
+    // site's settings can say why no recording arrives. One request, no data about the visitor.
+    el.onerror = function () {
+      fetch(api._rec.url + '/' + siteId + '?s=' + id.sid + '&h=blocked', { method: 'POST', body: '1', keepalive: true, credentials: 'omit' }).catch(noop);
+    };
     (d.head || d.documentElement).appendChild(el);
   }
 

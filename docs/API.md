@@ -3538,6 +3538,11 @@ With `rec`, the script loads `<script host>/js/replay.js` once per page (`?v=<re
 
 Visits with `?rt_ignore=true`, browsers driven by automation (`navigator.webdriver`) and bots never load it.
 
+When `/js/replay.js` fails to load (the page's Content-Security-Policy, an ad blocker, the network), the script sends
+one `POST <url>/<site id>?s=<sid>&h=blocked` with the body `1`. Pro stores it as the site's recording health, so the
+Record visits card can say why no recording arrives. It carries nothing about the visitor. The tracker grew by
+50 bytes gzipped for it: 5,276 to 5,326 bytes minified and gzipped.
+
 ### Page activity
 
 On a recorded visit, the ping sent when a page is hidden, or left inside a single-page app, carries the page's
