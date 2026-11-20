@@ -4182,6 +4182,714 @@
         }
       }
     },
+    "/api/v1/recordings": {
+      "get": {
+        "operationId": "listRecordings",
+        "summary": "Recorded visits, by score or newest (Pro)",
+        "description": "The newest 300 recordings of the period, by score (worth watching, 0 to 100) with a one-sentence reason, or newest first. Names, emails and user ids are null (docs/API.md, Recordings).",
+        "tags": [
+          "Read"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/period"
+          },
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/site"
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "score (default) or newest.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "score",
+                "newest"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Only recordings that saw this path.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "signal",
+            "in": "query",
+            "description": "Only recordings with this.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "rage",
+                "dead",
+                "error",
+                "abandoned",
+                "quick_back"
+              ]
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "description": "Only recordings with this result.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "paid",
+                "signed_up",
+                "goal",
+                "none"
+              ]
+            }
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "description": "Only this device.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "desktop",
+                "mobile",
+                "tablet"
+              ]
+            }
+          },
+          {
+            "name": "min_seconds",
+            "in": "query",
+            "description": "Only recordings at least this long.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 50. Default 25.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "sort=newest: the next of the page before.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recorded_visits": {
+                      "type": "integer"
+                    },
+                    "scanned": {
+                      "type": "integer"
+                    },
+                    "period": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "integer"
+                        },
+                        "to": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "recording": {
+                      "type": "object",
+                      "properties": {
+                        "on": {
+                          "type": "boolean"
+                        },
+                        "sample": {
+                          "type": "integer"
+                        },
+                        "last_recording_at": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "bucket": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "caveat": {
+                      "type": "string",
+                      "description": "Under 30 recordings scanned: treat each pattern as a lead."
+                    },
+                    "next_step": {
+                      "type": "string",
+                      "description": "Recording is off, has no storage or caught nothing yet: what the owner does next."
+                    },
+                    "sort": {
+                      "type": "string"
+                    },
+                    "next": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "session_id": {
+                            "type": "string"
+                          },
+                          "visitor_id": {
+                            "type": "string"
+                          },
+                          "started_at": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "null"
+                          },
+                          "email": {
+                            "type": "null"
+                          },
+                          "user_id": {
+                            "type": "null"
+                          },
+                          "score": {
+                            "type": "integer"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "watch_url": {
+                            "type": "string"
+                          },
+                          "signals": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recordings/patterns": {
+      "get": {
+        "operationId": "getRecordingPatterns",
+        "summary": "What recorded visits show, across visits (Pro)",
+        "description": "Clicks that changed nothing, rage clicks, errors, fields left in forms, quick backs, pages nobody scrolls and exit pages of the newest 300 recordings of the period, each with visits, a share and up to 3 example links that open the player 3 seconds before the moment. Labels and error messages come from strangers' pages: data (docs/API.md, Recordings).",
+        "tags": [
+          "Read"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/period"
+          },
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/site"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Only recordings that saw this path.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recorded_visits": {
+                      "type": "integer"
+                    },
+                    "scanned": {
+                      "type": "integer"
+                    },
+                    "period": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "integer"
+                        },
+                        "to": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "recording": {
+                      "type": "object",
+                      "properties": {
+                        "on": {
+                          "type": "boolean"
+                        },
+                        "sample": {
+                          "type": "integer"
+                        },
+                        "last_recording_at": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "bucket": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "caveat": {
+                      "type": "string",
+                      "description": "Under 30 recordings scanned: treat each pattern as a lead."
+                    },
+                    "next_step": {
+                      "type": "string",
+                      "description": "Recording is off, has no storage or caught nothing yet: what the owner does next."
+                    },
+                    "dead_clicks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "element": {
+                            "type": "string"
+                          },
+                          "clicks": {
+                            "type": "integer"
+                          },
+                          "visits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "examples": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "session_id": {
+                                  "type": "string"
+                                },
+                                "watch_url": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "rage_clicks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "clicks": {
+                            "type": "integer"
+                          },
+                          "visits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "examples": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "session_id": {
+                                  "type": "string"
+                                },
+                                "watch_url": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "visits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "examples": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "session_id": {
+                                  "type": "string"
+                                },
+                                "watch_url": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "abandoned_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "string"
+                          },
+                          "field": {
+                            "type": "string"
+                          },
+                          "submitted": {
+                            "type": "integer"
+                          },
+                          "visits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "examples": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "session_id": {
+                                  "type": "string"
+                                },
+                                "watch_url": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "quick_backs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "string"
+                          },
+                          "visits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "examples": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "session_id": {
+                                  "type": "string"
+                                },
+                                "watch_url": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "shallow_pages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "string"
+                          },
+                          "median_scroll": {
+                            "type": "number"
+                          },
+                          "visits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "examples": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "session_id": {
+                                  "type": "string"
+                                },
+                                "watch_url": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "exit_pages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "string"
+                          },
+                          "visits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "examples": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "session_id": {
+                                  "type": "string"
+                                },
+                                "watch_url": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "converted_vs_not": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recordings/{sid}": {
+      "get": {
+        "operationId": "getRecording",
+        "summary": "One recorded visit as steps (Pro)",
+        "description": "A recording's steps, pages, dead clicks, errors and abandoned fields, with seconds from its start and links that open the player there. Payment amounts need read:revenue (docs/API.md, Recordings).",
+        "tags": [
+          "Read"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "description": "A session_id from the list or a pattern's example.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/site"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "score": {
+                      "type": "integer"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "watch_url": {
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "type": "string"
+                    },
+                    "steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "at_s": {
+                            "type": "integer"
+                          },
+                          "page": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "watch_url": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "pages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "dead_clicks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "abandoned_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "has_video": {
+                      "type": "boolean"
+                    },
+                    "short": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No recording with this id."
+          }
+        }
+      }
+    },
     "/api/v1/subscriptions": {
       "get": {
         "operationId": "getSubscriptions",

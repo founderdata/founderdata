@@ -23,7 +23,7 @@ starts lower and rises in steps ([Price](#price)). Pro adds:
 - Mail on your own domains through Cloudflare, with an API that answers like Resend's, an inbox and templates ([MAIL.md](MAIL.md))
 - People with one story each, from the first visit to the payment, and recordings of their visits, off until you turn
   them on ([GUIDE.md](GUIDE.md#people-and-recordings-pro))
-- All 38 MCP tools, the `query` tool, custom dashboards that agents build, alert rules, the alert inbox, the research log and agent skills
+- All 39 MCP tools, the `query` tool, custom dashboards that agents build, alert rules, the alert inbox, the research log and agent skills
 - Teammates with their own login
 
 Both editions run on your own Cloudflare account, and your data stays in your own D1 database.

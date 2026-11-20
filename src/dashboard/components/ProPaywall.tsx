@@ -11,7 +11,7 @@ import './ProPaywall.css';
 type Card = (typeof PRO_CARDS)[number][number];
 const ALL_CARDS = [...PRO_CARDS[0], ...PRO_CARDS[1]];
 /** The names a phone shows under the headline, before the price: one per area. */
-const PHONE_NAMES = ['Subscriptions', 'App analytics', 'Meta ads', 'Search Console', 'AI visibility', 'Apple Search Ads', 'iPhone app', '38 MCP tools'];
+const PHONE_NAMES = ['Subscriptions', 'App analytics', 'Meta ads', 'Search Console', 'AI visibility', 'Apple Search Ads', 'iPhone app', '39 MCP tools'];
 
 function FeatureCard({ card: [group, name, line] }: { card: Card }) {
   return (

@@ -161,7 +161,9 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
 - People and recordings. A People tab lists everyone you know: signed in, paid, remembered or using your app. Each person
   gets one story, from the first visit to the payment, across their devices, once your site calls `identify()` at
   sign-in ([Identify people](docs/GUIDE.md#identify-people)). Turn on Record visits and you can watch a visit to your
-  website like a video, with its clicks, rage clicks and errors marked. Recording is off by default and never covers
+  website like a video, with its clicks, rage clicks and errors marked. A Recordings page lists what to fix first:
+  clicks that changed nothing, fields people left, errors and pages nobody scrolls, each with example visits that open
+  at the moment. Your agent reads the same with the MCP tool `get_recordings`. Recording is off by default and never covers
   the iPhone app. Every input is masked, and `data-fd-mask` and `data-fd-block` hide more. The recordings sit in an R2
   bucket on your own account that `npm run setup -- --replay` creates. See
   [People and recordings](docs/GUIDE.md#people-and-recordings-pro).
@@ -185,8 +187,8 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
 - MRR in the alerts and the Monday report, a daily numbers message, and a verdict for each logged change on the number
   it was meant to move: an SEO edit on its page's Search Console clicks over 28 days, an ad budget change on CPA, an AI
   content change on the mention rate, an app price on paywall conversion.
-- All 38 MCP tools, with `query`, which answers metrics by up to 2 dimensions and a day, week or month for every site a
-  key covers in one call ([docs/MCP.md](docs/MCP.md#the-query-tool-pro)), alert rules, the research log and eight agent
+- All 39 MCP tools, with `query`, which answers metrics by up to 2 dimensions and a day, week or month for every site a
+  key covers in one call ([docs/MCP.md](docs/MCP.md#the-query-tool-pro)), alert rules, the research log and nine agent
   skills.
 - Custom dashboards that your agent builds over MCP: numbers, lines, columns, bars, a country map, funnels and tables, run live when
   you open the page ([docs/MCP.md](docs/MCP.md#custom-dashboards-pro)).
@@ -390,6 +392,8 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Web: `identify()` | 0 when no field changes. Otherwise 1 for the visitor row, plus 1 for each of email and user id the visitor has after the call. Traits ride on the same row |
 | Web: clicks, rage clicks and errors of one page in a recorded visit (Pro), in the ping it already sends | 0 when the page had none, else 4: one `activity` event, its 2 index entries and the id counter |
 | Recorded visit (Pro): the index row with its first chunk / each later chunk | 3 (the row and its 2 index entries) / 0. Each chunk is 1 Worker request and 1 R2 write |
+| Recorded visit (Pro): a chunk that carries a changed digest / the same digest | 1 (an update of a column with no index) / 0. A visit too short to save its first snapshot sends a stub chunk 0: 3, as any first chunk |
+| Recording health (Pro): a refused upload or a recorder that could not load | 1 at most once an hour per site and Worker instance |
 | App: typical session of a known install | 36 |
 | App: a new install's first session / a relaunch the same day without consent. An install that Apple Search Ads attributes writes 2 rows more when Apple answers | 7 / 3 to 5 |
 | Payment from Stripe, the App Store or another provider | 5 to 9. A subscription event that cancels a paying subscription or fails its renewal adds 1 alert inbox row |
@@ -491,7 +495,7 @@ The code is laid out like this:
   subprocessors, a GDPR checklist, a balancing test template, a breach procedure and an answer sheet for procurement.
 - [MCP server](docs/MCP.md): connect Claude Code, Cursor or another agent to `/mcp` with one scoped key, and the OpenAPI
   spec at `/api/v1/openapi.json`. Pro adds a research log where agents record what they found and paid for, the
-  history of AI answer checks, and eight workflows as MCP prompts.
+  history of AI answer checks, and nine workflows as MCP prompts.
 - [API](docs/API.md): the payments and goals API, the read API for stats, share links and badges, CSV export, and
   erasing one person.
 

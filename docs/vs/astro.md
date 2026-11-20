@@ -26,7 +26,7 @@ prices were read on 3 November. They may have changed.
 | Platforms | iOS, iPadOS, Mac, tvOS and watchOS rankings. No Google Play | iPhone App Store search only. No Google Play |
 | Translation | Keyword translation through DeepL | None |
 | Revenue next to ranks | No | App Store sales, subscriptions, Apple Search Ads spend and ROAS and the funnel of the same app, all in Pro |
-| Agents | Local MCP server, 12 tools, beta. No API or CLI | In Pro, MCP with 38 tools, an `aso:write` key for push scripts, an MCP prompt that audits ASO |
+| Agents | Local MCP server, 12 tools, beta. No API or CLI | In Pro, MCP with 39 tools, an `aso:write` key for push scripts, an MCP prompt that audits ASO |
 | Sharing | One license, one Mac, no web view | The dashboard, a share link, a read API |
 
 Appfigures is the other tool people use here. It has a free plan for 5 apps, Monitor with 100 keywords at $44.99 a month or

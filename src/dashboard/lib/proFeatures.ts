@@ -95,7 +95,7 @@ export const PRO_CARDS: [group: string, name: string, line: string][][] = [
     ['SEO', 'Page audit', 'Flags pages that are thin, orphaned, noindex or missing a meta description.'],
     ['AI', 'AI visibility', 'Your prompts asked in ChatGPT, Claude, Gemini and Perplexity every day, on your own API keys.'],
     ['Social', 'Which post paid', 'Ties visits and revenue from X to the post that most likely sent them.'],
-    ['Agents', '38 MCP tools', 'Your AI agent reads the reports, and one query covers every site its key can see.'],
+    ['Agents', '39 MCP tools', 'Your AI agent reads the reports, and one query covers every site its key can see.'],
     ['Agents', 'Custom dashboards', 'Your agent builds a dashboard of live charts and tables over MCP.'],
     ['Agents', 'Alert rules', 'A threshold on any number, with a webhook that can wake your agent.'],
     ['Agents', 'Growth plan', 'Your agent keeps a plan per site: goals, tasks, and what each change led to.'],
@@ -129,6 +129,6 @@ export const PRO_LIST = [
   'Home across all your sites with next actions, and a verdict on every change you log',
   'A growth plan per site that your AI agent runs, with goals, tasks and the result of each change',
   'Mail on your own domains through Cloudflare, with an inbox, templates and an API that answers like Resend\'s',
-  'All 38 MCP tools, the query tool, custom dashboards, alert rules and agent skills',
+  'All 39 MCP tools, the query tool, custom dashboards, alert rules and agent skills',
   'Teammates with their own login',
 ];
