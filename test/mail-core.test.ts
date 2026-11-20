@@ -161,6 +161,13 @@ describe('mail in core', () => {
         expect(denied(role, method, '/api/mail-admin', env), `${role} ${method}`).toMatch(/Mail/);
       }
     }
+    // A phone is pointed at its own mail routes. Its mail actions there (read state, archive, reply) are writes a phone
+    // may make, next to chart notes (FounderData Pro, docs/MOBILE-API.md section 10).
+    expect(denied('device', 'GET', '/api/mail-admin/threads', env)).toBe('Mail on a phone goes through /api/mobile/mail, not the dashboard routes.');
+    for (const path of ['/api/mobile/mail/threads/t1/read', '/api/mobile/mail/threads/t1/archive', '/api/mobile/mail/threads/t1/reply']) {
+      expect(denied('device', 'POST', path, env), path).toBeNull();
+      expect(denied('viewer', 'POST', path, env), path).not.toBeNull();
+    }
     // Only the mail-admin prefix: a similar path is not caught.
     expect(denied('viewer', 'GET', '/api/mail-administrator', env)).toBeNull();
 
