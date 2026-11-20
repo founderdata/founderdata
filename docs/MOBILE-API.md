@@ -189,8 +189,8 @@ A received message, one alert per device that wants it:
   "event": "mail", "threadId": "<threadId>", "domainId": "<domainId>", "messageId": "<messageId>" }
 ```
 
-The title is the sender's name, or the address when there is none. The subtitle is the subject, `(no subject)` when
-empty. The body is the start of the text, at most 140 characters. The sender wrote all three, so the Worker removes
+The title is the sender's name, else the address, else `Unknown sender`. The subtitle is the subject, `(no subject)`
+when empty. The body is the start of the text, at most 140 characters. The sender wrote all three, so the Worker removes
 control characters, bidirectional overrides and zero-width characters, folds whitespace to single spaces and cuts the
 title at 80 characters and the subtitle at 120, ending a cut with `…`. Treat them as untrusted all the same. `badge` is
 the number of unarchived threads with unread mail on the domains this device has on. Open the thread on a tap with
@@ -965,7 +965,8 @@ Answers `{ "id": "8a2e...", "status": "sent", "thread_id": "thr_9c1d", "to": ["a
 
 Errors:
 
-- 400 for the body problems above, and when the thread has nothing to reply to.
+- 400 for the body problems above, and when the thread has nothing to reply to: no message, or only messages you sent
+  to people the thread does not name (`This thread names nobody to reply to from the phone. ...`).
 - 404 for an unknown thread.
 - 413 when the body is larger than 25 MB.
 - 422 when a recipient is on the suppression list or the mail service refused the content, 502 when the send failed.
