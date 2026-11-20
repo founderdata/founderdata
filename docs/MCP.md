@@ -226,7 +226,15 @@ One session:
    `expect.change_pct` a percent: `{ "text": "+10% visitors who become customers in 4 weeks", "metric":
    "conversion_rate", "change_pct": 10 }`. Text alone only fits a goal with no metric. Something only the owner can do
    is a task with `owner: "human"`, with `action: { "label", "url" }` when a page in the dashboard or elsewhere does it;
-   a decision the owner must make has `kind: "approval"` too. Only the owner closes an owner task, in the Plan tab. The
+   a decision the owner must make has `kind: "approval"` too. To ask the owner to pick or write something, give the
+   owner task a `question`: `{ "type": "single", "options": [{ "id": "a", "label": "Ship on Monday" }, { "id": "b",
+   "label": "Wait a week" }], "recommended": ["a"] }`. `type` is `single`, `multi` or `text`; `single` and `multi` take 2
+   to 8 options with labels of at most 80 characters, and `allow_text: true` adds a text field. An approval with a
+   question needs an option with id `no`. The owner answers in the Plan tab or in the iPhone app's Growth tab, which
+   gets one push per site when the session ends (`log_session`), or 10 minutes after the last question when no session
+   is logged. The answer closes the task. `get_plan` shows each owner task's `question` and `answer`
+   (`{ "choices", "text", "via", "answered_at" }`, `via` being `app`, `voice` or `web`), and the closed ones in
+   `due.done_by_you`. An open question keeps `answer: null` in `get_plan`. Only the owner closes an owner task. The
    agent may edit its text or withdraw it with `status: "dropped"` and the reason in `outcome`. Its `kind` never changes, an open approval keeps its title and detail, and once the owner answered a task, the agent changes nothing on it.
 4. A task that changes the site gets a note with `add_note`, and the note's id goes on the task with `update_tasks`.
    The note's verdict is then the task's result, shown against `expect`, and judged on `expect.metric` when the
@@ -405,7 +413,7 @@ object such as `{"country": "DE"}`; `get_definitions` lists its keys under `defi
 | `add_research` | Pro | `POST /api/v1/research` | Records a finding, a decision or a purchase with its cost. Needs `research:write`. |
 | `get_plan` | Pro | `GET /api/v1/plan` | The site's growth plan, lean by default: the document and its rules, goals with current value, progress, pace and source, tasks (waiting on the owner, doing, to do, the 5 newest done with each note's verdict and its numbers), the 5 newest sessions, the latest check-in, the autopilot status with the schedule steps, what is due, `guide`, which says what to do next, `loop`, the steps of a session, and `plan_url`. `full` answers every list; `version` answers an older document. Without `site`, a key for several sites gets one line per plan. A long plan is cut to fit, never the to do, doing or waiting lists. See [The plan](#the-plan-pro). |
 | `update_plan` | Pro | `PUT /api/v1/plan` | Creates the plan or changes the fields sent: title, summary, body, rules, goals, `cadence_hours`, with a `reason`. Answers the version, the goals with their numbers, `warnings` to fix, `ignored` fields, the autopilot status and `plan_url`, not the whole plan. Needs `research:write`. |
-| `update_tasks` | Pro | `POST /api/v1/plan/tasks` | Adds and changes up to 20 tasks. `owner: "human"` for what only the owner can do, `note_id` for a task that shipped a change, `actor` for who made the change. Answers `ignored` fields. Needs `research:write`. |
+| `update_tasks` | Pro | `POST /api/v1/plan/tasks` | Adds and changes up to 20 tasks. `owner: "human"` for what only the owner can do, `question` for a choice or a short answer the owner gives (below), `note_id` for a task that shipped a change, `actor` for who made the change. Answers `ignored` fields. Needs `research:write`. |
 | `log_session` | Pro | `POST /api/v1/plan/sessions` | Ends a session with one line the owner reads. Answers `ignored` fields. Needs `research:write`. |
 | `add_plan_review` | Pro | `POST /api/v1/plan/reviews` | A check-in for a period. FounderData attaches the numbers. Answers `ignored` fields. Needs `research:write`. |
 | `research_keywords` | Pro | `POST /api/v1/ranks/research`, or `POST /api/v1/ranks/keywords` with `track`, or `POST /api/v1/ranks/keywords/remove` with `untrack` | Keyword suggestions (`mode: suggest`), the keywords a domain ranks for (`mode: domain`) or the App Store keywords the site's iOS app ranks for (`mode: app`, `POST /api/v1/aso/app-keywords`, US store and English only), within the monthly cap. A current research log entry for the same question and `limit` answers for free with `cached: true`. Research needs `spend:seo`. `track` with a list of keywords (up to 200) starts tracking them and `untrack` stops them; both need `research:write`. |

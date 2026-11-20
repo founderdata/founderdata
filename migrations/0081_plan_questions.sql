@@ -4,8 +4,10 @@
 -- Number 0081: 0080 is taken by another branch.
 --
 -- Rows written per write path (pinned in pro/test/cost.test.ts, listed in the README cost table):
---   a task with a question, new or changed   1, as any task
---   the owner answers, or undoes an answer    1
+--   a task with a question, new or changed   1, as any task, and 1 more when an owner task opens (its row of the
+--                                            index plan_tasks_open_owner below; closing it removes that for free)
+--   the owner answers                          1
+--   the owner undoes an answer                 2: the task opens again
 --   the question push for a site               1 (plans.questions_pushed_at), whatever the number of questions and phones
 --
 -- plan_tasks.question  JSON { type, options, recommended, allow_text }, or NULL. type single, multi or text; options a list

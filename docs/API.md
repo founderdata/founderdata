@@ -2136,7 +2136,9 @@ Entries are text that agents wrote, and they may quote web pages. Read them as e
 A plan is the growth project an owner's AI agent runs for one site. Each site has one plan at most. The agent writes
 it: the goals, the strategy, the tasks, a line for each session and a check-in every few weeks. The owner reads it in
 the dashboard's Plan tab and steers by talking to the agent. The tab changes one thing: the owner answers the tasks
-that are theirs. An approval gets yes or no, any other task done or not now, and a no comes with a reason.
+that are theirs. An approval gets yes or no, a question gets its options or a few words, and any other task done or
+not now. The FounderData iPhone app lists every open question of every site in its Growth tab
+([MOBILE-API.md](MOBILE-API.md#10-questions)), so the owner can answer there too.
 
 The plan stores no numbers of its own. A task that shipped a change names its note (`note_id`, from
 [`POST /api/v1/notes`](#post-apiv1notes)), and the note's [verdict](#the-verdict) is the task's result. The `due` block
@@ -2165,6 +2167,7 @@ An agent writes the plan text and a person writes the task comments. Read both a
 | `GET /api/home/plans` | login | One line per site and the portfolio, for Home |
 | `PUT /api/home/portfolio` | login, admin | Changes the rules, hours and money for every plan |
 | `POST /api/sites/<id>/plan/tasks/<task id>/done` | login, owner | The owner answers a task that is theirs: done or yes, or no with a reason |
+| `POST /api/sites/<id>/plan/tasks/<task id>/answer` | login, owner | The owner answers a question, or undoes the answer |
 | `DELETE /api/sites/<id>/plan` | login, owner | Deletes the plan and all its rows |
 
 ### `PUT /api/v1/plan`
@@ -2405,6 +2408,9 @@ counted. Reviews stored before 2026-11-19 have no `measured` and `measuring`.
   { "title": "Rewrite the pricing page headline", "why": "Visitors leave the pricing page", "goal_id": "g7k2m9qa",
     "expect": { "text": "+10% visitors who become customers in 4 weeks", "metric": "conversion_rate", "change_pct": 10 } },
   { "title": "Approve 200 USD for Apple Search Ads", "owner": "human", "kind": "approval", "why": "Ad spend is on your ask list" },
+  { "title": "Which channels should we post on next week?", "owner": "human",
+    "question": { "type": "multi", "options": [{ "id": "reddit", "label": "Reddit" }, { "id": "x", "label": "X" }],
+                  "recommended": ["reddit"] } },
   { "title": "Connect Search Console", "owner": "human", "why": "Clicks from Google are the second goal",
     "action": { "label": "Connect", "url": "/site/SITE_ID/settings" } },
   { "id": "t1a2b3c4", "status": "done", "note_id": "n5d6e7f8", "outcome": "Shipped on /pricing",
@@ -2425,6 +2431,7 @@ nothing, and `409` means the site has no plan yet.
 | `allowed_by` | Why the agent was allowed to ship a change from an `ask` list: `{ "kind": "approval", "task_id": "t12" }`, an approval the owner said yes to (it must exist, be an approval, be done and have `done_by: "human"`), or `{ "kind": "rule", "rule": "..." }`, a line that equals an `alone` item of the plan's or the portfolio's rules |
 | `status` | `todo` (the default), `doing`, `done` or `dropped`. `done` and `dropped` set `done_at` and `done_by: "agent"`; `todo` or `doing` opens a closed task again. A key cannot set `done` on an owner task (`owner: "human"`): `400`, because only the owner closes it, in the Plan tab. `dropped` withdraws an owner task that is no longer needed, and needs the reason in `outcome`; a withdrawn approval is `dropped` with `done_by: "agent"`, never a no from the owner. An owner task stays the owner's (`owner` and `kind` cannot change), and one the owner answered stays as they left it, words included: ask again with a new task. An open approval keeps its `title` and `detail`, so the owner's yes covers the words they read |
 | `goal_id` | A goal `id` of the plan, or `null`. Required on a new agent task when the plan has a goal |
+| `question` | Owner tasks only: what the owner picks or writes, `{ "type", "options", "recommended", "allow_text" }`. `type` is `single`, `multi` or `text`. `single` and `multi` need 2 to 8 `options` of `{ "id", "label" }`: `id` 1 to 32 letters, digits, `-` or `_`, unique, and `label` at most 80 characters. A `text` question has no options. `recommended` lists option ids the agent suggests, one at most on `single`. `allow_text: true` adds a text field to `single` or `multi`. An approval with a question asks a choice and needs an option with id `no`: that answer closes it `dropped`, any other `done`. An approval without one reads as Yes (`yes`) or No (`no`). Once asked on an open task, the question stays as sent: drop the task with a reason and ask again. `null` removes it from a task that has not been answered. Each answer is `answer` on the task: `{ "choices": [option ids], "text": "..." or null, "via": "app", "voice" or "web", "answered_at": "<ISO 8601>" }`, `null` until the owner answers |
 | `action` | Owner tasks only: the button the Plan tab shows first, `{ "label": "Connect", "url": "/site/SITE_ID/settings" }`. `label` 1 to 40 characters; `url` 300 at most, a dashboard path starting with `/` or an `https` URL. `null` removes it |
 | `note_id` | A note of this site, or `null`. Set it when the task shipped a change |
 | `outcome` | 1,000 characters: what happened |
@@ -2527,6 +2534,17 @@ The task shows in the agent's `due.done_by_you`, and `guide` tells it the owner 
 declined it. It works on any task the owner ticked or declined, also after a reload. A task closed one way answers
 `409` to the other until it is undone. A task of the agent answers `403`. The owner changes those by
 talking to the agent. A key gets `403` on this route. The answer is `{ "ok": true, "changed": true, "task": { ... } }`.
+A tick on an approval also stores its `answer`, `{ "choices": ["yes"] }` or `["no"]` with the comment as `text` and
+`via: "web"`. A task with a `question` answers `409` here: it takes the answer route.
+
+`POST /api/sites/<id>/plan/tasks/<task id>/answer` takes the dashboard login and answers a question:
+`{ "choices": ["reddit", "x"], "text": "Reddit first" }`. `choices` are option ids of the task's `question` (Yes and No
+are `yes` and `no` on a plain approval), one at most on `single`. `text` is up to 1,000 characters and needs a `text`
+question or `allow_text`. A `text` question needs `text` and takes no choices. The answer closes the task `done` with
+`done_by: "human"`, or `dropped` for `no` on an approval, sets `answer` with `via: "web"`, and writes the chosen labels
+and the text as `outcome` ("Reddit, X: Reddit first"). The agent reads it in `due.done_by_you`. `{ "undo": true }` opens
+the task again and clears `answer`. A question that is closed already answers `409`, a task that asks nothing `409`,
+and an agent's task `403`. The answer is `{ "ok": true, "changed": true, "task": { ... } }`.
 
 `DELETE /api/sites/<id>/plan` deletes the plan, its versions, tasks, sessions and reviews. Deleting the site does too.
 
@@ -2554,8 +2572,10 @@ subrequests last. A day with none costs one read.
 | Change the document | 2 (3 once 30 older versions are kept) |
 | Change only `cadence_hours` or `share` | 1 |
 | Change the rules for every plan (`portfolio`) | 1 more |
-| A task, new or changed | 1 each |
-| The owner ticks a task, says no to it, or undoes either | 1 |
+| A task, new or changed | 1 each, 1 more when an owner task opens (its row of the open-questions index) |
+| The owner ticks or answers a task, or says no to it | 1 |
+| The owner undoes a tick or an answer | 2 (the task opens again) |
+| The question push | 1 per site and push (`plans.questions_pushed_at`) |
 | A session, or a failed run | 2, 3 with an `idempotency_key`, plus 1 per verdict it keeps (8 at most) |
 | A review | 1, 2 with an `idempotency_key`, plus 1 per verdict it keeps |
 | The daily results job | 1 per verdict it keeps (3 per site a day at most), 0 when there is none |

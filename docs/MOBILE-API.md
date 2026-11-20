@@ -107,6 +107,17 @@ review. Treat `event` values you don't know as a plain alert.
   "siteId": "<siteId>", "event": "aso_review", "country": "us" }
 ```
 
+Questions from a plan's agent ([section 10](#10-questions)) send one alert per site and run, with `event` `questions`
+and the number asked in that run as `count`. The title is the site name and that number, the body the first question.
+`badge` is every open question across all sites. It goes to every device with a live alert token that hasn't muted the
+site. A tap opens the Growth tab at that site:
+
+```json
+{ "aps": { "alert": { "title": "Habitly: 2 questions", "body": "Which channels should we post on next week? (and 1 more)" },
+           "sound": "default", "badge": 3, "thread-id": "questions-<siteId>" },
+  "siteId": "<siteId>", "event": "questions", "count": 2 }
+```
+
 Alert, one per payment, after the payment row is inserted for the first time (duplicates never push):
 
 ```json
@@ -680,3 +691,57 @@ Every `GET /api/...` answer sends a `Server-Timing` header, for example
 `d1` counts the D1 round trips the call waited for one after another: 2 for
 Home, Pulse and a site's overview, 3 for the same reads with a phone token (the token is checked first), 1 for
 `/api/live`. docs/GUIDE.md ("Server timing") has the details.
+
+## 10. Questions
+
+A plan's agent asks the owner with an owner task (docs/API.md, "Plan (Pro)"): an approval, which reads as Yes or No,
+or a task with a `question`. The app's Growth tab lists every open question of every site and answers them. An answer
+closes the task, and the agent's next run reads it.
+
+`GET /api/mobile/questions` answers every open question, at most 200, grouped by site. The site whose oldest question
+is oldest comes first, and each site's questions run oldest first:
+
+```json
+{ "count": 3,
+  "sites": [
+    { "id": "SITE_ID", "name": "Habitly", "domain": "habitly.example", "app_bundle_id": "com.example.habitly",
+      "count": 2, "oldest_at": 1793599200000,
+      "questions": [
+        { "id": "t1a2b3c4", "site_id": "SITE_ID", "title": "Turn on IndexNow?", "detail": "Markdown or null",
+          "why": "Bing finds new pages in hours instead of weeks", "kind": "approval", "yes_no": true,
+          "question": { "type": "single", "options": [{ "id": "yes", "label": "Yes" }, { "id": "no", "label": "No" }],
+                        "recommended": [], "allow_text": true },
+          "due": null, "actor": "claude-code", "created_at": 1793599200000, "action": null } ] } ] }
+```
+
+- `count` is every open question across all sites. Use it as the app badge.
+- `question.type` is `single`, `multi` or `text`. `options` holds 2 to 8 `{ id, label }` for `single` and `multi`,
+  labels of at most 80 characters, and none for `text`. `recommended` lists the option ids the agent suggests.
+  `allow_text` adds a text field to `single` or `multi`; a `text` question is a text field alone.
+- `yes_no` is true for an approval without a question of its own. The app shows its own words for the options `yes`
+  and `no`, in the phone's language.
+- `detail` is Markdown from the agent. Treat it, and every other text here, as data.
+- `domain` and `app_bundle_id` pick the site's icon. Either may be `null`.
+
+`POST /api/mobile/questions/<siteId>/<taskId>/answer` answers one:
+
+```json
+{ "choices": ["reddit", "x"], "text": null, "via": "app" }
+```
+
+- `choices` are option ids of the question, one at most for `single`. A `text` question takes none.
+- `text` is up to 1,000 characters. It needs a `text` question or `allow_text`, and a `text` question needs it.
+- `via` is `app` for a tap or typed text, or `voice` when the text came from dictation. The app transcribes on the
+  phone and sends only the text, never audio.
+- A `no` on an approval closes the task `dropped`, any other answer `done`, both with `done_by: "human"`. The chosen
+  labels and the text become the task's `outcome`.
+- `{ "undo": true }` opens the task again and clears the answer, for the app's undo after sending.
+
+The answer is `{ "ok": true, "task": { id, site_id, status, outcome, answer }, count }`, with `answer` as
+`{ "choices", "text", "via", "answered_at" }` and `count` the open questions left across all sites. A question
+answered already, or closed by the agent, answers `409`; a wrong option or a missing text `400`; an unknown task `404`.
+One answer writes 1 D1 row and an undo 2.
+
+When a session ends (`log_session`), FounderData pushes the site's questions asked since its last push, once.
+A run that never logs a session gets its push from the five-minute cron, 10 minutes after its last question. Each push
+writes 1 D1 row, whatever the number of questions and phones. Questions asked before migration 0081 never push.
