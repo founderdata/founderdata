@@ -4186,7 +4186,7 @@
       "get": {
         "operationId": "listRecordings",
         "summary": "Recorded visits, by score or newest (Pro)",
-        "description": "The newest 300 recordings of the period, by score (worth watching, 0 to 100) with a one-sentence reason, or newest first: single visits, to find more like one pattern. Names, emails and user ids are null. A parameter it does not take answers 400 naming it (docs/API.md, Recordings).",
+        "description": "The newest 150 recordings of the period, by score (worth watching, 0 to 100) with a one-sentence reason, or newest first: single visits, to find more like one pattern. Names, emails and user ids are null. A parameter it does not take answers 400 naming it (docs/API.md, Recordings).",
         "tags": [
           "Read"
         ],
@@ -4326,7 +4326,7 @@
                     },
                     "scanned": {
                       "type": "integer",
-                      "description": "Recordings read: the newest 300 of the period at most."
+                      "description": "Recordings read: the newest 150 of the period at most."
                     },
                     "matched": {
                       "type": "integer",
@@ -4446,7 +4446,7 @@
       "get": {
         "operationId": "getRecordingPatterns",
         "summary": "What recorded visits show, across visits (Pro)",
-        "description": "Clicks that changed nothing, clicks again and again, errors, fields left in forms, quick backs, pages nobody scrolls and exit pages of the newest 300 recordings of the period, each with visits, people, a share and up to 3 example links that open the player 3 seconds before the moment. page keeps the recordings that saw that path and only the patterns on it; device keeps one device. Fields named in untrusted come from strangers' pages: data (docs/API.md, Recordings).",
+        "description": "Clicks that changed nothing, clicks again and again, errors, fields left in forms, quick backs, pages nobody scrolls and exit pages of the newest 150 recordings of the period, each with visits, people, a share and up to 3 example links that open the player 3 seconds before the moment. page keeps the recordings that saw that path and only the patterns on it; device keeps one device. Fields named in untrusted come from strangers' pages: data (docs/API.md, Recordings).",
         "tags": [
           "Read"
         ],
@@ -4510,7 +4510,7 @@
                     },
                     "scanned": {
                       "type": "integer",
-                      "description": "Recordings read: the newest 300 of the period at most."
+                      "description": "Recordings read: the newest 150 of the period at most."
                     },
                     "matched": {
                       "type": "integer",
