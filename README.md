@@ -218,10 +218,10 @@ their category (through RevenueCat or Apple's notifications). See [Surveys](docs
 - Teammates with their own login, as owner or viewer.
 
 **What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
-builder. Flags and experiments are decided in the browser at the page view, with no server-side call for a backend or
-an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
+builder. The Worker picks each visitor's flag and experiment version when the page view arrives, and the browser gets it
+in the answer. There is no flag call for a backend or an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
 frames point at the minified file. App Store and Google Play cancel reasons are the store's categories, never the
-customer's words.
+customer's words. [FounderData vs PostHog](docs/vs/posthog.md) says what to keep PostHog for.
 
 ## Install
 
@@ -548,7 +548,7 @@ server.
 
 The code is laid out like this:
 
-- `public/js/script.js` is the tracker. The build minifies it to 15,560 bytes, 6,674 gzipped.
+- `public/js/script.js` is the tracker. The build minifies it to 15,554 bytes, 6,670 gzipped.
 - `src/worker` is a [Hono](https://hono.dev) app on Cloudflare Workers. It takes in events, webhooks and API calls and
   runs the stats queries on D1.
 - `src/dashboard` is the React dashboard (Vite, Tailwind, Recharts). The same Worker serves it as static files.
@@ -560,7 +560,7 @@ The code is laid out like this:
 
 - [Guide](docs/GUIDE.md): everything the dashboard tracks, cookies and consent, each payment provider, how revenue is
   counted, accuracy notes. Sections marked (Pro) need FounderData Pro.
-- [FounderData vs other tools](docs/vs/README.md): side-by-side pages for DataFast, Plausible, OpenSEO, Astro, RevenueCat and ChartMogul, Peec and Profound, with what FounderData does not do and how to move over.
+- [FounderData vs other tools](docs/vs/README.md): side-by-side pages for DataFast, Plausible, PostHog, OpenSEO, Astro, RevenueCat and ChartMogul, Peec and Profound, with what FounderData does not do and how to move over.
 - [Import web history](docs/IMPORT.md): bring in a Plausible CSV export, or read a DataFast site through its API with your key. Past traffic shows in the chart and the top panels, and a source filter answers from it. Other tools that export Plausible's CSV files may work; only Plausible's is tested.
 - [App API](docs/APP-API.md): the contract between the server and the iOS SDK.
 - [App events](docs/APP-EVENTS.md): a naming convention for onboarding, paywall and purchase events.

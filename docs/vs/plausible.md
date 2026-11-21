@@ -50,17 +50,13 @@ its docs, read on 6 November. They may have changed.
 
 ## A note on Fathom, Umami and PostHog
 
-We did not write pages for these. What we found, from their own docs and changelogs in November 2026:
+We did not write pages for Fathom and Umami. What we found, from their own docs and changelogs in November 2026:
 
 - **Fathom** keeps EU visitors on EU servers by default, added an AI assistant and an AI tab in October 2026, and
   imports GA4. It has no payment provider connection, only event values.
 - **Umami** is MIT and has added session replay, heatmaps, Web Vitals, annotations, revenue reports and a read-only MCP
   server during 2026. FounderData Pro records visits and draws click maps over your real page, both off until you
   turn them on.
-- **PostHog** is the tool people keep for replay, feature flags and experiments. Its revenue analytics was in beta, and
-  it reads Stripe through its data warehouse. FounderData Pro has recordings, error issues, web retention, two fixed
-  surveys, and web experiments and flags judged on revenue per visitor. It has no survey builder, no server-side flags
-  for your backend or app, and no source maps for errors. If you need those, keep PostHog and use FounderData for
-  revenue and sources.
+- **PostHog** has its own page: [FounderData vs PostHog](posthog.md). It says row by row what to keep PostHog for.
 
 Only a Plausible-format export imports into FounderData today.

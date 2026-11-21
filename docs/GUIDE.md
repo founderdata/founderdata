@@ -48,10 +48,10 @@ In core, every section after Overview opens the Pro card, which explains what th
 The rest of this part describes Pro.
 
 **What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
-builder. Flags and experiments are decided in the browser at the page view, with no server-side call for a backend or
-an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
+builder. The Worker picks each visitor's flag and experiment version when the page view arrives, and the browser gets it
+in the answer. There is no flag call for a backend or an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
 frames point at the minified file. App Store and Google Play cancel reasons are the store's categories, never the
-customer's words.
+customer's words. [FounderData vs PostHog](vs/posthog.md) says what to keep PostHog for.
 
 Every section is one click away on every site. A section the site cannot use yet stays in the row in gray with a
 hollow dot. It opens a screen that names the missing step and links to it in Settings: a website for Content, SEO and
@@ -361,7 +361,7 @@ database: not measured.
 | [Paths](#paths): top pages / one page / a sequence of 1 to 3 pages | About 23 / 13 / 22 to 28 per visit of the range. A range with more than 75,000 events (40,000 with a sequence) reads only its newest visits, so one look stays under 1 million |
 | [Experiment](#experiments-pro) page | About 9 per visit of the site during the run |
 | Experiments list | About 10 per visit of the site during each web experiment's run, for each one, 20 at most |
-| [Retention and lifecycle](#retention-and-lifecycle-pro) | About 30,000 / 40,000 on the demo, whatever the period. With Known people they read every visit of the people the site recognizes |
+| [Retention and lifecycle](#retention-and-lifecycle) | About 30,000 / 40,000 on the demo, whatever the period. With Known people they read every visit of the people the site recognizes |
 | Click map | About 15 per mapped page view, the newest 2,000 at most (about 30,000), and the overlay about the same again |
 
 An example at 3,000 visits a day. A 30-day Paths view has about 315,000 events, so it hits the cap and reads up to
@@ -3817,7 +3817,7 @@ node scripts/setup-sites.mjs https://founderdata.example.com --replace-secrets  
 
 ## How it's built
 
-- `public/js/script.js`: the tracker, 34 KB of source that the build minifies to 15,560 bytes (6,674 gzipped). It handles consent and cookies, pageviews, engaged time, goals, outbound links and checkout link tagging
+- `public/js/script.js`: the tracker, 34 KB of source that the build minifies to 15,554 bytes (6,670 gzipped). It handles consent and cookies, pageviews, engaged time, goals, outbound links and checkout link tagging
 - `src/worker`: a Hono app on Cloudflare Workers that handles web and app event ingestion, the Stripe, Dodo and App Store webhooks, the payments and goals API, and stats queries on D1 (SQLite). `lib/apple-jws.ts` and `lib/x509.ts` verify Apple's signed transactions with WebCrypto
 - `src/dashboard`: the React dashboard (Vite, Tailwind, Recharts), served as static files by the same Worker
 - `migrations/`: the database schema
