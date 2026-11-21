@@ -3722,6 +3722,9 @@ not set itself. Each entry, and `defaults`, takes:
 | `lemonsqueezy_secret`, `polar_secret`, `paddle_secret` | The signing secrets of those providers |
 | `gumroad_seller_id` | Your Gumroad seller id. The first run makes the site's ping URL and prints it with the refunds loop; later runs keep it |
 | `gumroad` | `true` makes the Gumroad ping URL without a seller id, which the first sale then sets |
+| `errors_on`, `maps_on` (Pro) | `true` turns on [Catch JavaScript errors](#errors-pro) or [Click maps](#click-maps-heatmaps-and-scroll-depth-pro), `false` turns it off |
+| `map_sample` (Pro) | The percent of page views that send a click map, 1 to 100 (100 when unset) |
+| `surveys` (Pro) | `heard_about` and `cancel_reason`, each `{ "on": true, "paths": ["/signup"] }`. `paths` lists the pages the card shows on by itself; leave it out to show it only where your code calls `founderdata('survey', key)`. `null` for a survey turns it off. See [Surveys](#surveys) |
 
 Running it again changes nothing unless a setting drifted, and it never clears a bundle id that was set by hand. The
 API never shows a secret back, so a secret that is already set stays as it is. After you rotate one, put the new value

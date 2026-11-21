@@ -1,7 +1,8 @@
 {
   "defaults": { "currency": "USD", "timezone": "America/New_York" },
   "sites": [
-    { "name": "ShipKit", "domain": "shipkit.example.com", "stripe_webhook_secret": "whsec_REPLACE_ME", "write_cap": 20000 },
+    { "name": "ShipKit", "domain": "shipkit.example.com", "stripe_webhook_secret": "whsec_REPLACE_ME", "write_cap": 20000,
+      "errors_on": true, "maps_on": true, "map_sample": 50, "surveys": { "heard_about": { "on": true, "paths": ["/signup"] }, "cancel_reason": { "on": true } } },
     { "name": "ShipKit iOS", "bundle_id": "com.example.shipkit", "timezone": "America/Los_Angeles", "revenuecat_auth": "REPLACE_WITH_A_LONG_RANDOM_STRING" },
     { "name": "Notes", "domain": "notes.example.com", "app_bundle_id": "com.example.notes", "currency": "EUR", "timezone": "Europe/Berlin" },
     { "name": "Templates", "domain": "templates.example.com", "lemonsqueezy_secret": "REPLACE_ME", "write_cap": "auto" }

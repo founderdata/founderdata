@@ -172,6 +172,27 @@ describe('scripts/setup-sites.mjs', () => {
     expect(res[1].action).toBe('created');
   });
 
+  it('turns on errors, click maps and surveys, and a second run changes nothing (shared-7)', async () => {
+    const entry = {
+      name: 'Capture',
+      domain: 'capture.example.com',
+      errors_on: true,
+      maps_on: true,
+      map_sample: 25,
+      surveys: { heard_about: { on: true, paths: ['/'] } },
+    };
+    const go = () => setupSites({ base: 'https://stats.example/', password: 'test-password', sites: [entry], fetch: fetchVia });
+    const first = await go();
+    expect(first[0]).toMatchObject({ action: 'created' });
+    expect(first[0].changed).toEqual(expect.arrayContaining(['errors_on', 'maps_on', 'map_sample', 'surveys']));
+    const site = (await w.admin('/api/sites')).body.find((x: any) => x.domain === 'capture.example.com');
+    expect(site).toMatchObject({ errors_on: 1, maps_on: 1, map_sample: 25 });
+    expect(JSON.parse(site.surveys)).toEqual({ heard_about: { on: 1, paths: ['/'] } });
+    expect((await go())[0]).toMatchObject({ action: 'unchanged' });
+    await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { maps_on: false } });
+    expect((await go())[0]).toMatchObject({ action: 'updated', changed: ['maps_on'] });
+  });
+
   it('refuses unknown keys and bad caps in a sites file', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-sites-'));
     const file = path.join(dir, 'sites.json');
