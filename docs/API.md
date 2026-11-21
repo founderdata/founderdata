@@ -42,7 +42,7 @@ only replaced. Revoking a key stops it within a minute and leaves the others alo
 | Scope | Allows | Without it |
 | --- | --- | --- |
 | `read` | Every `GET` route under [Read](#read), the [weekly report](#weekly-report), the [portfolio](#portfolio-pro) and the MCP read tools. No revenue. | `403` on every read route |
-| `read:revenue` | Revenue, payments, customers, conversion rate and MRR in those answers. Includes `read`. | Revenue fields are left out. `customers`, `subscriptions` and `asa` answer `403`. |
+| `read:revenue` | Revenue, payments, customers, conversion rate and MRR in those answers. Includes `read`. | Revenue fields are left out. `customers`, `subscriptions` and `asa` answer `403`. No answer counts, flags or lists paying people: see [Who paid](#who-paid). |
 | `read:rows` | Raw rows as CSV: [`GET /api/v1/export/<table>`](#raw-rows-for-agents) for sessions and events, and with `read:revenue` for payments and subscriptions. Names, emails and customer ids stay empty. Off unless you pick it. Needs `read` too. | `403` on the export route |
 | `notes:write` | `POST /api/v1/notes`, `POST /api/v1/notes/<id>/review`, and the MCP tools `add_note` and `review_change` | `403` |
 | `alerts:write` | `POST`, `DELETE /api/v1/alerts/rules` and the test send ([Alert rules](#alert-rules-pro)). A rule on revenue, revenue per visitor, conversion rate, ROAS, CPA, CAC, a note verdict or a new error (its alert names paying customers and their revenue) also needs `read:revenue`. | `403` |
@@ -66,6 +66,19 @@ or all sites names the site with `?site=<id>` on every route, reads and writes a
 The older keys have fixed scopes. A read key (`rtr_...`) has `read`, plus `read:revenue` when it shows revenue. The
 site API key (`rt_...`) has `payments:write`, `notes:write` and `alerts:write` for its site, and reads nothing, so its
 alert rules can't watch revenue.
+
+#### Who paid
+
+Whether someone paid is revenue data, so a key without `read:revenue` never learns it. In FounderData Pro:
+
+- Experiments leave out each arm's `customers`, `paid_rate`, `mrr`, `mrr_per_visitor` and paying `people`, and the
+  experiment's `run_payments`.
+- Error issues leave out `customers`, `mrr`, `customers_recorded` and each person's and recording's `customer` flag.
+  The people an issue hit are listed by their events, not customers first. The list sorts by `people` by default.
+- Recordings leave out each visit's `customer` flag.
+- These filters and orders answer `403` naming `read:revenue`: `outcome=paid` and `customer=1` on
+  `/api/v1/recordings`, `customer=1` on `/api/v1/recordings/patterns`, `show=customers` on `/api/v1/people`,
+  `customers=1` on `/api/v1/web/retention` and `/api/v1/web/lifecycle`, and `sort=customers` on `/api/v1/errors`.
 
 **A copy agent that may not see money:** `read` and `notes:write` on one site. It reads visitors and pages, logs its
 changes and reviews them. It gets `403` on `POST /api/v1/payments`, and no revenue field anywhere.
@@ -691,7 +704,7 @@ Three rules hold for all of them:
 | `GET /api/v1/app/onboarding-purchase` (Pro) | range, `limit` | `GET /api/sites/<id>/app/onboarding-purchase`, the headline funnel, with `limit` values per group |
 | `GET /api/v1/app/screens` (Pro) | range | `GET /api/sites/<id>/app/screens`, the screen flow |
 | `GET /api/v1/app/properties` (Pro) | range | `GET /api/sites/<id>/app/properties`, the session property values in use |
-| `GET /api/v1/app/retention` (Pro) | range | `GET /api/sites/<id>/app/retention` |
+| `GET /api/v1/app/retention` (Pro) | range, `scope` | `GET /api/sites/<id>/app/retention`. A site with no app bundle id gets web retention instead, as `GET /api/v1/web/retention` answers it, with `platform: "web"`; `scope` works there only. On a site with an app, `scope` answers `400`. |
 | `GET /api/v1/app/sources` (Pro) | range, `dim` (`channel` by default; an unknown one gets `400`) | `GET /api/sites/<id>/app/sources` |
 | `GET /api/v1/app/versions` (Pro) | range, `series` (`true` adds sessions per version over time) | `GET /api/sites/<id>/app/versions` |
 | `GET /api/v1/dropoff` (Pro) | range, `platform` (`all`, `web`, `app`), `split` (`platform`, `app_version`, `user_state`, `prop:<key>`), `include_test`, `limit` | `GET /api/sites/<id>/dropoff`, with `limit` groups and `groups_total`. A property value that holds an email address groups as `"(email)"`. |
