@@ -313,6 +313,17 @@ function SettingsBody({ site, setSite, save, origin }: { site: Site; setSite: (s
                 <ProSlot name="adSpend" site={site} />
               </>
             )}
+            {group.id === 'capture' &&
+              (web ? (
+                <>
+                  {/* FounderData Pro's cards (round 7): ids catch-errors, click-maps and surveys. Each draws its own card. */}
+                  <ProSlot name="catchErrors" site={site} save={save} />
+                  <ProSlot name="clickMaps" site={site} save={save} />
+                  <ProSlot name="surveys" site={site} save={save} />
+                </>
+              ) : (
+                <NotForApps what="Errors, click maps and surveys" />
+              ))}
             {group.id === 'agents-api' && (
               <>
                 <ApiKeysSection site={site} />

@@ -25,6 +25,7 @@ import type { BreakdownRow, Ctx } from './stats';
 import type { NetShares } from './commission';
 import type { SourceHealth, SourceProbe } from './sources';
 import type { Row as SetupRow } from './setup-checklist';
+import type { MapWhere, PageClicks } from './page-maps';
 
 type App = Hono<AppEnv>;
 export type Bindings = AppEnv['Bindings'];
@@ -268,6 +269,33 @@ export interface Pro {
    * deletes any `replays` row left after it.
    */
   eraseRecordings?(a: { env: Bindings; site: Site; visitorIds: string[] }): Promise<Record<string, number>>;
+
+  // ---- round 7: experiments and surveys (migration 0090)
+  /**
+   * Running experiments this pageview enters (plan S4), as {key: variant}. Sync: reads site.exp_live only, never D1.
+   * Core asks on every pageview except a preview (`xp`) and a visit from a hosting network; it stores the answer as
+   * the session properties exp_<key> (collect.ts) and sends it back as `cfg.x`. {} or null = none.
+   */
+  experimentDecision?(site: Site, vid: string, path: string): Record<string, string> | null;
+  /**
+   * Which surveys are on and whether to show one on this page (plan S6), for `cfg.sv`. May read the visitor row.
+   * Asked in the same round trip as recordDecision. Null = no survey. A rejection counts as null.
+   */
+  surveyDecision?(env: Bindings, site: Site, vid: string, path: string, now: number): Promise<SurveyConfig | null>;
+  /**
+   * `clicks` of the content page answer (notes.ts contentPage, get_content with a path): the page's mapped page views
+   * and its 10 most clicked elements in the window, from page_maps (plan S1: the report is Pro's, the rows are core's).
+   * Without it, or with no rows, `clicks` is null.
+   */
+  pageClicks?(db: D1Database, w: MapWhere): Promise<PageClicks | null>;
+}
+
+/** `cfg.sv` of the pageview answer: the surveys that are on, and the one to show on this page. */
+export interface SurveyConfig {
+  /** Survey keys that are on: heard_about, cancel_reason. */
+  on: string[];
+  /** The survey the tracker shows on this page at once; absent for none. */
+  show?: string;
 }
 
 /**

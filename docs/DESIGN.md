@@ -331,7 +331,7 @@ Shared components outside `ui/` follow the same rules: `Modal` (springs in, trap
 (fine print), `CommandPalette` (⌘K), `ThemeToggle` (crossfades the theme through a view transition), `LogoMark`
 (`animated` draws the trail in), `Panel` (breakdown rows whose bars grow by transform).
 
-**Section row** (`Toolbar.tsx`, `SectionNav`) the thirteen site sections in five groups on one line from 1280 px up. The first group, Agent, holds the Plan alone; a site still opens on the Overview. Inside a
+**Section row** (`Toolbar.tsx`, `SectionNav`) the fifteen site sections in five groups on one line from 1280 px up. The first group, Agent, holds the Plan alone; a site still opens on the Overview. Inside a
 group the Paid tabs read "Overview", "Meta" and "Apple" (`SECTION_SHORT_LABELS`); the full name stays in the screen
 reader text, the tooltip and the command palette. Below 1280 px the row scrolls sideways under a 40 px fade on each cut
 edge and the current section is centered. New sections need a short label if the row would pass 1100 px.

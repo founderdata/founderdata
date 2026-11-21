@@ -16,6 +16,8 @@ import { dataStarts, noPrevious } from './sources';
 import { ATTRIBUTION_DIMS, attributionCoverage, breakdown, coverageOut, FIRST_TOUCH_DIM_NAMES, hasFilters, modelOf, overview, parseFilters, type BreakdownRow, type Ctx, type Filters } from './stats';
 import { overviewOutages } from './notes';
 import { proHooks } from './pro-hooks';
+import { heardAboutAnswer, type HeardAboutAnswer, type HeardAboutRow } from './surveys';
+import { parseSurveys } from '../shared/surveys';
 
 export interface ShareToken {
   token: string;
@@ -520,6 +522,29 @@ function importedFor(i: { from: string; to: string; days: number; revenue?: numb
   return rest;
 }
 
+/**
+ * The heard_about answer's head: people who answered, the period's visitors, and for an empty answer the survey's
+ * switch with the next step. Pro links Settings > Surveys; core links the `answer` call's docs.
+ */
+function heardAboutOut(c: Context<AppEnv>, site: Site, h: HeardAboutAnswer) {
+  const head = { answered: h.answered, visitors: h.visitors, answer_share: h.visitors ? Math.round((h.answered / h.visitors) * 1000) / 1000 : null };
+  if (h.rows.length) return head;
+  const cfg = parseSurveys(site.surveys).heard_about;
+  const survey = { on: !!cfg?.on, pages: cfg?.paths ?? [] };
+  const settings = `${new URL(c.req.url).origin}/site/${encodeURIComponent(site.id)}/settings#surveys`;
+  const next_step = !proHooks()
+    ? `No answers in this period. Send them from your own form with founderdata('answer', 'heard_about', key): ${ANSWER_DOCS}`
+    : !survey.on
+      ? `The Heard about survey is off for this site. The owner turns it on and adds the pages it shows on in Settings > Surveys: ${settings}`
+      : !survey.pages.length
+        ? `The survey is on but has no page to show on by itself. Add one in Settings > Surveys (${settings}), or call founderdata('survey', 'heard_about') on a page.`
+        : `The survey is on and shows on ${survey.pages.join(', ')}. Nobody answered in this period.`;
+  return { ...head, survey, next_step };
+}
+
+/** Where the docs explain the tracker's answer call (docs/API.md "Survey answers"). */
+const ANSWER_DOCS = 'https://github.com/founderdata/founderdata/blob/main/docs/API.md#survey-answers';
+
 async function apiBreakdown(c: Context<AppEnv>) {
   const tok = tokenOf(c);
   const dim = c.req.query('dim') ?? 'source';
@@ -529,10 +554,14 @@ async function apiBreakdown(c: Context<AppEnv>) {
       const ctx = readCtx(c, c.get('site'));
       // Source dimensions, unfiltered, with revenue: how much of the revenue any row can explain.
       const withCoverage = !!tok.show_revenue && ATTRIBUTION_DIMS.has(dim) && !hasFilters(ctx.filters);
-      const [rows, cov] = await Promise.all([breakdown(ctx, dim, Number(c.req.query('limit')) || 100), withCoverage ? attributionCoverage(ctx) : null]);
+      const limit = Number(c.req.query('limit')) || 100;
+      // heard_about (surveys.ts) also says how many people answered against the period's visitors, and why it is empty.
+      const heard = dim === 'heard_about' ? await heardAboutAnswer(ctx, limit, true) : null;
+      const [rows, cov] = await Promise.all([heard ? heard.rows : breakdown(ctx, dim, limit), withCoverage ? attributionCoverage(ctx) : null]);
       return JSON.stringify({
         ...rangeOut(ctx),
         dim,
+        ...(heard ? heardAboutOut(c, ctx.site, heard) : {}),
         ...(cov ? { attribution: coverageOut(cov, rows.find((r) => r.appStore)?.revenue ?? 0) } : {}),
         // Source dimensions say which visit they credit: last (the default) or first (?model=first).
         ...(FIRST_TOUCH_DIM_NAMES.includes(dim) ? { model: ctx.model ?? 'last' } : {}),
@@ -545,6 +574,8 @@ async function apiBreakdown(c: Context<AppEnv>) {
             ...(tok.show_revenue ? { revenue: r.revenue, customers: r.customers } : {}),
             ...(tok.show_revenue && r.importedRevenue ? { imported_revenue: r.importedRevenue, imported_payments: r.importedPayments ?? 0 } : {}),
             ...(r.appStore ? { note: 'app_store_no_source' } : r.noVisit ? { note: 'no_visit' } : {}),
+            // heard_about rows (surveys.ts): the answer as the site words it, and the channels those people arrived by.
+            ...('tracked' in r ? { label: (r as HeardAboutRow).name, tracked: (r as HeardAboutRow).tracked } : {}),
             // x_post rows (pro/worker/x-posts.ts): the post, and how many of its visits matched exactly or probably.
             ...(r.x ? { post_id: r.x.unmatched ? null : r.label, text: r.x.text, url: r.x.url, posted_at: r.x.posted_at, exact: r.x.exact, probable: r.x.probable, ...(tok.show_revenue ? { exact_customers: r.x.exact_customers, probable_customers: r.x.probable_customers, exact_revenue: r.x.exact_revenue, probable_revenue: r.x.probable_revenue } : {}), goals: r.x.goals, visits_considered: r.x.visits_considered, truncated: r.x.truncated, ...(r.x.unmatched ? { note: 'no_post' } : {}) } : {}),
           })),

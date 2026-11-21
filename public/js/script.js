@@ -36,9 +36,13 @@
   var ignored = false;
   try { ignored = localStorage.getItem('rt_ignore') === '1'; } catch (e) {}
   var local = /^(localhost|127\.|0\.0\.0\.0|\[::1\]|.*\.local$)/.test(loc.hostname) || loc.protocol === 'file:';
-  if (!siteId || ignored || nav.webdriver || (local && !allowLocal)) {
-    expose(noop);
-    noop.attribution = function () { return {}; };
+  // #fd-map=: the page shows its click map and sends nothing. It does in a browser that ignores itself too (rt_ignore),
+  // which is where the founder opens it.
+  var off = mapMode(); // 1 or undefined
+  if (!siteId || !off && (ignored || nav.webdriver || local && !allowLocal)) {
+    expose(idle); // flags and flag still answer, with no variants (region experiments)
+    idle.attribution = function () { return {}; };
+    queued.forEach(function (c) { idle.apply(null, c); });
     return;
   }
 
@@ -168,6 +172,7 @@
     } catch (e) { return href; }
   }
   function send(type, extra, beacon) {
+    if (off) return;
     var id = ids();
     if (id && !cookies) memAt = Date.now();
     var body = { w: siteId, t: type, u: cleanUrl(loc.href), sw: w.screen ? screen.width : 0 };
@@ -180,9 +185,9 @@
       if (fbp && /^fb\.\d\.\d{10,13}\.\d{1,20}$/.test(fbp)) body.fbp = fbp;
     }
     for (var k in extra) if (extra[k] !== undefined) body[k] = extra[k];
-    var json = JSON.stringify(body), a = body.a;
-    // The server takes 8 KB: drop the page's oldest clicks, then its oldest errors, until it fits.
-    while (json.length > 8000 && a && (a.c && a.c.length ? a.c.shift() : a.e && a.e.shift())) json = JSON.stringify(body);
+    var json = JSON.stringify(body), a = body.a, h = body.h;
+    // The server takes 8 KB: drop the click map's clicks, then the page's oldest clicks, then its oldest errors, until it fits.
+    while (json.length > 8000 && (h && h.c && h.c.length ? h.c.shift() : a && (a.c && a.c.length ? a.c.shift() : a.e && a.e.shift()))) json = JSON.stringify(body);
     // text/plain keeps this a "simple" request: no CORS preflight, works with sendBeacon.
     // Without ids the response carries them, so use fetch to read it.
     if (beacon && id && nav.sendBeacon) {
@@ -210,7 +215,8 @@
   // rec: record this visit. Load /js/replay.js once and hand it what it needs in window.founderdata._rec.
   // rec.c: wait for consent. Hold the recording until data-cookies="on" or founderdata('consent', true).
   // rec.x: pages that are never recorded. No recorder and no clicks or errors on a path that is one or starts with one + /.
-  var rec = null, cfgSeen = false, held = null;
+  // x, e, m, sv (round 7): experiments, catch errors, click map, surveys. Each lane's region below reads its own key.
+  var rec = null, cfgSeen = false, held = null, on = {};
   function skip(p) {
     return rec && (rec.x || []).some(function (x) { return p === x || p.indexOf(x.slice(-1) === '/' ? x : x + '/') === 0; });
   }
@@ -222,6 +228,10 @@
       ids();
     } else if (!cfg.rm && !dataCookies && readCookie(CONSENT) === 'r') consent(false);
     record(cfg.rec);
+    on.e = cfg.e;
+    cfgExp(cfg.x);
+    cfgSurvey(cfg.sv);
+    cfgMap(cfg.m);
   }
   function record(r) {
     var id = ids();
@@ -234,6 +244,11 @@
     var el = d.createElement('script');
     el.async = true;
     el.src = host + '/js/replay.js' + (rec.v ? '?v=' + encodeURIComponent(rec.v) : '');
+    // A recorder that cannot load (the page's Content-Security-Policy, an ad blocker) is reported once, so the
+    // site's settings can say why no recording arrives. One request, no data about the visitor.
+    el.onerror = function () {
+      fetch(api._rec.url + '/' + siteId + '?s=' + id.sid + '&h=blocked', { method: 'POST', body: '1', keepalive: true, credentials: 'omit' }).catch(noop);
+    };
     (d.head || d.documentElement).appendChild(el);
   }
 
@@ -277,7 +292,7 @@
     // INP: the slowest interaction, or the 98th percentile past 50 interactions
     if (list.length) v.i = list.sort(function (a, b) { return b - a; })[Math.min(list.length - 1, Math.floor(list.length / 50))];
     for (k in v) { v[k] = k === 'c' ? Math.round(v[k] * 1e4) / 1e4 : Math.round(v[k]); n++; }
-    if (n) { v.p = vitPath; return v; }
+    if (n) { v.p = vitPath; v.s = vitS || maxScroll(); return v; } // s: scroll depth of the page that loaded
   }
 
   // ---- engaged time (only while the tab is visible)
@@ -287,51 +302,63 @@
     if (visibleSince) { pending += Date.now() - visibleSince; visibleSince = d.visibilityState === 'visible' ? Date.now() : 0; }
     var v = beacon ? vitals() : undefined; // hidden: the vitals go now, even under a second
     var a = beacon || end ? activity() : undefined; // the page's clicks and errors, when it is hidden or left
-    if (pending >= 1000 || v || a) { send('ping', { d: Math.round(pending), v: v, a: a }, beacon); pending = 0; }
+    var h = mapPayload(beacon || end); // the page's click map, once
+    if (pending >= 1000 || v || a || h) { send('ping', { d: Math.round(pending), v: v, a: a, h: h }, beacon); pending = 0; }
   }
 
-  // ---- page activity of a recorded visit: clicks, rage clicks (3 or more on one element, each within 1 s of the
-  // last) and errors. Kept in memory until the server answers, then only when it records the visit. Sent with the
-  // ping, never alone. Labels are visible text, never what someone typed; [data-fd-mask] and [data-fd-block] hide it.
+  // ---- page activity: clicks and rage clicks (3 or more on one element, each within 1 s of the last) of a recorded
+  // visit, and errors of a recorded visit or of a site that catches errors (cfg.e). Kept in memory until the server
+  // answers, then only when it wants them. Sent with the ping, never alone. Labels are visible text, never what someone
+  // typed; [data-fd-mask] and [data-fd-block] hide it.
   var clicks = [], errs = [], actAt = Date.now(), actPath = loc.pathname, lastEl = null, lastAt = 0;
-  function watching() { return (rec || !cfgSeen) && !skip(loc.pathname); }
+  function wantClicks() { return (rec || !cfgSeen) && !skip(loc.pathname); }
+  function wantErrors() { return (rec || on.e || !cfgSeen) && !skip(loc.pathname); }
   function activity() {
-    var a = { p: actPath, s: actAt }, n = clicks.length + errs.length;
-    if (clicks.length) a.c = clicks;
-    if (errs.length) a.e = errs;
+    var a = { p: actPath, s: actAt };
+    if (clicks.length && rec) a.c = clicks;
+    if (errs.length && (rec || on.e)) a.e = errs;
+    if (rec) a.r = 1; // a recorded visit: the server keeps its activity row (errors-only pages of other visits do not get one)
     clicks = [];
     errs = [];
     lastEl = null;
-    return n && rec && !skip(actPath) ? a : undefined;
+    return (a.c || a.e) && !skip(actPath) ? a : undefined;
+  }
+  // The text of an element, without what stays hidden: [data-fd-mask], [data-fd-block], editable parts, form fields.
+  // pro/js/lib/digest.ts visibleText reads it the same way, so a click's label matches in both.
+  function seen(el) {
+    for (var s = '', c = el.firstChild; c && s.length < 200; c = c.nextSibling) {
+      s += c.nodeType == 3 ? c.data : c.nodeType != 1 || /^(INPUT|TEXTAREA|SELECT|OPTION|SCRIPT|STYLE|NOSCRIPT|TEMPLATE|SVG|CANVAS|IFRAME|OBJECT)$/i.test(c.tagName) || c.isContentEditable || c.getAttribute('contenteditable') != null || c.matches('[data-fd-mask],[data-fd-block],[hidden],[aria-hidden="true"]') ? '' : ' ' + seen(c);
+    }
+    return s;
   }
   function noteClick(el, kind) {
     var now = Date.now();
     if (el === lastEl && now - lastAt < 1000) {
       var c = clicks[clicks.length - 1];
       c.n = (c.n || 1) + 1;
-      if (c.n > 2) c.r = 1;
+      // A rage click names its element too: tag plus first class, else id ("button.buy"), never text.
+      if (c.n > 2) { c.r = 1; c.s = hintOf(el); }
     } else {
-      var text = el.closest('[data-fd-mask],[data-fd-block]') || el.tagName === 'INPUT' ? '' : el.innerText || el.textContent || '';
-      text = text.replace(/\s+/g, ' ').trim() || el.getAttribute('aria-label') || el.tagName.toLowerCase();
+      var text = labelOf(el) || el.getAttribute('aria-label') || el.tagName.toLowerCase();
       clicks.push({ t: now - actAt, l: text.slice(0, 40), k: kind });
       if (clicks.length > 30) clicks.shift();
     }
     lastEl = el;
     lastAt = now;
   }
-  function noteError(m, src) {
+  function noteError(m, src, e) { // e: the error or rejection event, for stackOf (errors region)
     m = String(m || 'Error').slice(0, 200);
-    if (errs.length < 5 && (!errs.length || errs[errs.length - 1].m !== m)) errs.push({ t: Date.now() - actAt, m: m, s: src.slice(-200) });
+    if (errs.length < 5 && (!errs.length || errs[errs.length - 1].m !== m)) errs.push({ t: Date.now() - actAt, m: m, s: src.slice(-200), k: stackOf(e) });
   }
   w.addEventListener('error', function (e) {
-    if (watching() && e.message) noteError(e.message, e.filename ? e.filename.split(/[?#]/)[0] + ':' + e.lineno : '');
+    if (wantErrors() && e.message) noteError(e.message, e.filename ? e.filename.split(/[?#]/)[0] + ':' + e.lineno : '', e);
   });
   w.addEventListener('unhandledrejection', function (e) {
-    if (watching()) noteError(e.reason && e.reason.message || e.reason, '');
+    if (wantErrors()) noteError(e.reason && e.reason.message || e.reason, '', e);
   });
   d.addEventListener('submit', function (e) {
     var el = e.submitter || e.target;
-    if (watching() && el && el.closest && !(el === lastEl && Date.now() - lastAt < 1000)) noteClick(el, 'submit');
+    if (wantClicks() && el && el.closest && !(el === lastEl && Date.now() - lastAt < 1000)) noteClick(el, 'submit');
   }, true);
   d.addEventListener('visibilitychange', function () {
     if (d.visibilityState === 'visible') visibleSince = Date.now();
@@ -341,6 +368,146 @@
   setInterval(function () {
     if (d.visibilityState === 'visible' && pings < 30) { pings++; flushTime(false); }
   }, 60000);
+
+  // ==== Round 7 regions (plan 5.1). Each lane edits only inside its own region; the three lines between two regions
+  // stay as they are, so the lanes' changes merge without conflicts. Commands go in cmds (public API below).
+  var cmds = {};
+
+  // ==== region experiments: flags and experiments (cfg.x, data-fd-exp, ?fd_exp=)
+  // lane exp edits only inside this region
+  // The server assigns each visitor a variant at the pageview (cfg.x, {key: variant}). Elements marked
+  // data-fd-exp="key" data-fd-variant="v" show only the assigned variant; with none, the page stays as written (the
+  // control is the element without hidden). ?fd_exp=key:variant previews a variant: shown here, never stored.
+  // Each pageview's answer adds to xs (a visitor keeps an earlier page's variants); until it arrives, flags waits.
+  var xs = {}, pv = {}, xSeen = 0, xAt, xWait = [];
+  function cfgExp(x) {
+    for (var k in x) xs[k] = x[k];
+    for (k in pv) xs[k] = pv[k];
+    xSeen = 1;
+    showExp();
+    // After config() returns, so a callback that throws stops neither the survey nor the click map.
+    while (xWait.length) setTimeout(xWait.shift(), 0, xs);
+  }
+  // The tracker turned itself off (rt_ignore, a test browser, localhost): flags(fn) still calls fn({}).
+  function idle(c, fn) {
+    if (c == 'flags') setTimeout(fn, 0, {});
+    return null;
+  }
+  function showExp() {
+    var els = d.querySelectorAll('[data-fd-exp]');
+    for (var i = 0; i < els.length; i++) {
+      var v = xs[els[i].getAttribute('data-fd-exp')];
+      if (v) els[i].hidden = els[i].getAttribute('data-fd-variant') !== v;
+    }
+  }
+  function preview() { // runs at each pageview; 1 on a preview: the server stores no exposure for this page load
+    xSeen = 0;
+    xAt = loc.pathname;
+    var m = /[?&]fd_exp=([a-z0-9_]{1,40})(?::|%3[aA])([\w-]{1,40})/.exec(loc.search);
+    if (m) { pv[m[1]] = m[2]; xs[m[1]] = m[2]; showExp(); }
+    for (var k in pv) return 1;
+  }
+  cmds.flag = function (k) { return xs[k] || null; };
+  // flags(fn): fn(variants) once the server answered, or after 2 s with what is known (an ad blocker, an error).
+  cmds.flags = function (fn) {
+    if (xSeen && xAt == loc.pathname) return fn(xs); // a single-page navigation waits for its own pageview
+    xWait.push(fn);
+    setTimeout(function () { var i = xWait.indexOf(fn); if (i >= 0) xWait.splice(i, 1)[0](xs); }, 2000);
+  };
+  // ==== end of region experiments
+
+  // (between regions)
+
+  // ==== region surveys: the answer and survey commands, the survey loader (cfg.sv)
+  // lane survey edits only inside this region
+  // founderdata('answer', survey, answer, text) stores an answer (docs/API.md, "Survey answers"). founderdata('survey', key)
+  // shows FounderData Pro's widget when that survey is on: /js/survey.js loads once, with founderdata._sv.
+  var svOn = [], svWant;
+  function svAns(s, a, x, v) {
+    if (s && a) send('survey', { n: s + '', p: { a: a + '', x: x ? (x + '').slice(0, 200) : x, v: v } }, true);
+  }
+  function svGo() {
+    var k = svWant;
+    if (!k || svOn.indexOf(k) < 0) return;
+    svWant = 0;
+    if (api._sv) return api._sv.show && api._sv.show(k);
+    api._sv = { k: k, host: host, site: siteId, a: svAns };
+    var el = d.createElement('script');
+    el.src = host + '/js/survey.js';
+    (d.head || d.documentElement).appendChild(el);
+  }
+  cmds.answer = svAns;
+  cmds.survey = function (k) { svWant = k; svGo(); };
+  function cfgSurvey(sv) {
+    svOn = (sv && sv.on) || [];
+    svWant = (sv && sv.show) || svWant;
+    svGo();
+  }
+  // ==== end of region surveys
+
+  // (between regions)
+
+  // ==== region click maps and scroll (cfg.m, #fd-map=)
+  // lane pages edits only inside this region
+  // Scroll depth: the deepest point the bottom of the screen reached, in percent of the page height, read on each
+  // scroll event. It rides on the page speed beacon (vitals, the page that loaded) and on the click map.
+  // Click map (cfg.m, docs/API.md "Click maps and scroll"): each click's position and element on one page view, sent
+  // each time the page is hidden or left with new clicks or a deeper scroll since the last send. i (random) and a (the
+  // page view's age) let the server update the page view's one row instead of adding another. A query-only change
+  // keeps the page view. m.x matches the never-record list: no map there. #fd-map=<token> shows the map (pro/js/map.ts).
+  var mapOn, mapC, mapP, mapI, mapT, mapK, deep, vitS;
+  mapNew();
+  function mapNew() { mapC = []; mapP = loc.pathname; mapI = Math.random() * 1e9 | 0; mapT = Date.now(); mapK = deep = 0; }
+  function maxScroll() {
+    var H = d.documentElement.scrollHeight;
+    if (H) deep = Math.max(deep, Math.min(100, Math.round((w.pageYOffset + w.innerHeight) * 100 / H)));
+    return deep || undefined; // never 0 in a browser: the screen shows the top of the page
+  }
+  w.addEventListener('scroll', maxScroll); // scroll events cannot be canceled, so the listener never delays scrolling
+  // The element as tag plus first class, else id ("button.buy"), and its visible text. Nothing typed: form fields,
+  // editable parts (contenteditable) and [data-fd-mask] or [data-fd-block] give ''. noteClick uses both too.
+  function hintOf(el) { return el.tagName.toLowerCase() + (el.classList && el.classList[0] ? '.' + el.classList[0] : el.id ? '#' + el.id : ''); }
+  function labelOf(el) {
+    return el.closest('input,textarea,select,[contenteditable],[data-fd-mask],[data-fd-block]') ? '' : seen(el).replace(/\s+/g, ' ').trim();
+  }
+  d.addEventListener('click', function (e) {
+    var t = e.target, el = t.closest && (t.closest('a,button,input,select,textarea,label,[role=button]') || t);
+    if (el && mapOn && mapC.length < 50) mapC.push([e.clientX, e.pageY, hintOf(el), labelOf(el).slice(0, 40)]);
+  }, true);
+  function cfgMap(m) { mapOn = m; }
+  function mapPayload(end) { // when the page is hidden or left; a single-page move starts the next page's
+    if (!end) return;
+    var s = maxScroll(), k = mapC.length + ',' + s, r;
+    if (mapOn && k != mapK && !(mapOn.x && RegExp(mapOn.x).test(mapP))) { mapK = k; r = { p: mapP, w: w.innerWidth, H: d.documentElement.scrollHeight, s: s, c: mapC.slice(), i: mapI, a: Date.now() - mapT }; }
+    if (loc.pathname != mapP) { if (vitS == null) vitS = s; mapNew(); }
+    return r;
+  }
+  function mapMode() {
+    var t = /fd-map=([\w.~-]+)/.exec(loc.hash), el;
+    if (!t) return;
+    api._map = { token: t[1], host: host, site: siteId };
+    el = d.createElement('script');
+    el.src = host + '/js/map.js';
+    d.head.appendChild(el);
+    return 1;
+  }
+  // ==== end of region click maps and scroll
+
+  // (between regions)
+
+  // ==== region errors: stack frames of caught errors
+  // lane errors edits only inside this region
+  // The top 3 frames of the error's stack as "file:line:col fn", without queries, 300 characters (docs/API.md "Errors").
+  // Chrome writes "at fn (file:1:2)", Firefox and Safari "fn@file:1:2".
+  function stackOf(e) {
+    var k = [];
+    String((e.error || e.reason || {}).stack || '').split('\n').forEach(function (l) {
+      var m = k.length < 3 && /(?:at (?:(.+?) \()?|^([^@\s(]*)@)(\S+?)(?:[?#][^:]*)?:(\d+):(\d+)/.exec(l);
+      if (m) k.push(m[3] + ':' + m[4] + ':' + m[5] + (m[1] || m[2] ? ' ' + (m[1] || m[2]) : ''));
+    });
+    return k.join('\n').slice(0, 300) || undefined;
+  }
+  // ==== end of region errors
 
   // ---- pageviews (including single-page-app navigation)
   var lastPage = null, firstView = true;
@@ -352,7 +519,7 @@
     actAt = Date.now();
     actPath = loc.pathname;
     pings = 0;
-    send('pageview', { r: firstView ? d.referrer : '' });
+    send('pageview', { r: firstView ? d.referrer : '', xp: preview() });
     firstView = false;
   }
   var hist = w.history;
@@ -436,7 +603,7 @@
   function onClick(e) {
     var el = e.target && e.target.closest ? e.target : null;
     if (!el) return;
-    var hit = e.type === 'click' && watching() && el.closest('a[href],button,[role=button],input[type=submit],input[type=button]');
+    var hit = e.type === 'click' && wantClicks() && el.closest('a[href],button,[role=button],input[type=submit],input[type=button]');
     if (hit) noteClick(hit, hit.tagName === 'A' ? 'link' : hit.type === 'submit' && hit.form ? 'submit' : 'button');
     // data-ml-goal is the minilytics attribute, kept for one release.
     var g = el.closest('[data-rt-goal],[data-ml-goal]');
@@ -464,7 +631,7 @@
   d.addEventListener('auxclick', onClick, true);
 
   // ---- public API
-  function api(cmd, a, b) {
+  function api(cmd, a, b, c) {
     if (cmd === 'goal' || cmd === 'track') goal(a, b);
     else if (cmd === 'identify' && a) {
       // user_id (or id), email and name name the person; other keys are traits (docs/API.md, "identify()").
@@ -477,6 +644,7 @@
     else if (cmd === 'pageview') { lastPage = null; pageview(); }
     else if (cmd === 'consent') consent(!!a);
     else if (cmd === 'marketing') setMarketing(!!a);
+    else if (cmds[cmd]) return cmds[cmd](a, b, c); // round 7's commands (regions above)
   }
   api.attribution = attribution;
   expose(api);

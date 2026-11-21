@@ -1,0 +1,392 @@
+// Round 7, lane errors, core part (plan 5.5): the fingerprint that groups an error's variants into one issue, the scrub
+// of personal data, the errors rows a ping writes (0, 1 per distinct error, at most 5), errors without recording,
+// retention, erase, export and the tracker's stack frames (`k`).
+import fs from 'node:fs';
+import path from 'node:path';
+import vm from 'node:vm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { resetBudgetForTests } from '../src/worker/budget';
+import { forgetSite } from '../src/worker/env';
+import { catchesErrors, cleanMessage, ERRORS_DAYS, errorsConfig, fileKey, fingerprint, normalizeMessage, noUrlQuery, pageErrors, parseFrames, scrub, stableFn } from '../src/worker/errors';
+import { pruneOldData } from '../src/worker/retention';
+import { startWorker, type TestWorker } from './helpers/worker';
+
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129 Safari/537.36';
+const DAY = 86_400_000;
+
+describe('errors: fingerprint', () => {
+  const frame = 'https://shop.example/assets/index-B3kZ9a1x.js:120:14 handleCheckout';
+  it('groups variants that differ in numbers, ids, URLs and quoted text', () => {
+    const a = fingerprint("TypeError: Cannot read properties of undefined (reading 'priceId') for plan 42", null, frame);
+    const b = fingerprint("Uncaught TypeError: Cannot read properties of undefined (reading 'planId') for plan 7", null, frame);
+    expect(a).toMatch(/^[0-9a-f]{12}$/);
+    expect(b).toBe(a);
+    expect(fingerprint('Failed to load https://cdn.example/a.png?x=1 (id 3f9a2b1c4d)', 'https://shop.example/app.js:3', null)).toBe(
+      fingerprint('Failed to load https://cdn.example/b.png (id 99aa00bb11)', 'https://shop.example/app.js:9', null),
+    );
+    expect(normalizeMessage('User 550e8400-e29b-41d4-a716-446655440000 at 0xdeadbeef1 took 12.5 ms "x"')).toBe('User <id> at <id> took <n> ms <str>');
+  });
+
+  it('keeps one issue across deploys that rename the bundle, and splits different functions and files', () => {
+    const m = 'TypeError: x is undefined';
+    expect(fingerprint(m, null, frame)).toBe(fingerprint(m, null, 'https://shop.example/assets/index-Q9w8E7r6.js:131:2 handleCheckout'));
+    expect(fingerprint(m, null, frame)).not.toBe(fingerprint(m, null, 'https://shop.example/assets/index-B3kZ9a1x.js:120:14 renderCart'));
+    expect(fingerprint(m, 'https://shop.example/a.js:1', null)).not.toBe(fingerprint(m, 'https://shop.example/b.js:1', null));
+    expect(fingerprint('Script error.', null, null)).toBe(fingerprint('Script error.', '', null));
+    expect(fileKey('https://shop.example/static/js/main.3f9a2b1c.chunk.js?v=2:4')).toBe('/static/js/main.chunk.js');
+    expect(fileKey('https://shop.example/js/react-dom.production.min.js')).toBe('/js/react-dom.production.min.js');
+  });
+
+  // errors-1 (critique 1): one bug must stay one issue when an id or a build hash changes.
+  it('groups messages that differ only in an id, a code, a long number or a UUID, and build hashes without digits', () => {
+    const at = 'https://shop.example/assets/index-B3kZ9a1x.js:7:3 pay';
+    const pairs: [string, string][] = [
+      ['Error: Order 1234 not found', 'Error: Order 1234567 not found'],
+      ['Payment failed for pi_3Nx4k9a2eZvKYlo2 (card_declined)', 'Payment failed for pi_3Oz8m1b3fAwLZmp3 (card_declined)'],
+      ['No such customer cus_Nx4k9aBcDeFg for sub_1Nx4k9', 'No such customer cus_Oz8m1bHiJkLm for sub_1Oz8m1'],
+      ['Order ORD-8841-AB not found', 'Order ORD-1234-ZZ not found'],
+      ['User 550e8400-e29b-41d4-a716-446655440000 missing', 'User 6fa459ea-ee8a-3ca4-894e-db77e160355e missing'],
+      ['User 550E8400-E29B-41D4-A716-446655440000 missing', 'User 6FA459EA-EE8A-3CA4-894E-DB77E160355E missing'],
+      ['No account for anna@example.com', 'No account for ben.k@shop.example'],
+      ['payment failed token abc123def456abc123', 'payment failed token 9f8e7d6c5b4a3f2e1d'],
+    ];
+    for (const [a, b] of pairs) {
+      expect(fingerprint(a, null, at), `${a} / ${b}`).toBe(fingerprint(b, null, at));
+      expect(fingerprint(a, 'https://shop.example/app.js:3', null), `${a} / ${b}`).toBe(fingerprint(b, 'https://shop.example/app.js:9', null));
+    }
+    // Different bugs stay apart, also from the same line.
+    expect(fingerprint('Payment failed', null, at)).not.toBe(fingerprint('Order not found', null, at));
+    expect(fingerprint('Payment failed for pi_3Nx4k9a2eZvKYlo2 (card_declined)', null, at)).not.toBe(
+      fingerprint('Payment failed for pi_3Nx4k9a2eZvKYlo2 (expired_card)', null, at),
+    );
+    // Maya's three builds of one bundle.
+    const m = 'Error: Portal session expired';
+    const builds = ['index-Xk2mPq7r.js', 'index-DkLmNoPq.js', 'index-AbCdEfGh.js'].map((f) => fingerprint(m, null, `https://shop.example/assets/${f}:40:2 openPortal`));
+    expect(new Set(builds).size).toBe(1);
+    expect(fileKey('https://shop.example/assets/Dashboard-DkLmNoPq.js:1')).toBe('/assets/Dashboard.js');
+    expect(fileKey('https://shop.example/assets/vendor.production.js')).toBe('/assets/vendor.production.js');
+    // The scrubbed message is what is stored; the fingerprint reads it as sent.
+    const now = Date.now();
+    const page = pageErrors({ p: '/', s: now - 1000, e: [{ t: 1, m: 'Error: Order 1234 not found' }, { t: 2, m: 'Error: Order 1234567 not found' }] }, now);
+    expect(page.errors.map((e) => [e.message, e.n])).toEqual([['Error: Order 1234 not found', 2]]);
+    const long = pageErrors({ p: '/', s: now - 1000, e: [{ t: 1, m: 'Error: Order 1234567 not found' }] }, now).errors[0];
+    expect(long.message).toBe('Error: Order [removed] not found');
+    expect(long.fp).toBe(page.errors[0].fp);
+  });
+
+  // err-1 (critique 2): a rebuild renames minified functions; the issue must stay one.
+  it('leaves out a minified top-frame function name of 1 to 3 characters, and keeps longer names', () => {
+    const m = 'TypeError: Cannot read properties of undefined (reading \'id\')';
+    const table: [string, string, boolean][] = [
+      // [frame of build A, frame of build B, one issue?]
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:131:2 Qe', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 HTMLButtonElement.Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 HTMLButtonElement.e', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 async Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 Qe/<', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 checkout', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 render', false],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 checkout', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 Qe', false],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 Jt', 'https://shop.example/assets/vendor-Zk3mPq7r.js:9:1 Qe', false],
+    ];
+    for (const [a, b, same] of table) {
+      const fa = fingerprint(m, null, a);
+      const fb = fingerprint(m, null, b);
+      if (same) expect(fa, `${a} / ${b}`).toBe(fb);
+      else expect(fa, `${a} / ${b}`).not.toBe(fb);
+    }
+    expect([stableFn('Jt'), stableFn('e'), stableFn('Object.Qe'), stableFn('new Ab'), stableFn(null)]).toEqual([null, null, null, null, null]);
+    expect([stableFn('render'), stableFn('App.render'), stableFn('handleCheckout')]).toEqual(['render', 'App.render', 'handleCheckout']);
+  });
+
+  it('parses at most 3 frames and drops their queries', () => {
+    expect(parseFrames('https://a.example/x.js?v=3:10:5 load\nhttps://a.example/y.js:2:1\nnot a frame\nz.js:1:1 a\nw.js:9:9 b')).toEqual([
+      { file: 'https://a.example/x.js', line: 10, col: 5, fn: 'load' },
+      { file: 'https://a.example/y.js', line: 2, col: 1, fn: null },
+      { file: 'z.js', line: 1, col: 1, fn: 'a' },
+    ]);
+    expect(parseFrames(42)).toEqual([]);
+  });
+});
+
+describe('errors: scrub', () => {
+  it('removes emails, phone numbers and runs of 6 or more digits, keeps line numbers and short numbers', () => {
+    expect(scrub('No account for anna@example.com')).toBe('No account for [removed]');
+    expect(scrub('Call +1 (415) 555-0134 now')).toBe('Call [removed] now');
+    expect(scrub('Order 12345678 failed after 1500 ms at 12:5')).toBe('Order [removed] failed after 1500 ms at 12:5');
+    expect(cleanMessage('Uncaught (in promise) Error:   card\n4242424242424242 declined')).toBe('Error: card [removed] declined');
+    expect(cleanMessage('x'.repeat(300))).toHaveLength(200);
+    // errors-8: tokens and keys, 16 or more letters and digits mixed. Words and short codes stay.
+    expect(scrub('payment failed for user token abc123def456abc123')).toBe('payment failed for user token [removed]');
+    expect(scrub('Bad key sk_live_51HxYzAbCdEfGhIjKl')).toBe('Bad key sk_live_[removed]');
+    expect(scrub('HTMLButtonElementConstructor failed in v2 at ES2017')).toBe('HTMLButtonElementConstructor failed in v2 at ES2017');
+  });
+
+  // err-2 (critique 2): a URL in a message keeps its scheme, host and path, not its query or hash.
+  it('stores a quoted URL without its query and hash, and keeps the issue', () => {
+    const sent = 'Failed to fetch https://api.shipkit.example.com/v1/users?name=Anna%20Mueller&city=Berlin&sid=a1b2c3';
+    expect(cleanMessage(sent)).toBe('Failed to fetch https://api.shipkit.example.com/v1/users');
+    expect(cleanMessage('TypeError: Failed to fetch dynamically imported module: https://a.example/assets/x.js?v=2#top')).toBe(
+      'TypeError: Failed to fetch dynamically imported module: https://a.example/assets/x.js',
+    );
+    expect(noUrlQuery('Load failed (https://a.example/p?q=1) and "http://b.example/#x"')).toBe('Load failed (https://a.example/p) and "http://b.example/"');
+    expect(noUrlQuery('What? No #1 here')).toBe('What? No #1 here');
+    const now = Date.now();
+    const row = pageErrors({ p: '/', s: now - 1000, e: [{ t: 1, m: sent }] }, now).errors[0];
+    expect(row.message).toBe('Failed to fetch https://api.shipkit.example.com/v1/users');
+    expect(row.message).not.toMatch(/Anna|Berlin|sid/);
+    expect(row.fp).toBe(fingerprint('Failed to fetch https://api.shipkit.example.com/v1/users', null, null));
+  });
+
+  it('places each error at the page start plus its offset, and groups repeats', () => {
+    const now = Date.now();
+    const page = pageErrors(
+      {
+        p: '/checkout/?step=2',
+        s: now - 5000,
+        e: [
+          { t: 1000, m: 'TypeError: a is 1', s: 'https://a.example/app.js?v=1:3' },
+          { t: 2000, m: 'TypeError: a is 2', s: 'https://a.example/app.js:3' },
+          { t: 3000, m: 'RangeError: too deep', s: '' },
+          { t: 9e9, m: 'Late', s: '' },
+          { m: '' },
+        ],
+      },
+      now,
+    );
+    expect(page.path).toBe('/checkout');
+    expect(page.errors.map((e) => [e.message, e.source, e.n, e.ts])).toEqual([
+      ['TypeError: a is 1', 'https://a.example/app.js:3', 2, now - 4000],
+      ['RangeError: too deep', null, 1, now - 2000],
+      ['Late', null, 1, now],
+    ]);
+  });
+
+  it('turns on with Catch JavaScript errors or Record visits', () => {
+    expect(errorsConfig({ errors_on: 0, record_visits: 0 } as any)).toBeUndefined();
+    expect(errorsConfig({ errors_on: 1 } as any)).toBe(1);
+    expect(errorsConfig({ record_visits: 1 } as any)).toBe(1);
+  });
+
+  // errors-2: with Wait for consent, a recording site's errors leave only with the recording, after consent.
+  it('sends no cfg.e on a site that records with Wait for consent, unless Catch JavaScript errors is on', () => {
+    expect(errorsConfig({ errors_on: 0, record_visits: 1, record_consent: 1 } as any)).toBeUndefined();
+    expect(errorsConfig({ errors_on: 1, record_visits: 1, record_consent: 1 } as any)).toBe(1);
+    // The Worker still keeps the errors a consented recording sends.
+    expect(catchesErrors({ errors_on: 0, record_visits: 1 } as any)).toBe(true);
+    expect(catchesErrors({ errors_on: 0, record_visits: 0 } as any)).toBe(false);
+  });
+
+  // errors-9: a visit from a hosting network sets no first sighting, so it catches nothing.
+  it('sends no cfg.e to a visit from a hosting network', () => {
+    expect(errorsConfig({ errors_on: 1 } as any, 1)).toBeUndefined();
+    expect(errorsConfig({ record_visits: 1 } as any, 1)).toBeUndefined();
+    expect(errorsConfig({ errors_on: 1 } as any, 0)).toBe(1);
+  });
+});
+
+describe('errors: ingest', () => {
+  let w: TestWorker;
+  let site: any;
+  const event = (body: Record<string, unknown>, p = '/checkout') =>
+    w.fetch('/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.70' },
+      body: JSON.stringify({ w: site.id, u: `https://errors.example${p}`, sw: 1440, ...body }),
+    });
+  const rows = async (fn: () => Promise<unknown>) => {
+    w.takeRowsWritten();
+    await fn();
+    await w.flush();
+    return w.takeRowsWritten();
+  };
+  const set = async (fields: Record<string, unknown>) => {
+    const res = await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: fields });
+    expect(res.status).toBe(200);
+    forgetSite(site.id);
+  };
+  const ping = (sid: string, e: unknown[], p = '/checkout') =>
+    event({ t: 'ping', vid: 'errvisitor0001', sid, d: 1000, a: { p, s: Date.now() - 3000, e } });
+  const stored = () => w.db.prepare('SELECT * FROM errors WHERE site_id = ? ORDER BY ts, message DESC').bind(site.id).all<any>().then((r) => r.results);
+  const ERR = (m: string, k?: string) => ({ t: 100, m, s: 'https://errors.example/app.js?v=9:12', ...(k ? { k } : {}) });
+
+  beforeAll(async () => {
+    resetBudgetForTests(Infinity);
+    w = await startWorker();
+    site = await w.createSite({ domain: 'errors.example' });
+    await event({ t: 'pageview', vid: 'errvisitor0001', sid: 'errsession0001' });
+    await w.flush();
+  });
+  afterAll(async () => {
+    await w.dispose();
+  });
+
+  it('stores nothing and sends no cfg.e while the switch is off', async () => {
+    expect(await rows(() => ping('errsession0001', [ERR('TypeError: x')]))).toBe(1);
+    expect(await stored()).toEqual([]);
+    const res = await event({ t: 'pageview', vid: 'errvisitor0001', sid: 'errsession0001' });
+    expect(await res.text()).toBe('');
+  });
+
+  it('catches errors without recording: cfg.e, and 1 row per distinct error with its frames', async () => {
+    await set({ errors_on: 1 });
+    expect((await w.admin(`/api/sites/${site.id}`)).body).toMatchObject({ errors_on: 1, record_visits: 0 });
+    const res = await event({ t: 'pageview', vid: 'errvisitor0001', sid: 'errsession0001' });
+    expect(((await res.json()) as any).cfg).toEqual({ e: 1 });
+    await w.flush();
+    // The session update, then 0 rows for a ping without errors.
+    expect(await rows(() => ping('errsession0001', []))).toBe(1);
+    const k = 'https://errors.example/app.js?v=9:12:7 pay\nhttps://errors.example/app.js:40:1 onClick';
+    const written = await rows(() =>
+      ping('errsession0001', [ERR("TypeError: Cannot read properties of undefined (reading 'priceId')", k), ERR("TypeError: Cannot read properties of undefined (reading 'planId')", k), ERR('Email anna@example.com taken')]),
+    );
+    // Two issues: an errors row each and each issue's first sighting (error_first).
+    expect(written).toBe(1 + 2 + 2);
+    const firsts = await w.db.prepare('SELECT fp, first_seen FROM error_first WHERE site_id = ?').bind(site.id).all<any>();
+    expect(firsts.results).toHaveLength(2);
+    const got = await stored();
+    expect(got).toHaveLength(2);
+    expect(got[0]).toMatchObject({
+      session_id: 'errsession0001', visitor_id: 'errvisitor0001', path: '/checkout', n: 2, device: 'Desktop', browser: 'Chrome',
+      source: 'https://errors.example/app.js:12', stack: 'https://errors.example/app.js:12:7 pay\nhttps://errors.example/app.js:40:1 onClick',
+    });
+    expect(got[0].fp).toBe(fingerprint(got[0].message, got[0].source, got[0].stack));
+    expect(got[1].message).toBe('Email [removed] taken');
+    expect(got[0].datacenter).toBe(0);
+    // The same errors again: 1 row each, the first sighting stays as it was.
+    expect(await rows(() => ping('errsession0001', [ERR("TypeError: Cannot read properties of undefined (reading 'priceId')", k), ERR('Email anna@example.com taken')]))).toBe(1 + 2);
+    expect((await w.db.prepare('SELECT fp, first_seen FROM error_first WHERE site_id = ?').bind(site.id).all<any>()).results).toEqual(firsts.results);
+  });
+
+  it('marks errors of a visit from a hosting network, which sets no first sighting', async () => {
+    await w.db.prepare("UPDATE sessions SET datacenter = 1 WHERE site_id = ? AND id = 'errsession0001'").bind(site.id).run();
+    try {
+      expect(await rows(() => ping('errsession0001', [ERR('Bot only error')]))).toBe(1 + 1);
+      const bot = (await stored()).find((r) => r.message === 'Bot only error');
+      expect(bot.datacenter).toBe(1);
+      expect(await w.db.prepare('SELECT COUNT(*) AS n FROM error_first WHERE site_id = ? AND fp = ?').bind(site.id, bot.fp).first('n')).toBe(0);
+    } finally {
+      await w.db.prepare("UPDATE sessions SET datacenter = 0 WHERE site_id = ? AND id = 'errsession0001'").bind(site.id).run();
+    }
+  });
+
+  it('keeps at most 5 rows a page view, skips never-recorded pages and pings of unknown visits', async () => {
+    await w.db.prepare('DELETE FROM errors WHERE site_id = ?').bind(site.id).run();
+    const many = Array.from({ length: 8 }, (_, i) => ERR(`Error ${'abcdefgh'[i]} broke`));
+    expect(await rows(() => ping('errsession0001', many))).toBe(1 + 5 + 5);
+    expect(await rows(() => ping('errsession0001', many))).toBe(1 + 5);
+    await set({ record_skip: '/account' });
+    expect(await rows(() => ping('errsession0001', [ERR('Leaky')], '/account/billing'))).toBe(1);
+    expect(await rows(() => ping('errnosession99', [ERR('Orphan')]))).toBe(0);
+    expect((await stored()).map((r) => r.message)).not.toContain('Leaky');
+  });
+
+  it('catches errors on a site that records visits, and keeps the activity row for recorded visits only', async () => {
+    await w.db.prepare('DELETE FROM errors WHERE site_id = ?').bind(site.id).run();
+    await set({ errors_on: 0, record_visits: 1, record_skip: '' });
+    const activityRows = () => w.db.prepare("SELECT COUNT(*) AS n FROM events WHERE site_id = ? AND type = 'activity'").bind(site.id).first<number>('n');
+    // A visit that is not recorded (no a.r, no clicks): the session update, the errors row and the issue's first
+    // sighting. No activity event: it would feed "Had trouble" and the recordings patterns for a visit with no recording.
+    expect(await rows(() => ping('errsession0001', [ERR('TypeError: y')]))).toBe(1 + 1 + 1);
+    expect(await activityRows()).toBe(0);
+    await w.db.prepare('DELETE FROM errors WHERE site_id = ?').bind(site.id).run();
+    // A recorded visit's page, marked by the script with r: 1: the errors row and the activity event (4 rows: the row,
+    // 2 index entries, the id counter).
+    expect(await rows(() => event({ t: 'ping', vid: 'errvisitor0001', sid: 'errsession0001', d: 1000, a: { p: '/checkout', s: Date.now() - 3000, e: [ERR('TypeError: y')], r: 1 } }))).toBe(1 + 1 + 4);
+    expect(await activityRows()).toBe(1);
+    expect(await stored()).toHaveLength(1);
+    const act = await w.db.prepare("SELECT props FROM events WHERE site_id = ? AND type = 'activity'").bind(site.id).first<{ props: string }>();
+    expect(JSON.parse(act!.props).e[0].m).toBe('TypeError: y');
+  });
+
+  it('exports the rows as CSV', async () => {
+    const res = await w.admin<string>(`/api/sites/${site.id}/export/errors?period=7d`);
+    expect(res.status).toBe(200);
+    const csv = res.body;
+    expect(String(csv)).toContain('time,issue,message,source,stack,times,path,device,browser,session_id,visitor_id');
+    expect(String(csv)).toContain('TypeError: y');
+  });
+
+  it('drops a first sighting once its issue has no errors row left', async () => {
+    const now = Date.now();
+    await w.db
+      .prepare("INSERT INTO error_first (site_id, fp, first_seen) VALUES (?, 'bbbbbbbbbbbb', ?), (?, 'cccccccccccc', ?), (?, 'dddddddddddd', ?)")
+      .bind(site.id, now - (ERRORS_DAYS + 5) * DAY, site.id, now - (ERRORS_DAYS + 5) * DAY, site.id, now - DAY)
+      .run();
+    // cccccccccccc still has a row inside the 90 days: its first sighting stays, older than 90 days as it is.
+    await w.db.prepare("INSERT INTO errors (site_id, ts, id, fp, message) VALUES (?, ?, 7, 'cccccccccccc', 'Still here')").bind(site.id, now - DAY).run();
+    await pruneOldData(w.db, now);
+    const left = (await w.db.prepare("SELECT fp FROM error_first WHERE site_id = ? AND fp IN ('bbbbbbbbbbbb', 'cccccccccccc', 'dddddddddddd') ORDER BY fp").bind(site.id).all<any>()).results;
+    // dddddddddddd is recent: kept even without rows (an erased person's issue keeps its first sighting).
+    expect(left.map((r) => r.fp)).toEqual(['cccccccccccc', 'dddddddddddd']);
+    await w.db.prepare("DELETE FROM errors WHERE site_id = ? AND id = 7").bind(site.id).run();
+  });
+
+  it('erases a person\'s errors and drops rows older than 90 days', async () => {
+    const now = Date.now();
+    await w.db
+      .prepare("INSERT INTO errors (site_id, ts, id, fp, message) VALUES (?, ?, 1, 'aaaaaaaaaaaa', 'Old'), (?, ?, 2, 'aaaaaaaaaaaa', 'Kept')")
+      .bind(site.id, now - (ERRORS_DAYS + 1) * DAY, site.id, now - (ERRORS_DAYS - 1) * DAY)
+      .run();
+    await pruneOldData(w.db, now);
+    expect((await stored()).map((r) => r.message)).toEqual(['Kept', 'TypeError: y']);
+    await w.db.prepare('UPDATE visitors SET email = ? WHERE site_id = ? AND id = ?').bind('erra@example.org', site.id, 'errvisitor0001').run();
+    const res = await w.admin(`/api/sites/${site.id}/erase`, { method: 'POST', json: { email: 'erra@example.org' } });
+    expect(res.status).toBe(200);
+    expect((await stored()).map((r) => r.message)).toEqual(['Kept']);
+  });
+
+  it('empties its tables when the site is deleted', async () => {
+    await w.db.prepare("INSERT INTO error_issues (site_id, fp, status, changed_at) VALUES (?, 'aaaaaaaaaaaa', 'resolved', 1)").bind(site.id).run();
+    expect((await w.admin(`/api/sites/${site.id}`, { method: 'DELETE' })).status).toBe(200);
+    expect(await w.db.prepare('SELECT COUNT(*) AS n FROM errors WHERE site_id = ?').bind(site.id).first('n')).toBe(0);
+    expect(await w.db.prepare('SELECT COUNT(*) AS n FROM error_issues WHERE site_id = ?').bind(site.id).first('n')).toBe(0);
+    expect(await w.db.prepare('SELECT COUNT(*) AS n FROM error_first WHERE site_id = ?').bind(site.id).first('n')).toBe(0);
+  });
+});
+
+describe('errors: the tracker sends stack frames as k', () => {
+  // The tracker's errors region on its own: stackOf from public/js/script.js, run on the stacks browsers write.
+  const code = fs.readFileSync(path.resolve(__dirname, '../public/js/script.js'), 'utf8');
+  const region = code.slice(code.indexOf('// ==== region errors'), code.indexOf('// ==== end of region errors'));
+  const stackOf = vm.runInNewContext(`${region}; stackOf`) as (e: unknown) => string | undefined;
+
+  it('reads Chrome, Firefox and Safari stacks, keeps 3 frames without queries', () => {
+    const chrome = [
+      "TypeError: Cannot read properties of undefined (reading 'priceId')",
+      '    at handleCheckout (https://shop.example/assets/index-B3kZ9a1x.js?v=2:120:14)',
+      '    at https://shop.example/assets/index-B3kZ9a1x.js:88:3',
+      '    at HTMLButtonElement.onclick (https://shop.example/node_modules/@acme/ui/button.js:5:9)',
+      '    at more (https://shop.example/x.js:1:1)',
+    ].join('\n');
+    expect(stackOf({ error: { stack: chrome } })).toBe(
+      'https://shop.example/assets/index-B3kZ9a1x.js:120:14 handleCheckout\nhttps://shop.example/assets/index-B3kZ9a1x.js:88:3\nhttps://shop.example/node_modules/@acme/ui/button.js:5:9 HTMLButtonElement.onclick',
+    );
+    expect(stackOf({ reason: { stack: 'pay@https://shop.example/app.js?x=1:12:7\n@https://shop.example/app.js:40:1' } })).toBe(
+      'https://shop.example/app.js:12:7 pay\nhttps://shop.example/app.js:40:1',
+    );
+    expect(stackOf({ error: null })).toBeUndefined();
+    expect(stackOf({ reason: 'plain string' })).toBeUndefined();
+    expect(stackOf({ error: { stack: `    at f (https://a.example/${'x'.repeat(400)}.js:1:1)` } })).toHaveLength(300);
+  });
+
+  it('parses what it sends the same way the Worker does', () => {
+    const k = stackOf({ error: { stack: '    at pay (https://shop.example/app.js:12:7)' } });
+    expect(parseFrames(k)).toEqual([{ file: 'https://shop.example/app.js', line: 12, col: 7, fn: 'pay' }]);
+  });
+});
+
+describe('errors: the demo data', () => {
+  // scripts/seed-demo.mjs writes the fingerprints of its four demo issues as constants: they must be what the Worker
+  // computes, or the demo's rows would not group like real ones.
+  const seed = fs.readFileSync(path.resolve(__dirname, '../scripts/seed-demo.mjs'), 'utf8');
+  const H = 'https://shipkit.example.com';
+  const BUNDLE = `${H}/assets/index-B3kZ9a1x.js`;
+  it('uses the fingerprints the Worker computes', () => {
+    const issues: [string, string | null, string | null][] = [
+      ["TypeError: Cannot read properties of undefined (reading 'priceId')", `${BUNDLE}:120`, `${BUNDLE}:120:14 handleCheckout\n${BUNDLE}:88:3 HTMLButtonElement.onclick`],
+      ['ResizeObserver loop completed with undelivered notifications', null, null],
+      ['Script error.', null, null],
+      [`TypeError: Failed to fetch dynamically imported module: ${H}/assets/Dashboard-4f2a9c1e.js`, `${BUNDLE}:12`, `${BUNDLE}:12:9 loadRoute`],
+    ];
+    for (const [m, s, k] of issues) expect(seed).toContain(`fp: '${fingerprint(m, s, k)}'`);
+  });
+});

@@ -23,6 +23,7 @@ export function buildAiPrompt(site: Site, origin: string): string {
 - Next.js: use next/script: <Script defer data-website-id="${site.id}" src="${origin}/js/script.js" strategy="afterInteractive" />
 - Keep the attributes exactly as given and load the script once. The script tracks single-page-app navigation itself, so add no manual pageview calls.
 - If the project sends a Content-Security-Policy, allow ${origin} in script-src and connect-src.
+- Put data-fd-mask on elements whose text must never show in a visit recording (a customer's name, an account balance), and data-fd-block on whole parts of a page that must not be recorded at all.
 
 ## Task 2: revenue attribution (the most important task)
 The script sets no cookies by default. In the browser, window.founderdata.attribution() returns { rt_visitor_id, rt_session_id, rt_site_id }. For a fraction of a second after page load, until the first tracking request returns, it returns an empty object. Every payment must carry these ids, so FounderData can tell which visitor, and so which tweet, article or Google result, made the money.

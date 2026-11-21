@@ -14,6 +14,7 @@
 import type { Context, Hono } from 'hono';
 import openapi from '../../public/openapi.json';
 import type { AppEnv } from './env';
+import { FIRST_TOUCH_DIM_NAMES } from './stats';
 import { bearerSecret } from './keys';
 import { proHooks } from './pro-hooks';
 import type { Pro } from './pro-hooks';
@@ -217,6 +218,10 @@ const coreTools = (pro: Pro | null): Tool[] => [
     route: (a) => {
       oneOf(a, 'dim', pro ? BREAKDOWN_DIMS : BREAKDOWN_DIMS.filter((d) => d !== 'x_post'), 'source');
       oneOf(a, 'model', ['last', 'first']);
+      // First touch exists only on the visitor's first channel, source, campaign, referrer and entry page.
+      if (a.model === 'first' && !FIRST_MODEL_DIMS.includes(String(a.dim ?? 'source'))) {
+        throw new ArgError(`model first works only with dim ${FIRST_MODEL_DIMS.join(', ')}. dim ${String(a.dim)} has no first touch. Drop model.`);
+      }
       return { path: '/api/v1/stats/breakdown', query: ['dim', 'model', 'limit', ...RANGE] };
     },
   },
@@ -271,8 +276,8 @@ const coreTools = (pro: Pro | null): Tool[] => [
       'Chart notes (launches, deploys, price changes, app versions), oldest first, with kind, actor, target, before, after, metric and ' +
       'window_days. limit keeps the newest (truncated: older ones left out); compact true gives short rows, one per group. due true: ' +
       'unreviewed notes whose window closed, each with impact (verdict, reason) and group_notes; act on each, then review_change. ' +
-      'Without site, an all-sites key gets every site\'s due notes, without impact. view actors: per actor, changes and their ' +
-      'verdicts and reviews.',
+      'Without site, an all-sites key gets every site\'s due notes, without impact. view actors: changes, verdicts and ' +
+      'reviews per actor.',
     inputSchema: schema({
       view: { type: 'string', enum: NOTE_VIEWS, description: 'Default list.' },
       due: { type: 'boolean', description: 'list: only notes ready for review.' },
@@ -327,7 +332,7 @@ const coreTools = (pro: Pro | null): Tool[] => [
     name: 'add_note',
     title: 'Add a chart note',
     description:
-      'Puts a note on the chart right after you change something (a price, a headline, a paywall, a deploy), so get_note_impact can ' +
+      'Puts a note on the chart right after you change something (a price, a headline, a deploy), so get_note_impact can ' +
       'measure it. kind and target pick the verdict metric: seo on a page judges its Search Console clicks over 28 days, seo or aso with ' +
       'keyword:<term> the rank, ai the mention rate over 28 days, ads with meta:campaign|adset|ad:<id> or asa:campaign:<id> the CPA, ' +
       'pricing or release on an app the paywall conversion, anything else revenue per visitor over 7 days. One change on several pages ' +
@@ -365,9 +370,10 @@ const coreTools = (pro: Pro | null): Tool[] => [
     name: 'get_web_vitals',
     title: 'Page speed from real visitors',
     description:
-      'Core Web Vitals from visitors\' browsers over the last days days: lcp, inp, cls, ttfb and fcp, each with p75 (ms; cls is a score), ' +
-      'samples, the shares rated good, needs_improvement and poor, and the p75\'s rating. overall, devices and pages (most loaded first); ' +
-      'with path, one page. Below min_sample samples the numbers are null: report the count. inp is null without an interaction.',
+      'Core Web Vitals from real browsers over the last days days: lcp, inp, cls, ttfb and fcp, each with p75 (ms; cls is a score), ' +
+      'samples, good, needs_improvement and poor shares and the p75\'s rating. overall, devices and pages (most loaded first); ' +
+      'with path, one page. Below min_sample samples the numbers are null: report the count. inp is null without an interaction. ' +
+      'scroll: how far down they read.',
     inputSchema: schema({
       days: { type: 'integer', minimum: 1, maximum: 90, description: 'Days ending now. Default 28.' },
       path: { type: 'string', description: 'One page path, such as /pricing.' },
@@ -517,7 +523,25 @@ function nextStep(res: Response, msg: string): string {
   return '';
 }
 
+/** The breakdown dimensions with a first-touch column (model first). */
+const FIRST_MODEL_DIMS = FIRST_TOUCH_DIM_NAMES;
+
 async function callTool(app: App, c: Context<AppEnv>, tool: Tool, a: Args) {
+  // A tool refuses an argument its schema does not name, by name, never dropped: a dropped key or filter would answer a
+  // different question than the one asked, and a dropped field would save less than the agent sent. The plan's write
+  // tools pass unknown fields on, because their routes name them in `ignored`.
+  const known = (tool.inputSchema as { properties?: Record<string, unknown>; additionalProperties?: boolean });
+  if (known.additionalProperties === false && !tool.namesUnknown) {
+    // site works on every tool: a key for several sites names the site with it, and the route refuses it where it does not apply.
+    const extra = Object.keys(a).filter((k) => k !== 'site' && !(k in (known.properties ?? {})));
+    if (extra.length) {
+      // Personal data never comes back, so a name or email argument says so (the wording of pro/shared/recordings.ts).
+      const pii = extra.some((k) => /^(name|email|e-?mail|user_?id|user|visitor_?id|visitor|ip|phone)$/i.test(k));
+      return toolError(
+        `Unknown argument ${extra.join(', ')}. ${pii ? `${tool.name} never returns names, emails or user ids. ` : ''}${tool.name} takes ${Object.keys(known.properties ?? {}).join(', ')}.`,
+      );
+    }
+  }
   // from and to are days wherever a tool declares them as days. FounderData Pro's mail tool takes addresses under the same names.
   const props = ((tool.inputSchema as { properties?: Record<string, { pattern?: string }> }).properties ?? {});
   for (const k of ['from', 'to']) {

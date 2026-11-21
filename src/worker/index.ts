@@ -47,7 +47,7 @@ import { erasePerson, eraseVisitor } from './erase';
 import { exportBreakdown, exportTable } from './export';
 import { refreshTrackingSince } from './sources';
 import { readKeyAnySite, registerShareRoutes } from './share';
-import { registerAgentRoutes } from './agent-api';
+import { checkPeriod, registerAgentRoutes } from './agent-api';
 import { keyOrLogin, registerKeyRoutes } from './keys';
 import { registerMcpRoutes } from './mcp';
 import { keepErasures, registerPrivacyRoutes } from './privacy';
@@ -56,7 +56,8 @@ import { registerPrimaryGoal } from './primary-goal';
 import { productType, registerProductType, typeOnCreate } from './product-type';
 import { NO_MAIL_HANDLER } from './mail-reject';
 import { settings } from './reporting';
-import { patchRecording, RECORDING_FIELDS } from './recording';
+import { patchRecording, recordingColumns } from './recording';
+import { partColumns, partPatch, partSiteTables } from './core-parts';
 
 // Core modules read Pro through proHooks() (pro-hooks.ts); this is where the build's edition is installed.
 installPro(pro);
@@ -125,6 +126,8 @@ const timed = async (c: Context<AppEnv>, next: Next) => {
 app.use('/api/*', timed);
 // A read answer the dashboard shows says where: X-Dashboard-Url and a dashboard_url field (dashboard-url.ts). No I/O.
 app.use('/api/v1/*', dashboardLinks);
+// A period outside the documented list answers 400 on every /api/v1 route (agent-api.ts checkPeriod).
+app.use('/api/v1/*', checkPeriod);
 app.use('/api/event', cors({ origin: '*', allowMethods: ['POST', 'OPTIONS'], maxAge: 86400 }));
 app.post('/api/event', handleEvent);
 // An app batch for a site without a bundle id gets a 403 (app.ts). Note it, at most every 10 minutes, so the
@@ -479,6 +482,9 @@ app.patch('/api/sites/:id', async (c) => {
   // Record visits and Remember visitors (migration 0072, docs/GUIDE.md "People and recordings (Pro)").
   const recordError = patchRecording(b as Record<string, unknown>, next);
   if (recordError) return c.json({ error: recordError }, 400);
+  // Round 7's switches: errors, click maps, surveys (core-parts.ts).
+  const partError = partPatch(b as Record<string, unknown>, next);
+  if (partError) return c.json({ error: partError }, 400);
   if (typeof b.revenuecat_auth === 'string' && !b.revenuecat_auth.includes('•')) {
     const secret = b.revenuecat_auth.trim().replace(/^Bearer\s+/i, '');
     if (secret && !/^[\x21-\x7e]{16,200}$/.test(secret)) {
@@ -505,7 +511,8 @@ app.patch('/api/sites/:id', async (c) => {
   if ('app_commission' in b) extra.push(['app_commission', commissionOf(next)]);
   if ('vitals_sample' in b) extra.push(['vitals_sample', next.vitals_sample ?? 100]);
   if ('show_datacenter' in b) extra.push(['show_datacenter', next.show_datacenter ?? 0]);
-  for (const col of RECORDING_FIELDS) if (col in b) extra.push([col, next[col]]);
+  extra.push(...recordingColumns(b as Record<string, unknown>, site, next));
+  extra.push(...partColumns(b as Record<string, unknown>, site, next));
   await c.env.DB.prepare(
     `UPDATE sites SET name = ?, domain = ?, timezone = ?, currency = ?, dodo_webhook_secret = ?, app_bundle_id = ?, accept_sandbox = ?,
        stripe_webhook_secret = ?, stripe_unpinned = ?, revenuecat_auth = ?, asc_app_id = ?, asc_sku = ?, app_store_id = ?, write_cap_on = ?, write_cap = ?${extra
@@ -546,7 +553,7 @@ app.post('/api/sites/:id/rotate-key', async (c) => {
 app.delete('/api/sites/:id', async (c) => {
   const id = c.get('site').id;
   await c.env.DB.batch(
-    ['events', 'sessions', 'visitors', 'payments', 'payment_claims', 'stripe_objects', 'funnels', 'subscription_signals', 'subscriptions', 'device_site_prefs', 'device_product_prefs', 'seo_snapshots', 'site_usage', 'share_tokens', 'notes', 'stripe_imports', 'aso_keywords', 'aso_settings', 'aso_snapshots', 'aso_reviews', 'alert_rules', 'app_aliases', 'email_messages', 'email_daily', 'research', 'ai_answers', 'vitals', 'imports', 'imported_daily', 'rank_settings', 'rank_keywords', 'rank_removed', 'aso_rank_tasks', 'ranks', 'dfs_spend', 'ai_prompts', 'ai_settings', 'ai_spend', 'ai_crawler_hits', 'ai_failures', 'ai_claims', 'ai_tasks', 'ai_crawler_days', 'x_settings', 'x_posts', 'gsc_sites', 'stripe_check_history', 'location_errors', 'meta_settings', 'meta_capi_log', 'ad_spend', 'action_items', 'alert_events', 'replays', 'plans', 'plan_versions', 'plan_tasks', 'plan_sessions', 'plan_reviews'].map((t) =>
+    ['events', 'sessions', 'visitors', 'payments', 'payment_claims', 'stripe_objects', 'funnels', 'subscription_signals', 'subscriptions', 'device_site_prefs', 'device_product_prefs', 'seo_snapshots', 'site_usage', 'share_tokens', 'notes', 'stripe_imports', 'aso_keywords', 'aso_settings', 'aso_snapshots', 'aso_reviews', 'alert_rules', 'app_aliases', 'email_messages', 'email_daily', 'research', 'ai_answers', 'vitals', 'imports', 'imported_daily', 'rank_settings', 'rank_keywords', 'rank_removed', 'aso_rank_tasks', 'ranks', 'dfs_spend', 'ai_prompts', 'ai_settings', 'ai_spend', 'ai_crawler_hits', 'ai_failures', 'ai_claims', 'ai_tasks', 'ai_crawler_days', 'x_settings', 'x_posts', 'gsc_sites', 'stripe_check_history', 'location_errors', 'meta_settings', 'meta_capi_log', 'ad_spend', 'action_items', 'alert_events', 'replays', 'plans', 'plan_versions', 'plan_tasks', 'plan_sessions', 'plan_reviews', ...partSiteTables()].map((t) =>
       c.env.DB.prepare(`DELETE FROM ${t} WHERE site_id = ?`).bind(id),
     ).concat(
       // Subscription history imports: their stored activity pages first, then the imports.

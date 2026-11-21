@@ -14,13 +14,26 @@ describe('dashboard routes', () => {
     expect(m('/notifications')).toEqual({ page: 'notifications' });
     expect(m('/site/a-1/settings')).toEqual({ page: 'settings', siteId: 'a-1' });
     expect(m('/site/a-1')).toEqual({ page: 'dashboard', siteId: 'a-1', view: 'overview' });
-    for (const view of ['plan', 'dropoff', 'people', 'content', 'seo', 'ai', 'subscriptions', 'ads', 'appstore', 'aso', 'app'] as const)
+    for (const view of ['plan', 'dropoff', 'people', 'recordings', 'content', 'seo', 'ai', 'subscriptions', 'ads', 'appstore', 'aso', 'app'] as const)
       expect(m(`/site/s1/${view}`)).toEqual({ page: 'dashboard', siteId: 's1', view });
     expect(m('/site/s1/content/page/blog/x')).toMatchObject({ view: 'content' });
-    expect(m('/site/s1/people/recordings')).toMatchObject({ view: 'people' });
+    // Recordings: the list, one recording (?t= is the query, not the path), and the old address under People.
+    expect(m('/site/s1/recordings/abcdef12-3456')).toEqual({ page: 'dashboard', siteId: 's1', view: 'recordings' });
+    expect(m('/site/s1/people/recordings')).toEqual({ page: 'dashboard', siteId: 's1', view: 'recordings' });
+    expect(m('/site/s1/recordings/a/b')).toEqual({ page: 'home' });
+    expect(m('/site/s1/people/v-1')).toMatchObject({ view: 'people' });
     expect(m('/site/s1/people/p/visitor-1')).toMatchObject({ view: 'people' });
     for (const sub of ['search', 'keywords', 'cannibalization', 'ranks', 'ai', 'plan', 'pages']) expect(m(`/site/s1/seo/${sub}`)).toMatchObject({ view: 'seo' });
     expect(m('/site/s1/seo/other')).toEqual({ page: 'home' });
+    // Round 7: Errors and one issue, Experiments with the form and one experiment, Paths under Content.
+    for (const view of ['errors', 'experiments'] as const) expect(m(`/site/s1/${view}`)).toEqual({ page: 'dashboard', siteId: 's1', view });
+    expect(m('/site/s1/errors/a1b2c3d4e5f6')).toMatchObject({ view: 'errors' });
+    expect(m('/site/s1/experiments/new')).toMatchObject({ view: 'experiments' });
+    expect(m('/site/s1/experiments/pricing_headline')).toMatchObject({ view: 'experiments' });
+    expect(m('/site/s1/experiments/a/b')).toEqual({ page: 'home' });
+    expect(m('/site/s1/content/paths')).toMatchObject({ view: 'content' });
+    expect(m('/site/s1/content/other')).toEqual({ page: 'home' });
+    expect(m('/site/s1/people/retention')).toMatchObject({ view: 'people' });
     expect(m('/live')).toEqual({ page: 'live' });
     expect(m('/dashboards')).toEqual({ page: 'dashboards', id: null });
     expect(m('/dashboards/db_abc123')).toEqual({ page: 'dashboards', id: 'db_abc123' });

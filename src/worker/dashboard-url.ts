@@ -16,10 +16,39 @@ interface Target {
 
 const overview = (tab?: string): Target => ({ path: '', params: tab ? { tab } : undefined });
 
+/** The request's own values of these parameters, for a screen that reads them from its URL; undefined for none. */
+function pick(q: URLSearchParams, keys: string[]): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const k of keys) {
+    const v = q.get(k);
+    if (v) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** By route, the part after /api/v1/. A route missing here (keys, research, definitions) gets no link. */
-function targetOf(route: string, q: URLSearchParams): Target | null {
+function targetOf(route: string, q: URLSearchParams, hasApp: boolean): Target | null {
+  // A site with no app gets web retention from app/retention (FounderData Pro), so the link opens the web grid.
+  if (route === 'app/retention' && !hasApp) return { path: '/people/retention', params: pick(q, ['scope']) };
   if (route.startsWith('app/')) return { path: '/app' };
   if (/^notes\/[^/]+\/impact$/.test(route)) return overview('changes');
+  // Recordings (FounderData Pro): the list, the patterns, and one recording's player.
+  // The list keeps the filters the Recordings page reads from its URL, round 7's included (issue, exp, channel, customer,
+  // funnel and step), so an agent's link opens the same visits.
+  if (route === 'recordings') {
+    return { path: '/recordings', params: pick(q, ['page', 'exit', 'signal', 'outcome', 'device', 'sort', 'issue', 'exp', 'channel', 'customer', 'funnel', 'step']) };
+  }
+  if (route === 'recordings/patterns') return { path: '/recordings', params: pick(q, ['page', 'device']) };
+  if (/^recordings\/[\w-]+$/.test(route)) return { path: `/recordings/${route.slice('recordings/'.length)}` };
+  // Round 7 (FounderData Pro): error issues, experiments, web retention and lifecycle, paths.
+  if (route === 'errors') return { path: '/errors', params: pick(q, ['status', 'page', 'device']) };
+  if (/^errors\/[\w-]+$/.test(route)) return { path: `/errors/${route.slice('errors/'.length)}` };
+  if (route === 'experiments') return { path: '/experiments' };
+  if (/^experiments\/[\w-]+$/.test(route)) {
+    return { path: `/experiments/${route.slice('experiments/'.length)}`, params: q.get('platform') === 'app' ? { platform: 'app' } : undefined };
+  }
+  if (route === 'web/retention' || route === 'web/lifecycle') return { path: '/people/retention', params: pick(q, ['scope', 'split']) };
+  if (route === 'paths') return { path: '/content/paths', params: pick(q, ['seq']) };
   switch (route) {
     case 'stats/overview':
     case 'stats/timeseries':
@@ -104,9 +133,9 @@ function rangeOf(q: URLSearchParams): URLSearchParams {
 
 /**
  * The dashboard URL for a read API request, or null when no screen shows it. `siteId` null is an answer across
- * sites (portfolio, weekly), which links to Home.
+ * sites (portfolio, weekly), which links to Home. `hasApp` false is a site with no app bundle id.
  */
-export function dashboardUrl(requestUrl: string, siteId: string | null): string | null {
+export function dashboardUrl(requestUrl: string, siteId: string | null, hasApp = true): string | null {
   const url = new URL(requestUrl);
   const route = url.pathname.replace(/^\/api\/v1\//, '').replace(/\/$/, '');
   const q = url.searchParams;
@@ -116,7 +145,7 @@ export function dashboardUrl(requestUrl: string, siteId: string | null): string 
     return `${url.origin}/${p ? `?period=${encodeURIComponent(p)}` : ''}`;
   }
   if (!siteId) return null;
-  const target = targetOf(route, q);
+  const target = targetOf(route, q, hasApp);
   if (!target) return null;
   const params = rangeOf(q);
   for (const [k, v] of Object.entries(target.params ?? {})) params.set(k, v);
@@ -136,8 +165,9 @@ export async function dashboardLinks(c: Context<AppEnv>, next: Next) {
   await next();
   if (c.req.method !== 'GET' || c.res.status !== 200) return;
   if (!(c.res.headers.get('content-type') ?? '').includes('application/json')) return;
-  const site = (c.get('site') as { id?: string } | undefined)?.id ?? c.get('linkSite') ?? null;
-  const link = dashboardUrl(c.req.url, site);
+  const row = c.get('site') as { id?: string; app_bundle_id?: string | null } | undefined;
+  const site = row?.id ?? c.get('linkSite') ?? null;
+  const link = dashboardUrl(c.req.url, site, !row || Boolean(row.app_bundle_id));
   if (!link) return;
   // A new answer each time: an edge cache hit has immutable headers. Hono's c.res setter copies the old answer's
   // headers onto the new one unless c.res is cleared first (as auth.ts requireAuth does), which would bring back an

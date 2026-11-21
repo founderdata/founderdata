@@ -237,8 +237,22 @@ export interface Site {
   record_consent?: number;
   /** Pages that are never recorded: path prefixes, one per line; null for none (migration 0076, recording.ts). */
   record_skip?: string | null;
+  /** When Record visits was last turned on (ms), null before (migration 0082, recording.ts patchRecording). */
+  record_on_at?: number | null;
+  /** The newest reason recordings did not arrive, as JSON (migration 0082). FounderData Pro writes it. */
+  record_health?: string | null;
   /** Remember visitors (migration 0072): 1 = the tracker keeps the visitor id in first-party cookies, as with consent. */
   remember_visitors?: number;
+  /** Catch JavaScript errors without recording (migration 0090, errors.ts): 1 = on. Off by default. */
+  errors_on?: number;
+  /** Click maps (migration 0090, page-maps.ts): 1 = on. Off by default. */
+  maps_on?: number;
+  /** Percent of page views that send a click map, 1 to 100 (default 100). */
+  map_sample?: number;
+  /** The two surveys as JSON (migration 0090, surveys.ts); null = both off. */
+  surveys?: string | null;
+  /** The running experiments as compact JSON (migration 0090, experiments.ts); null = none. */
+  exp_live?: string | null;
 }
 
 /** Who is calling the dashboard API (src/worker/auth.ts): the owner, the viewer login or a phone. */

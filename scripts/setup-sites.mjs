@@ -29,13 +29,16 @@ import { pathToFileURL } from 'node:url';
  * @typedef {{ name: string, domain?: string, currency?: string, timezone?: string, app_bundle_id?: string | null,
  *   bundle_id?: string, write_cap?: number | 'auto' | 'off' | null, gumroad_seller_id?: string,
  *   stripe_webhook_secret?: string, dodo_webhook_secret?: string, revenuecat_auth?: string,
- *   lemonsqueezy_secret?: string, polar_secret?: string, paddle_secret?: string, gumroad?: boolean }} SiteSpec
+ *   lemonsqueezy_secret?: string, polar_secret?: string, paddle_secret?: string, gumroad?: boolean,
+ *   errors_on?: boolean, maps_on?: boolean, map_sample?: number, surveys?: Record<string, unknown> | null }} SiteSpec
  */
 
 /** Webhook secrets: write-only in the API (it answers with •••• when one is set). */
 export const SECRETS = ['stripe_webhook_secret', 'dodo_webhook_secret', 'revenuecat_auth', 'lemonsqueezy_secret', 'polar_secret', 'paddle_secret'];
 const SETTINGS = ['name', 'timezone', 'currency', 'app_bundle_id', 'gumroad_seller_id'];
-const KNOWN = new Set([...SETTINGS, ...SECRETS, 'domain', 'bundle_id', 'write_cap', 'gumroad']);
+/** Pro's capture switches (docs/GUIDE.md "Setting up several sites at once"): sent as PATCH /api/sites/:id takes them. */
+export const CAPTURE = ['errors_on', 'maps_on', 'map_sample', 'surveys'];
+const KNOWN = new Set([...SETTINGS, ...SECRETS, ...CAPTURE, 'domain', 'bundle_id', 'write_cap', 'gumroad']);
 
 /** Payment providers: the secret that turns each on, its name and its webhook URL key in urlsFor. */
 const PROVIDERS = [
@@ -57,6 +60,27 @@ export function capFields(cap) {
   if (cap === 'off' || cap === false) return { write_cap_on: false };
   if (cap === 'auto' || cap === null) return { write_cap_on: true, write_cap: null };
   return { write_cap_on: true, write_cap: Number(cap) };
+}
+
+/** A surveys entry as the server stores it (on as 1 or 0), to compare with the site's. */
+const surveysOf = (v) =>
+  v === null ? null : Object.fromEntries(Object.entries(v).filter(([, x]) => x).map(([k, x]) => [k, { ...x, on: x.on ? 1 : 0 }]));
+
+/** The capture switches of a sites.json entry that differ from the site's, as PATCH fields. */
+export function captureFields(want, site = {}) {
+  const out = {};
+  for (const k of ['errors_on', 'maps_on']) {
+    if (want[k] !== undefined && (want[k] ? 1 : 0) !== (site[k] ?? 0)) out[k] = !!want[k];
+  }
+  if (want.map_sample !== undefined && Number(want.map_sample) !== (site.map_sample ?? 100)) out.map_sample = Number(want.map_sample);
+  if (want.surveys !== undefined) {
+    let cur = null;
+    try {
+      cur = site.surveys ? JSON.parse(site.surveys) : null;
+    } catch {}
+    if (JSON.stringify(surveysOf(want.surveys)) !== JSON.stringify(cur)) out.surveys = want.surveys;
+  }
+  return out;
 }
 
 const capChanged = (site, cap) => {
@@ -123,10 +147,12 @@ export async function setupSites({ base, password, sites, dryRun = false, replac
     const gumroad = !!want.gumroad_seller_id || want.gumroad === true;
     try {
       if (!site) {
-        const changed = [...Object.keys(fields), ...(want.write_cap !== undefined ? ['write_cap'] : []), ...secrets, ...(gumroad ? ['gumroad_token'] : [])];
+        const capture = captureFields(want);
+        const changed = [...Object.keys(fields), ...(want.write_cap !== undefined ? ['write_cap'] : []), ...Object.keys(capture), ...secrets, ...(gumroad ? ['gumroad_token'] : [])];
         const body = {
           ...fields,
           ...capFields(want.write_cap),
+          ...capture,
           ...Object.fromEntries(secrets.map((k) => [k, want[k]])),
           ...(gumroad ? { gumroad_new_token: true } : {}),
         };
@@ -143,6 +169,8 @@ export async function setupSites({ base, password, sites, dryRun = false, replac
       }
       const changed = Object.keys(fields).filter((k) => site[k] !== fields[k]);
       if (capChanged(site, want.write_cap)) changed.push('write_cap');
+      const capture = captureFields(want, site);
+      changed.push(...Object.keys(capture));
       const send = secrets.filter((k) => replaceSecrets || !site[k]);
       const kept = secrets.filter((k) => !send.includes(k));
       changed.push(...send);
@@ -152,6 +180,7 @@ export async function setupSites({ base, password, sites, dryRun = false, replac
       const body = {
         ...Object.fromEntries(changed.filter((k) => k in fields).map((k) => [k, fields[k]])),
         ...(changed.includes('write_cap') ? capFields(want.write_cap) : {}),
+        ...capture,
         ...Object.fromEntries(send.map((k) => [k, want[k]])),
         ...(newToken ? { gumroad_new_token: true } : {}),
       };
@@ -238,6 +267,15 @@ export function readSites(path) {
     const cap = s.write_cap;
     if (cap !== undefined && cap !== null && cap !== 'auto' && cap !== 'off' && cap !== false && !(Number.isInteger(cap) && cap > 0)) {
       throw new Error(`${path}: ${s.name}: write_cap is a whole number of rows, "auto" or "off".`);
+    }
+    for (const k of ['errors_on', 'maps_on']) {
+      if (s[k] !== undefined && typeof s[k] !== 'boolean') throw new Error(`${path}: ${s.name}: ${k} is true or false.`);
+    }
+    if (s.map_sample !== undefined && !(Number.isInteger(s.map_sample) && s.map_sample >= 1 && s.map_sample <= 100)) {
+      throw new Error(`${path}: ${s.name}: map_sample is a whole percent from 1 to 100.`);
+    }
+    if (s.surveys !== undefined && s.surveys !== null && (typeof s.surveys !== 'object' || Array.isArray(s.surveys))) {
+      throw new Error(`${path}: ${s.name}: surveys is an object with heard_about and cancel_reason, each { "on": true, "paths": ["/"] }.`);
     }
   }
   return sites;

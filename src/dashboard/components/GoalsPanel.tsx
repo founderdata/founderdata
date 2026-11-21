@@ -14,6 +14,7 @@ import { GoalIcon, Row, SkeletonTable, Table } from './site/primitives';
 import { EmptyIcons, EmptyState } from './ui/EmptyState';
 import { MeterBar } from './ui/MeterBar';
 import { Note } from './ui/Note';
+import { ProSlot } from './ProSlot';
 import { SetupRow } from './ui/SetupRow';
 import { TabRow } from './ui/Tabs';
 import { Spinner } from './ui/Spinner';
@@ -173,14 +174,14 @@ function Funnels() {
       {!stats ? (
         <FunnelSkeleton steps={current?.steps.length ?? 3} bare />
       ) : (
-        <FunnelSteps stats={stats} top={top} />
+        <FunnelSteps stats={stats} top={top} siteId={site.id} funnelId={current?.id ?? ''} />
       )}
     </div>
   );
 }
 
 /** A funnel as rows: each step's bar against the first, and between two steps how many dropped off. */
-function FunnelSteps({ stats, top }: { stats: (FunnelDef['steps'][0] & { visitors: number })[]; top: number }) {
+function FunnelSteps({ stats, top, siteId, funnelId }: { stats: (FunnelDef['steps'][0] & { visitors: number })[]; top: number; siteId: string; funnelId: string }) {
   return (
     <ol className="fd-stagger">
       {stats.map((s, i) => {
@@ -194,6 +195,8 @@ function FunnelSteps({ stats, top }: { stats: (FunnelDef['steps'][0] & { visitor
                 <span className="h-full w-px bg-stone-200" aria-hidden="true" />
                 <span className="ml-3 font-medium tabular-nums text-red-600">−{prev ? fmtPct(1 - s.visitors / prev) : '0%'} drop-off</span>
                 <span className="tabular-nums text-stone-400">{fmtNumber(Math.max(0, lost))} dropped</span>
+                {/* FounderData Pro (round 7, lane errors): the recorded visits of those who reached step i and not step i + 1, both counted from 1. */}
+                <ProSlot name="funnelWatch" siteId={siteId} funnelId={funnelId} step={i} />
               </div>
             )}
             <div className="grid grid-cols-[24px_minmax(0,1fr)] items-center gap-x-3 sm:grid-cols-[24px_minmax(0,220px)_minmax(0,1fr)_auto]">

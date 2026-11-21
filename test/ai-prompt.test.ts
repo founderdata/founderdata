@@ -39,6 +39,11 @@ describe('the AI setup prompt', () => {
     expect(prompt).toContain('FOUNDERDATA_API_KEY');
   });
 
+  it('names the two attributes that keep text out of visit recordings', () => {
+    expect(prompt).toMatch(/data-fd-mask on elements whose text must never show in a visit recording/);
+    expect(prompt).toContain('data-fd-block');
+  });
+
   it('names the bundle id when the site has one, and asks for it when not', () => {
     expect(prompt).toContain('not set yet');
     expect(buildAiPrompt({ ...site, app_bundle_id: 'com.example.shipkit' }, ORIGIN)).toContain('(currently com.example.shipkit)');

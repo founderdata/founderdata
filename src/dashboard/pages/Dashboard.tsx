@@ -250,6 +250,12 @@ export function Dashboard({ siteId, view }: { siteId: string; view: View }) {
                 <Views.asa />
               ) : view === 'people' ? (
                 <Views.people />
+              ) : view === 'recordings' ? (
+                <Views.recordings />
+              ) : view === 'errors' ? (
+                <Views.errors />
+              ) : view === 'experiments' ? (
+                <Views.experiments />
               ) : (
                 <Views.dropoff appOnly={appOnly} />
               )}
@@ -303,6 +309,10 @@ function OverviewView({ overview, platformTabs, controls }: { overview: Overview
   return (
     <>
       <OverviewCard data={overview} notes={notes} controls={controls} />
+      {/* Visits worth watching (FounderData Pro): one small card under the numbers when a recorded visit scores 40 or more. */}
+      <ProSlot name="recordingsCard" />
+      {/* Errors worth a look (FounderData Pro, round 7 lane errors): new issues since yesterday, beside the recordings card. */}
+      <ProSlot name="errorsCard" />
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {/* The four breakdown cards (src/shared/dashboard-tabs.ts); each keeps its open tab in ?tab=. */}
         {BREAKDOWN_CARDS.map((tabs) => (

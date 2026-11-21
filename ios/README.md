@@ -353,8 +353,19 @@ FounderData.experiment("paywall_copy", variant: "b")     // sets exp_paywall_cop
   sends one small event with the full set; setting the same values again
   sends nothing.
 - In Pro, the dashboard's App section splits the onboarding funnel, the
-  paywall conversion and the versions by any property, and lists every
-  `exp_*` property as an experiment with its arms.
+  paywall conversion and the versions by any property.
+- In Pro, every `exp_*` property is an experiment in Analytics >
+  Experiments, next to the website's experiments. Its arms count installs:
+  each install once, in the version of its first session with the
+  property, with the sessions shown beside them. A buyer is an install that
+  bought in a session with the property. Without consent or the `.vendor`
+  install id the server knows a device for one day only, so the same person
+  counts again the next day. The control is the version named `control`,
+  `baseline`, `default`, `original`, `off` or `a`, else the first name in
+  alphabetical order; the experiment's page says which. A difference in
+  buyers gets a verdict once each version has 100 installs and 30 buyers.
+  Name your control `control` so the rule never guesses. The App section's
+  experiments card keeps counting sessions.
 
 Keep values to a handful per key. A user id or a timestamp as a value makes
 every session its own group, and the splits say nothing.

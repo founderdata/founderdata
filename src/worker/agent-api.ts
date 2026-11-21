@@ -8,7 +8,7 @@ import { scrub } from './auth';
 import type { AppEnv, Site } from './env';
 import { convertPayments } from './fx';
 import { exportForKey, MONEY_TABLES } from './export';
-import { previousRange } from './lib/time';
+import { PERIODS, previousRange } from './lib/time';
 import { goalByEntryPage, goalLabel } from './primary-goal';
 import {
   actorStats,
@@ -29,9 +29,11 @@ import { CUSTOMER_KINDS, funnel, nativeBreakdown, customers, type CustomerKind, 
 import { dataLocation } from './location';
 import { canRead, LEGACY_SCOPES, SCOPE_TEXT, type Scope } from './keys';
 import { compactSources, siteTrust, trustForKey, type SiteTrust } from './sources';
-import { vitalsRoute } from './vitals';
+import { vitalsRoute, withPageScroll } from './vitals';
 import { proHooks } from './pro-hooks';
+import { partDefinitions } from './core-parts';
 import { VERSION } from '../shared/product';
+import { parseSurveys, SURVEYS } from '../shared/surveys';
 
 /** The range parameters every ranged route takes; `cacheKey` keeps only the parameters a route names. */
 export const RANGE = ['period', 'from', 'to', 'filters'];
@@ -50,6 +52,18 @@ export class Refused extends Error {
  * `from` or `to` without `period` means a custom range, as on the other read routes. The dashboard's handlers read
  * `period=custom`, so the request gets it before they run (and before the cache key is made).
  */
+/**
+ * Every /api/v1 route: a period outside the documented list answers 400 naming the list, instead of the 30-day default
+ * (index.ts registers it). `custom` comes with from and to.
+ */
+export async function checkPeriod(c: Context<AppEnv>, next: Next) {
+  const p = c.req.query('period');
+  if (p !== undefined && !(PERIODS as readonly string[]).includes(p)) {
+    return c.json({ error: `period is one of ${PERIODS.filter((x) => x !== 'custom').join(', ')}, or send from and to as YYYY-MM-DD` }, 400);
+  }
+  await next();
+}
+
 export async function customRange(c: Context<AppEnv>, next: Next) {
   const url = new URL(c.req.url);
   if ((url.searchParams.get('from') || url.searchParams.get('to')) && url.searchParams.get('period') !== 'custom') {
@@ -211,7 +225,11 @@ export const DEFINITIONS = {
     'A payment in another currency than the site\'s counts at the ECB reference rate of the payment day. A payment without a rate yet stays out of the totals until it is converted. The converted amount is not what Stripe or Apple paid out.',
   app_store:
     'App Store amounts are gross: what the customer paid, tax included, before Apple\'s commission. money=net on /api/v1/subscriptions gives the amount after Apple\'s cut.',
-  customers: 'New customers: buyers with a payment in the range that is not a renewal. Renewals add revenue, not customers. A buyer is the visitor, else the payment provider\'s customer id, else the payment, so two first purchases by one Stripe or App Store customer count once.',
+  customers: 'New customers: buyers with a payment in the range that is not a renewal. Renewals add revenue, not customers. A buyer is the visitor, else the payment provider\'s customer id, else the payment, so two first purchases by one Stripe or App Store customer count once. Other tools use the word with their own window: an experiment arm counts people whose first payment came after they first saw the experiment (app arms count installs that bought); an error issue counts the people it hit who paid at any time, by any visitor id of theirs; web retention with customers keeps people with any payment.',
+  paths:
+    'Paths (Pro, get_app_funnel report paths) read the page views of each visit, app screens included unless platform says web. With path: the visits that viewed the page, how many entered or left there, and the pages right before and after it. A share is a count over the views of that page, a page repeated in a row counted once. With sequence (1 to 3 pages in order): the visits that viewed them in that order, and per next page its visits, its share, the share that left right after it, and paid, the share whose visitor paid at the start of the visit or later. paid and paid_rate need read:revenue. Rates are rounded to 3 decimals. A range with more than 75,000 events (40,000 with sequence) reads only its newest visits: sampled is true and sessions_read counts them.',
+  who_paid:
+    'Whether someone paid is revenue data. In FounderData Pro, a key without read:revenue gets answers built as if payments did not exist: experiments without customers, paid_rate, mrr and run_payments; error issues without customers and mrr; recordings that never answer outcome paid, with no Paid step or paid sentence; people whose known_by is never payment and who carry no cancel_reason trait; paths without paid and paid_rate. Filters on payers (outcome=paid, customer=1, show=customers, customers=1, sort=customers) answer 403.',
   conversion_rate: 'New customers over visitors.',
   revenue_per_visitor: 'Revenue over visitors, in minor units of the site currency.',
   attribution:
@@ -248,10 +266,12 @@ export const DEFINITIONS = {
   mention_rate:
     'AI answers (get_ai_answers): mention_rate is the answers that name the product over the answers measured, 0 to 1; citation_rate is the answers that cite the site\'s domain. null when nothing was measured.',
   verdict:
-    'get_note_impact compares the window days after a note (7 by default) with the same days before it. It needs 100 visitors on each side and, with revenue, 10 new customers on both sides together; with less the verdict is inconclusive. It judges revenue per visitor when either side has revenue, else the conversion rate, else visitors (a key without revenue). A change of 10% or more is better or worse. An aso note with target keyword:<term> is judged on that keyword\'s App Store rank. verdict_metric and reason name the rule each answer used.',
+    'get_note_impact compares the window days after a note (7 by default) with the same days before it. It needs 100 visitors on each side and, with revenue, 10 new customers on both sides together; with less the verdict is inconclusive. It judges revenue per visitor when either side has revenue, else the conversion rate, else visitors (a key without revenue). A change of 10% or more is better or worse. An aso note with target keyword:<term> is judged on that keyword\'s App Store rank. A note with actor experiments, an experiment\'s start or stop, gets verdict null and experiment instead. Judge that change on the experiment\'s results. verdict_metric and reason name the rule each answer used.',
   timezone: 'Days, buckets and from/to dates are in the site\'s timezone. Timestamps are ISO 8601 in UTC.',
   filters:
     'The filters argument keeps only matching visits, as the dashboard filters them. Keys: channel, source, referrer_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref, country (ISO code), region, city, browser, os, device, entry_page, exit_page, hostname, app_version, language, click_network, platform (Web or iOS), page (a page viewed in the visit), goal (a goal completed in it) and prop:<name> (an app session property). An empty string matches none. Payments count when the visit they are credited to matches.',
+  recordings:
+    'Recorded visits (Pro, get_recordings). Dead click: a click followed by no page change within 2,500 ms, no scroll or text selection within 100 ms and no navigation or tab change within 1,000 ms; clicks in text fields, on form controls and labels, on the page margins (html, body), with a modifier key, on mailto:, tel:, sms:, download and new-tab links, and clicks that copy to the clipboard are not counted. Rage click: 3 or more clicks on one element, each under 1 s after the one before. Quick back: the visitor left a page of the site less than 5 s after arriving from another page of the site and went back to that page. Abandoned field: a form field the visitor changed on a page where no form was sent; a form counts as sent when the page moves on within 2 s of a click on a button in it. Score, 0 to 100: +30 an error, +25 rage clicks, +20 dead clicks (+30 for 3 or more), +15 an abandoned field, +10 a quick back, +15 paid or signed up (a key without read:revenue scores signed up only), +10 left from a checkout, pricing, signup or goal page without converting, -30 under 5 s. Patterns read the newest 150 recordings of the period (scanned), keep those that pass the filters (matched) and carry a caveat under 30 matched. duration_s is the recorded span when there is a video, else the length of the visit.',
   query:
     'query compiles each metric with the same rules as the panels: its totals equal get_overview for the range and filters, and its day, week and month buckets equal get_timeseries. Visitors are counted per row, so rows split by time or a dimension can add up to more than the total (one visitor on two days counts on both). Split by a visit dimension, a payment counts on the row of the visit it is credited to; payments without one get note no_visit and App Store revenue no payment explains note app_store_no_source, so revenue rows add up to the total. Split by product or provider, Apple\'s report goes to provider app_store with note app_store_report under product. goal:<name> counts the visitors who completed the goal.',
 } as const;
@@ -285,7 +305,7 @@ async function definitions(c: Context<AppEnv>) {
   const tok = tokenOf(c);
   const showRevenue = !!tok.show_revenue;
   const head = { show_revenue: showRevenue, scopes: scopesOf(tok), data_location: dataLocation(c.env) };
-  const tail = { definitions: DEFINITIONS, docs: 'https://github.com/founderdata/founderdata/blob/main/docs/API.md' };
+  const tail = { definitions: { ...DEFINITIONS, ...partDefinitions() }, docs: 'https://github.com/founderdata/founderdata/blob/main/docs/API.md' };
   const many = allSitesOf(c);
   if (many) {
     const trust = await siteTrust(c.env, many);
@@ -330,6 +350,21 @@ export function inMinorUnits<T>(v: T): T {
 // ---------- GET /api/v1/whoami: the key itself, for any live key, whatever its scopes
 
 /**
+ * The four Pro capture switches of a site, each on or off with the Settings section that turns it on. Recording a visit
+ * also catches its errors, so errors is on when either switch is.
+ */
+export function captureSwitches(s: Site, origin: string) {
+  const url = (anchor: string) => `${origin}/site/${s.id}/settings#${anchor}`;
+  const surveys = parseSurveys(s.surveys);
+  return {
+    recordings: { on: s.record_visits === 1, settings_url: url('record-visits') },
+    errors: { on: s.errors_on === 1 || s.record_visits === 1, settings_url: url('catch-errors') },
+    click_maps: { on: s.maps_on === 1, settings_url: url('click-maps') },
+    surveys: { on: SURVEYS.some((k) => surveys[k]?.on === 1), settings_url: url('surveys') },
+  };
+}
+
+/**
  * Who is calling: the key's name, scopes, the sites it covers with their names, its expiry, and the deployed Worker
  * version when the CF_VERSION_METADATA binding exists. Works for a key without read too (a push-only seo:write key),
  * so an agent can check a key before it writes. Not cached: it is one indexed read of the sites table.
@@ -345,6 +380,7 @@ async function whoami(c: Context<AppEnv>) {
   const covered = results.filter((s) => !ids || ids.includes(s.id));
   // A key that reads also gets each site's tracking start and source health; a push-only key gets the ids.
   const reads = canRead(scopes);
+  const origin = new URL(c.req.url).origin;
   const trust = reads ? await siteTrust(c.env, covered) : null;
   const sites = covered.map((s) => ({
     id: s.id,
@@ -352,6 +388,8 @@ async function whoami(c: Context<AppEnv>) {
     domain: s.domain,
     app: !!s.app_bundle_id,
     ...(trust ? (({ timezone: _t, currency: _c, currency_decimals: _d, app: _a, ...rest }) => rest)(siteFacts(s, trust.get(s.id), !!tok.show_revenue, false)) : {}),
+    // Pro's capture switches, so an agent can tell "off" from "quiet" (critique shared-8). Core has none of them.
+    ...(reads && proHooks() ? { switches: captureSwitches(s, origin) } : {}),
   }));
   const v = c.env.CF_VERSION_METADATA;
   return c.json(
@@ -487,7 +525,8 @@ export function registerAgentRoutes(app: Hono<AppEnv>) {
     'content',
     readRoute('content', { params: [...RANGE, 'prefix', 'limit'], money: 'strip' }, async (c) => {
       const out = await content(makeCtx(c), { prefix: c.req.query('prefix') || null, limit: Number(c.req.query('limit')) || 100 });
-      return tokenOf(c).show_revenue ? out : contentWithoutRevenue(out);
+      // Each row gains scroll_median_pct and has_click_map over the last 28 days (vitals.ts withPageScroll).
+      return withPageScroll(c.env.DB, c.get('site').id, tokenOf(c).show_revenue ? out : contentWithoutRevenue(out));
     }),
   );
   // A web funnel: a saved one by id, or ad hoc steps, as the Goals tab counts it (stats.ts funnel). Neither: the saved funnels.

@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import { vitalsReport } from './vitals';
+import { pageScroll, vitalsReport } from './vitals';
 import type { AppEnv, Site } from './env';
 import { addDays, pagePath, queriesForPage, type GscPageQuery } from '../shared/seo-insights';
 import { convertPayments } from './fx';
@@ -50,7 +50,25 @@ import { proHooks } from './pro-hooks';
  * and its window, picked from the kind and target, so an SEO change is judged on Search Console clicks over 28 days and
  * an ads change on CPA. A note from before keeps the visit rule over 7 days. `group` makes locale copies one change, and
  * kind `outage` marks a gap in the data until `ends_at`.
+ *
+ * An experiment's start or stop (FounderData Pro, actor `experiments`, target `experiment:<key>`) gets no verdict: both
+ * versions run in the days after it, so before and after compare nothing. Its impact links the experiment instead
+ * (experimentOfNote), and a note_verdict alert rule, which reads impactOf, never fires on it.
  */
+
+/** The actor of the notes an experiment's start and stop write (pro/worker/experiments.ts experimentNote). */
+export const EXPERIMENT_ACTOR = 'experiments';
+/** The target of an experiment's note: experiment:<key> (src/worker/experiments.ts EXPERIMENT_KEY). */
+const EXPERIMENT_TARGET = /^experiment:([a-z0-9_]{1,40})$/;
+
+/**
+ * Whether a note is an experiment's start or stop, and which experiment: `{ key }` (null when its target names none),
+ * or null for any other note.
+ */
+export function experimentOfNote(n: Pick<Note, 'actor' | 'target'>): { key: string | null } | null {
+  if (n.actor !== EXPERIMENT_ACTOR) return null;
+  return { key: EXPERIMENT_TARGET.exec(n.target ?? '')?.[1] ?? null };
+}
 
 /** Where a note came from: added in the dashboard, sent to POST /api/v1/notes, or the daily version cron. */
 export type NoteKind = 'manual' | 'api' | 'version';
@@ -204,15 +222,19 @@ function readNote(
  * Stores a note. With an idempotency key the site already has, it stores nothing and returns that note, with
  * `created` false: the unique index notes_site_idempotency decides, so two requests at once can't both store.
  */
-async function insertNote(
+/**
+ * A note as insertNote stores it, with its INSERT statement, for a write that rides in another batch. Without a metric
+ * in `a`, the verdict's metric and window come from the kind and target, as for a note sent to POST /api/v1/notes.
+ */
+export function noteStatement(
   db: D1Database,
-  site: Site,
+  site: Pick<Site, 'id' | 'product_type' | 'app_bundle_id'>,
   text: string,
   ts: number,
   kind: NoteKind,
   now = Date.now(),
   a: Partial<Annotation> = {},
-): Promise<{ note: Note; created: boolean }> {
+): { note: Note; statement: D1PreparedStatement } {
   const note: Note = {
     id: randomId(10),
     site_id: site.id,
@@ -229,12 +251,13 @@ async function insertNote(
     reviewed_at: null,
     review_outcome: null,
     review_comment: null,
-    metric: a.metric ?? null,
-    window_days: a.window_days ?? null,
+    metric: a.metric !== undefined ? a.metric : (metricsFor(a.change_kind ?? null, a.target ?? null, site)[0] ?? null),
+    window_days: null,
     group_key: a.group_key ?? null,
     ends_at: a.ends_at ?? null,
   };
-  const res = await db
+  note.window_days = a.window_days !== undefined ? a.window_days : note.change_kind === 'outage' ? null : windowFor(note.metric);
+  const statement = db
     .prepare(
       `INSERT INTO notes (id, site_id, ts, text, kind, created_at, actor, change_kind, target, before_text, after_text, idempotency_key, metric, window_days, group_key, ends_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -243,8 +266,21 @@ async function insertNote(
     .bind(
       note.id, note.site_id, note.ts, note.text, note.kind, note.created_at, note.actor, note.change_kind, note.target, note.before_text, note.after_text, note.idempotency_key,
       note.metric, note.window_days, note.group_key, note.ends_at,
-    )
-    .run();
+    );
+  return { note, statement };
+}
+
+async function insertNote(
+  db: D1Database,
+  site: Site,
+  text: string,
+  ts: number,
+  kind: NoteKind,
+  now = Date.now(),
+  a: Partial<Annotation> = {},
+): Promise<{ note: Note; created: boolean }> {
+  const { note, statement } = noteStatement(db, site, text, ts, kind, now, a);
+  const res = await statement.run();
   if (res.meta?.changes || !note.idempotency_key) return { note, created: true };
   const first = await db.prepare('SELECT * FROM notes WHERE site_id = ? AND idempotency_key = ?').bind(site.id, note.idempotency_key).first<Note>();
   return first ? { note: first, created: false } : { note, created: true };
@@ -854,6 +890,9 @@ export async function impactOf(
     v = { verdict: 'inconclusive', verdict_metric: v.verdict_metric, reason: `An outage covers ${percent(share)} of the window, so the numbers have a gap. "${first.text}" ran from ${first.from.slice(0, 16).replace('T', ' ')} to ${first.to.slice(0, 16).replace('T', ' ')} UTC.` };
   }
   const visitScope = kw ? 'keyword' : path ? 'page' : 'site';
+  // An experiment's start or stop: its own results judge it, so the note gets no verdict, only the link to them.
+  const exp = experimentOfNote(note);
+  if (exp) v = { verdict: 'inconclusive', verdict_metric: null, reason: experimentReason(exp.key) };
   return {
     site_id: site.id,
     timezone: site.timezone,
@@ -871,9 +910,11 @@ export async function impactOf(
     days_covered: daysCovered,
     complete,
     review_after: reviewAfter,
-    verdict: v.verdict,
+    // null for an experiment's note only, which `experiment` links instead.
+    verdict: exp ? null : v.verdict,
     verdict_metric: v.verdict_metric,
     reason: v.reason,
+    ...(exp ? { experiment: experimentLink(site.id, exp.key) } : {}),
     before: b,
     after: a,
     change: {
@@ -901,7 +942,7 @@ export async function impactOf(
           ...(kw ? { min_places: ASO_MIN_PLACES, min_rank_share: ASO_MIN_SHARE } : {}),
         }) as Record<string, number>,
     outages: gapped.map(({ start: _s, end: _e, ...x }) => x),
-    data_gap: dataGap,
+    data_gap: !exp && dataGap,
     overlapping: overlap
       .filter((n) => !path || targetPath(n.target) === null || targetPath(n.target) === path)
       .map((n) => apiNote(n)),
@@ -909,6 +950,21 @@ export async function impactOf(
 }
 
 export type NoteImpact = Awaited<ReturnType<typeof impactOf>>;
+
+/** Why an experiment's note has no verdict, and where its result is. */
+export function experimentReason(key: string | null): string {
+  const where = key ? `GET /api/v1/experiments/${key}` : 'GET /api/v1/experiments';
+  return `An experiment start or stop gets no before and after verdict, because both versions run in the days after it. The experiment's own results judge it: ${where}.`;
+}
+
+/** The experiment an experiment's note links to: its page in the dashboard and its read route, or the list's without a key. */
+export function experimentLink(siteId: string, key: string | null) {
+  return {
+    key,
+    dashboard_path: key ? `/site/${siteId}/experiments/${key}` : `/site/${siteId}/experiments`,
+    api_path: key ? `/api/v1/experiments/${key}` : '/api/v1/experiments',
+  };
+}
 
 /**
  * D1 calls one impactOf makes at most, each statement and batch counted once: the overview, the notes around it
@@ -933,7 +989,8 @@ export function impactWithoutRevenue(i: NoteImpact) {
   const side = ({ from, to, visitors }: NoteImpact['after']) => ({ from, to, visitors });
   const counts = (s: NoteImpact['after']) => ({ visitors: s.visitors, customers: 0, revenue: 0 });
   const visitRule = i.scope !== 'keyword' && (i.metric === null || i.metric === 'visits');
-  const keep = !visitRule || i.data_gap || i.note.kind === 'outage';
+  // An experiment's note keeps its null verdict: the visit rule never judges it.
+  const keep = !visitRule || i.data_gap || i.note.kind === 'outage' || i.verdict === null;
   // A verdict on money (CPA, ROAS): a key without revenue gets none.
   const money = i.metric === 'cpa' || i.metric === 'roas';
   const { ads: _ads, ...rest } = i as NoteImpact & { ads?: unknown };
@@ -1244,11 +1301,13 @@ export async function actorStats(db: D1Database, site: Site, o: { days: number; 
     if (n.reviewed_at && (!reviewOf.has(k) || n.reviewed_at < reviewOf.get(k)!.reviewed_at!)) reviewOf.set(k, n);
   }
   const notes = changes.filter((n) => !n.group_key || firstOf.get(`${n.actor}\n${n.group_key}`) === n).slice(0, ACTOR_MAX_NOTES);
-  const verdicts: (Verdict | 'measuring')[] = [];
+  // An experiment's start or stop has no verdict (null): it counts as a change and in no verdict column.
+  const verdicts: (Verdict | 'measuring' | null)[] = [];
   // Ten at a time, so a long list doesn't open 50 overviews at once.
   for (let i = 0; i < notes.length; i += 10) {
     const part = await Promise.all(
       notes.slice(i, i + 10).map(async (n) => {
+        if (experimentOfNote(n)) return null;
         if (reviewAfterOf(n, o.window) > now) return 'measuring' as const;
         const impact = await impactOf(db, site, n, o.window, now);
         return (o.showRevenue ? impact : impactWithoutRevenue(impact)).verdict;
@@ -1456,11 +1515,17 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
   const range = resolveRange({ period: 'custom', from, to: today, granularity: 'week' }, site.timezone, site.created_at, now);
   const ctx: Ctx = { db, site, range, filters: { entry_page: path }, offset: tzOffset(site.timezone, range.to), period: 'custom', skipImported: true };
   const [o, notes] = await Promise.all([overview(ctx), pageNotes(db, site.id, path, now)]);
-  const [search, impacts, speed] = await Promise.all([
+  const [search, impacts, speed, clicks] = await Promise.all([
     pageSearch(db, site.id, path, from, o.series.map((s) => s.bucket)),
     Promise.all(notes.map((n) => impactOf(db, site, n, null, now))),
     vitalsReport(db, site, { path, now }),
+    // Pro: the click map's 10 most clicked elements over the same 28 days as vitals (pro/worker/page-maps.ts); null
+    // without rows, and always null in core.
+    proHooks()?.pageClicks?.(db, { siteId: site.id, path, from: now - MAP_WINDOW_DAYS * 86_400_000, to: now }) ?? null,
   ]);
+  // Scroll depth as the Content list and the page's card pick it (vitals.ts pickScroll): page speed rows from 30, else
+  // click map rows when there are more of them. The click map rows are read only below 30 page speed rows.
+  const scroll = await pageScroll(db, site.id, path, now - MAP_WINDOW_DAYS * 86_400_000, now, { speed: speed.scroll });
   const totals = (k: (typeof o)['current']) =>
     showRevenue
       ? { visitors: k.visitors, customers: k.customers, revenue: k.revenue, revenue_per_visitor: Math.round(k.revenuePerVisitor) }
@@ -1483,8 +1548,38 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
     search,
     // Core Web Vitals of loads of this page over the last 28 days (vitals.ts), whatever `weeks` is.
     vitals: { days: speed.days, from: speed.from, to: speed.to, min_sample: speed.min_sample, ...speed.overall, devices: speed.devices },
+    // How far visitors scrolled on this page, null before any page view sent one; the click map's elements (Pro).
+    scroll: scroll.samples ? { days: MAP_WINDOW_DAYS, ...scroll } : null,
+    clicks: clicks ? { days: MAP_WINDOW_DAYS, ...clicks } : null,
+    // With neither, why: a path no visit viewed reads the same as a quiet page, so an agent gets the switch and a step.
+    ...(!scroll.samples && !clicks ? { click_maps: clickMapsState(site, path, !!proHooks()?.pageClicks) } : {}),
     notes: impacts.map((i) => noteWithImpact(i, showRevenue)),
   });
+}
+
+/** Days the content page's `scroll` and `clicks` cover, whatever `weeks` is (vitals' 28 days). */
+const MAP_WINDOW_DAYS = 28;
+
+/**
+ * `click_maps` of the content page answer when it has neither `scroll` nor `clicks`: whether the site maps clicks and
+ * what to do next, so a mistyped path does not read as a quiet page.
+ */
+export function clickMapsState(site: Pick<Site, 'maps_on'>, path: string, pro: boolean): { on: boolean; next_step: string } {
+  const on = !!site.maps_on;
+  if (!pro)
+    return {
+      on,
+      next_step: `No page view of ${path} sent a scroll depth in the last 28 days. Check the spelling of the path. Click maps come with FounderData Pro.`,
+    };
+  if (!on)
+    return {
+      on,
+      next_step: `Click maps are off for this site, and no page view of ${path} sent a scroll depth in the last 28 days. Check the spelling of the path. An owner turns click maps on in Settings, Click maps.`,
+    };
+  return {
+    on,
+    next_step: `Click maps are on, and no page view of ${path} sent a map or a scroll depth in the last 28 days. Check the spelling of the path. A map starts with the next visit to the page.`,
+  };
 }
 
 /** What an app version looks like: 1 to 4 numbers with dots, and an optional build number, e.g. "2.3.1 (45)". */

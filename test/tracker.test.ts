@@ -47,12 +47,22 @@ interface FakeEl {
   href?: string;
   masked?: boolean;
   attrs?: Record<string, string>;
+  /** Child elements after the text, as the label walker reads them. */
+  kids?: any[];
+  isContentEditable?: boolean;
 }
 function el(tag: string, text = '', more: Partial<FakeEl> = {}) {
-  const e: any = { tagName: tag.toUpperCase(), innerText: text, textContent: text, attributes: [], ...more };
+  const e: any = { nodeType: 1, tagName: tag.toUpperCase(), innerText: text, textContent: text, attributes: [], ...more };
+  // The children as DOM nodes: the text first, then the child elements, each linked to the next.
+  const nodes = [...(text ? [{ nodeType: 3, data: text }] : []), ...(more.kids ?? [])];
+  nodes.forEach((n, i) => (n.nextSibling = nodes[i + 1] ?? null));
+  e.firstChild = nodes[0] ?? null;
   e.getAttribute = (n: string) => e.attrs?.[n] ?? null;
+  e.matches = (sel: string) => (sel.includes('data-fd-mask') && e.masked) || (sel.includes('[hidden]') && e.attrs?.hidden !== undefined);
   e.closest = (sel: string) => {
-    if (sel.includes('data-fd-mask')) return e.masked ? {} : null;
+    // The label check: masked, a form field or an editable part (itself or a parent with contenteditable).
+    if (sel.includes('data-fd-mask'))
+      return e.masked || (sel.includes('textarea') && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName) || e.isContentEditable || e.attrs?.contenteditable !== undefined)) ? {} : null;
     if (sel.includes('button')) return /^(A|BUTTON|INPUT)$/.test(e.tagName) || e.attrs?.role === 'button' ? e : null;
     if (sel === 'a[href]') return e.tagName === 'A' ? e : null;
     return null;
@@ -133,7 +143,9 @@ function load(o: Opts = {}) {
     };
     window.performance = { getEntriesByType: (t: string) => (t === 'navigation' ? [perf.navigation ?? {}] : []), now: () => 60_000 };
   }
-  const fetch = async (_url: string, init: RequestInit) => {
+  const urls: string[] = [];
+  const fetch = async (url: string, init: RequestInit) => {
+    urls.push(url);
     const body = JSON.parse(String(init.body));
     requests.push(body);
     const cfg = body.t === 'pageview' && o.cfg ? { cfg: o.cfg } : {};
@@ -185,7 +197,7 @@ function load(o: Opts = {}) {
   const fire = (type: string, e: unknown) => {
     for (const l of listeners) if (l.type === `window:${type}`) l.fn(e);
   };
-  return { ml, window, store, jar, cookieWrites, storageWrites, requests, beacons, scripts, click, press, fire, emit, hide, show };
+  return { ml, window, store, jar, cookieWrites, storageWrites, requests, urls, beacons, scripts, click, press, fire, emit, hide, show };
 }
 
 describe('tracker: cookieless by default', () => {
@@ -422,10 +434,32 @@ describe('tracker: config from the server', () => {
     expect(t.scripts).toHaveLength(1);
   });
 
+  it('reports a recorder that cannot load once, to the upload route, with nothing about the visitor', async () => {
+    const t = load({ cfg: { rec: REC } });
+    await tick();
+    const sent = t.urls.length;
+    t.scripts[0].onerror();
+    await tick();
+    expect(t.urls.slice(sent)).toEqual([`https://stats.example/api/rec/site123?s=${SERVER_IDS.sid}&h=blocked`]);
+    expect(t.requests.at(-1)).toBe(1);
+  });
+
   it('sends chunks next to a proxied data-api endpoint', async () => {
     const t = load({ cfg: { rec: REC }, attrs: { 'data-api': 'https://acme.example/fd/api/event', 'data-cookies': 'on' } });
     await tick();
     expect((t.ml as any)._rec).toMatchObject({ url: 'https://acme.example/fd/api/rec', sid: t.jar.get('rt_sid') });
+  });
+
+  it('sends the errors of a page that is not recorded with cfg.e, without clicks and without the recorded mark', async () => {
+    const t = load({ cfg: { e: 1 } });
+    await tick();
+    t.press(el('button', 'Buy'));
+    t.fire('error', { message: 'TypeError: x is undefined', filename: 'https://example.com/app.js', lineno: 12 });
+    t.hide();
+    const [ping] = await Promise.all(t.beacons);
+    expect(ping.a.e).toEqual([{ t: expect.any(Number), m: 'TypeError: x is undefined', s: 'https://example.com/app.js:12' }]);
+    expect(ping.a.c).toBeUndefined();
+    expect(ping.a.r).toBeUndefined();
   });
 
   it('sends the clicks, rage clicks and errors of a recorded page with the ping when it is hidden', async () => {
@@ -433,12 +467,18 @@ describe('tracker: config from the server', () => {
     // Before the answer arrives: kept, in case the server records the visit.
     t.press(el('button', '  Start\n trial  '));
     await tick();
-    const buy = el('button', 'Buy');
+    const buy = el('button', 'Buy', { classList: ['buy', 'big'] } as any);
     for (let i = 0; i < 4; i++) t.press(buy);
     t.press(el('a', 'Pricing', { href: 'https://example.com/pricing' }));
     t.press(el('div', 'Not a control'));
     t.press(el('button', 'Anna Example', { masked: true }));
     t.press(el('input', '', { type: 'submit', form: {}, attrs: { 'aria-label': 'Send' } }));
+    // A button with a masked name, an editable part, a field and hidden text in it: only the rest is its label.
+    t.press(
+      el('button', 'Hello', {
+        kids: [el('span', 'Anna Example', { masked: true }), el('span', 'typed', { isContentEditable: true }), el('input', ''), el('span', 'secret', { attrs: { hidden: '' } }), el('b', 'there')],
+      }),
+    );
     t.fire('error', { message: 'TypeError: x is undefined', filename: 'https://example.com/app.js?v=3', lineno: 12 });
     t.fire('error', { message: 'TypeError: x is undefined', filename: 'https://example.com/app.js?v=3', lineno: 12 });
     t.fire('unhandledrejection', { reason: new Error('fetch failed') });
@@ -447,21 +487,37 @@ describe('tracker: config from the server', () => {
     expect(ping).toMatchObject({ t: 'ping', vid: SERVER_IDS.vid });
     expect(ping.a.p).toBe('/pricing');
     expect(typeof ping.a.s).toBe('number');
+    // Marked as a recorded visit's page: the server keeps its activity row (collect.ts, errors.ts recordedActivity).
+    expect(ping.a.r).toBe(1);
+    // A rage click names its element by tag and first class, never by text.
+    expect(ping.a.c[1].s).toBe('button.buy');
     expect(ping.a.c.map((c: any) => [c.l, c.k, c.n, c.r])).toEqual([
       ['Start trial', 'button', undefined, undefined],
       ['Buy', 'button', 4, 1],
       ['Pricing', 'link', undefined, undefined],
       ['button', 'button', undefined, undefined],
       ['Send', 'submit', undefined, undefined],
+      ['Hello there', 'button', undefined, undefined],
     ]);
     expect(ping.a.e).toEqual([
       { t: expect.any(Number), m: 'TypeError: x is undefined', s: 'https://example.com/app.js:12' },
-      { t: expect.any(Number), m: 'fetch failed', s: '' },
+      // The rejection's Error has a stack, so its frames go as k (errors region, test/errors.test.ts).
+      { t: expect.any(Number), m: 'fetch failed', s: '', k: expect.stringMatching(/:\d+:\d+/) },
     ]);
     // Sent once: the next hide carries engaged time only.
     t.show();
     t.hide();
     expect((await Promise.all(t.beacons)).slice(1).every((b) => b.a === undefined)).toBe(true);
+  });
+
+  it('labels no click of a recorded visit with what was typed in an editable control', async () => {
+    const t = load({ cfg: { rec: REC } });
+    await tick();
+    t.press(el('div', 'My email is jane@x.com', { attrs: { role: 'button', contenteditable: '' } }));
+    t.press(el('button', 'Draft text', { isContentEditable: true }));
+    t.hide();
+    const [ping] = await Promise.all(t.beacons);
+    expect(ping.a.c.map((c: any) => c.l)).toEqual(['div', 'button']);
   });
 
   it('sends a page\'s activity when a single-page app moves on, with that page\'s path', async () => {

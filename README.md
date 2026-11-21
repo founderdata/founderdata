@@ -16,7 +16,7 @@ analytics, iOS app reports, ads, SEO, AI visibility and the full agent layer for
 Not for you if you need it on your own server: it runs on Cloudflare Workers and D1 only, with no Docker image or
 Postgres option. Nor if you need single sign-on or per-site permissions. Core has one admin password and one shared
 read-only viewer password, set as `VIEWER_PASSWORD`. Pro adds teammates with their own login, each an owner or a viewer
-for every site. It has no heatmaps.
+for every site.
 
 ![The FounderData dashboard with visitors, revenue, sources and paying customers](docs/dashboard.png)
 
@@ -51,6 +51,9 @@ Cloudflare's free plan covers about 3,100 web visits a day. [What it costs](#wha
   ([first touch](docs/GUIDE.md#first-touch)). Visits from cloud networks such as AWS or Hetzner are almost always bots,
   so visitor counts leave them out until you turn them on ([datacenter visits](docs/GUIDE.md#datacenter-visits)).
 - Pages, entry pages, outbound links, button clicks, custom goals and funnels.
+- "How did you hear about us?" as a tab of the Channel card. Send the answer your signup form already asks for with
+  `founderdata('answer', 'heard_about', 'podcast')`, and Stripe and Polar cancel reasons arrive with their webhooks,
+  the App Store's and Google Play's categories with RevenueCat's and Apple's ([Surveys](docs/GUIDE.md#surveys)).
 - Revenue per source. A payment is credited to the buyer's last visit that came from a real source, so "clicked the
   launch tweet, came back directly two weeks later and paid" counts for the tweet. Without cookies that needs the
   signup to call `identify()`, which joins one person's daily visitor ids. Renewals stay with the source that won the
@@ -160,11 +163,33 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
   crawler hits (GPTBot, ClaudeBot, PerplexityBot) for a count per bot and page ([guide](docs/AI-VISIBILITY.md)).
 - People and recordings. A People tab lists everyone you know: signed in, paid, remembered or using your app. Each person
   gets one story, from the first visit to the payment, across their devices, once your site calls `identify()` at
-  sign-in ([Identify people](docs/GUIDE.md#identify-people)). With Record visits you can watch a visit to your website
-  like a video, with its clicks, rage clicks and errors marked. Pro turns it on for each new site with a website, together with
-  Remember visitors, and it never covers the iPhone app. Every input is masked, and `data-fd-mask` and `data-fd-block` hide more. The recordings sit in an R2
-  bucket on your own account that `npm run setup -- --replay` creates. See
-  [People and recordings](docs/GUIDE.md#people-and-recordings-pro).
+  sign-in ([Identify people](docs/GUIDE.md#identify-people)). Turn on Record visits and you can watch a visit to your
+  website like a video, with its clicks, rage clicks and errors marked. A Recordings page lists what to fix first:
+  clicks that changed nothing, fields people left, errors and pages nobody scrolls, each with example visits that open
+  at the moment. Your agent reads the same with the MCP tool `get_recordings`. Pro turns it on for each new site with a website,
+  together with Remember visitors, and it never covers the iPhone app. Every input is masked, and `data-fd-mask` and `data-fd-block` hide more. The recordings sit in an R2
+  bucket on your own account that `npm run setup -- --replay` creates; `--record <site id|all>` turns recording on in
+  the same run, and `--consent` records only visitors who accept your cookie banner. Each recording gets a summary of
+  2 to 4 sentences built from what the recorder saw, and the list filters by error issue, experiment version, channel,
+  paying customers and funnel step. See [People and recordings](docs/GUIDE.md#people-and-recordings-pro).
+- Retention for your website: a lifecycle chart (new, returning, back after a break, gone quiet) and a weekly retention
+  grid for the people your site recognizes, split by their first channel. See
+  [Retention and lifecycle](docs/GUIDE.md#retention-and-lifecycle).
+- Errors: JavaScript errors grouped into issues, each with the people and paying customers it hit, the top stack
+  frames and, on a recorded visit, the moment it happened. Mark an issue resolved and it comes back if the bug does.
+  One click sets an alert for the first time a new error shows up on your checkout. Off until you turn it on. See
+  [Errors](docs/GUIDE.md#errors-pro).
+- Experiments and feature flags on your website. Create one in the dashboard and paste its prompt into your coding
+  agent. Each version is judged on revenue per visitor and on the goal you pick, and the result says "too few
+  customers" until every version has 30. Experiments from your iOS app sit in the same list. See
+  [Experiments](docs/GUIDE.md#experiments-pro).
+- Click maps and scroll depth on a page's Content detail: the elements people click, drawn over your real page, and
+  how far down they read. Paths follows visits page by page, up to 4 steps, with the recordings of each step. See
+  [Click maps](docs/GUIDE.md#click-maps-heatmaps-and-scroll-depth-pro) and [Paths](docs/GUIDE.md#paths).
+- Two surveys: "How did you hear about us?" after signup and "Why are you canceling?" before a cancel, shown as a small
+  card on the pages you pick. Answers fill in what Direct visits leave out, and cancel reasons sit next to churn with
+  the MRR they took. Stripe's portal and Polar send cancel reasons with no code, and the App Store and Google Play send
+their category (through RevenueCat or Apple's notifications). See [Surveys](docs/GUIDE.md#surveys).
 - An iPhone app with widgets and a push notification for every payment.
 - An alert inbox keeps every alert for 90 days, one row per message and site, so an agent can read what fired since its
   last run ([guide](docs/GUIDE.md#alert-inbox-pro)). A threshold rule's webhook can send an auth header or a GitHub
@@ -185,12 +210,18 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
 - MRR in the alerts and the Monday report, a daily numbers message, and a verdict for each logged change on the number
   it was meant to move: an SEO edit on its page's Search Console clicks over 28 days, an ad budget change on CPA, an AI
   content change on the mention rate, an app price on paywall conversion.
-- All 38 MCP tools, with `query`, which answers metrics by up to 2 dimensions and a day, week or month for every site a
-  key covers in one call ([docs/MCP.md](docs/MCP.md#the-query-tool-pro)), alert rules, the research log and eight agent
+- All 39 MCP tools, with `query`, which answers metrics by up to 2 dimensions and a day, week or month for every site a
+  key covers in one call ([docs/MCP.md](docs/MCP.md#the-query-tool-pro)), alert rules, the research log and twelve agent
   skills.
 - Custom dashboards that your agent builds over MCP: numbers, lines, columns, bars, a country map, funnels and tables, run live when
   you open the page ([docs/MCP.md](docs/MCP.md#custom-dashboards-pro)).
 - Teammates with their own login, as owner or viewer.
+
+**What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
+builder. The Worker picks each visitor's flag and experiment version when the page view arrives, and the browser gets it
+in the answer. There is no flag call for a backend or an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
+frames point at the minified file. App Store and Google Play cancel reasons are the store's categories, never the
+customer's words. [FounderData vs PostHog](docs/vs/posthog.md) says what to keep PostHog for.
 
 ## Install
 
@@ -366,6 +397,23 @@ and D1 queries together) and a tick with nothing to do wrote no D1 rows except t
 one about 750 and a tick before 05:00 UTC with nothing new about 950, so the 288 ticks of a day read about 0.5 million of Free's 5 million. Once a site has nothing left to post
 for the UTC day, its ticks skip the scan of its keywords and pairs. Reads still grow with the pairs and keywords you track.
 
+Opening a page's click map (Pro) reads about 15 rows per mapped page view, the newest 2,000 at most (about 30,000
+rows), and the overlay about the same again.
+
+Some Pro reports read many rows. The free plan allows 5 million rows read a day, and D1 refuses queries for the rest of
+the UTC day once a database passes it. Measured on the demo, which has 6,196 visits in 30 days:
+
+| Report | Rows read |
+| --- | --- |
+| Paths, top pages / one page / a sequence of 1 to 3 pages | about 23 / 13 / 22 to 28 per visit of the range. A range with more than 75,000 events (40,000 with a sequence) reads only its newest visits and says so, so one look stays under 1 million |
+| Experiment detail | about 9 per visit of the site during the run |
+| Experiment list | about 10 per visit of the site during each web experiment's run, for each one, 20 at most |
+| Web lifecycle / web retention | about 40,000 / 30,000 on the demo, whatever the period. With Known people they read every visit of the people the site recognizes |
+
+At 3,000 visits a day, a 30-day Paths view hits the cap and reads up to about 825,000 rows. An experiment that ran 30
+days reads about 840,000 on its page. Six such opens a day reach the 5 million. These numbers come from local D1. Rows read
+on a production database: not measured.
+
 The hourly jobs never share a tick: phone pushes and alert rules run at minute 0, the weekly report at 07:05 on Mondays,
 the X poll at minute 15, the mail health check at minute 20, the Search Console sync at minute 30, the Meta ads import at minute 45, next actions at
 minute 50 (3 sites a tick) and the AI answer counts at minute 55. The Meta Conversions API sends what is pending on every
@@ -392,6 +440,17 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Web: `identify()` | 0 when no field changes. Otherwise 1 for the visitor row, plus 1 for each of email and user id the visitor has after the call. Traits ride on the same row |
 | Web: clicks, rage clicks and errors of one page in a recorded visit (Pro), in the ping it already sends | 0 when the page had none, else 4: one `activity` event, its 2 index entries and the id counter |
 | Recorded visit (Pro): the index row with its first chunk / each later chunk | 3 (the row and its 2 index entries) / 0. Each chunk is 1 Worker request and 1 R2 write |
+| Recorded visit (Pro): a chunk that carries a changed digest / the same digest | 1 (an update of a column with no index) / 0. A visit too short to save its first snapshot sends a stub chunk 0: 3, as any first chunk |
+| Recording health (Pro): a refused upload or a recorder that could not load | 1 at most once an hour per site and Worker instance |
+| Web: a running experiment (Pro) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
+| Experiment (Pro): created, changed or deleted / started or stopped | 2: its row and the site's list of running experiments / 5: those 2 and 3 for its [chart note](docs/GUIDE.md#chart-notes) |
+| Survey answer from the survey card or `founderdata('answer', ...)` / a cancel reason from a Stripe or Polar webhook | 2, 1 when the visitor's trait did not change, 0 for the same answer again that day / 1, plus 1 when the subscription has a visitor |
+| Cancel reason from the App Store or Google Play (RevenueCat, or Apple's notifications) | 1, no trait. The expiry that follows a cancellation of the same period, and a retry, 0 |
+| Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on |
+| Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more / 0 |
+| Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
+| Error issue (Pro) resolved, ignored or reopened / the first new error alert rule / a later one | 1 / 3: the rule's 2 rows plus 1 for the dashboard address its alerts link to / 2 |
+| Errors page (Pro) opened in the dashboard | 0. 1 the first time it saves the dashboard address alerts link to, or when that address moved |
 | App: typical session of a known install | 36 |
 | App: a new install's first session / a relaunch the same day without consent. An install that Apple Search Ads attributes writes 2 rows more when Apple answers | 7 / 3 to 5 |
 | Payment from Stripe, the App Store or another provider | 5 to 9. A subscription event that cancels a paying subscription or fails its renewal adds 1 alert inbox row |
@@ -445,6 +504,30 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 The [guide](docs/GUIDE.md#what-the-free-plan-covers) has every write path. ASO for 3 apps with 30 keywords in 3
 countries writes under 100 rows a day.
 
+### Recordings (Pro)
+
+For 200, 1,000 and 3,000 recorded visits a day, kept the default 30 days:
+
+| Recorded visits a day | 200 | 1,000 | 3,000 | Free plan |
+| --- | --- | --- | --- | --- |
+| D1 rows written a day | 7,800 | 39,000 | 117,000 | 100,000 a day |
+| Worker requests a day | 2,400 | 12,000 | 36,000 | 100,000 a day |
+| R2 writes a month (Class A) | 48,000 | 240,000 | 720,000 | 1 million a month |
+| R2 reads a month (Class B) | 18,000 | 90,000 | 270,000 | 10 million a month |
+| R2 storage | 0.9 GB | 4.5 GB | 13.5 GB | 10 GB |
+
+The free plan ends near 2,200 recorded visits a day, where storage passes 10 GB; D1 rows pass 100,000 near 2,500. Before
+that, FounderData's daily write cap stops all sites together at 80,000 rows a day, about 2,000 recorded visits, and one
+site at 40,000 when there are several, unless you change it (Settings, Data and privacy). Visits you don't record write their own rows on top. The default maximum of 1,000
+recorded visits a day stays inside every limit; keeping recordings 7 days instead of 30 cuts storage to a quarter.
+
+The table assumes each recorded visit is a new visitor with 3 page loads of a minute each and clicks on one page. Per
+visit that is 39 rows (21 for the three pageviews, 6 for the pings with page speed, 4 for the clicks, 3 for the
+recording's row and 5 digest updates, the counts `pro/test/cost.test.ts` pins), 12 requests (3 pageviews, 3 pings,
+6 chunks: one 30 seconds into each page and one as it is left), 8 R2 writes (6 chunks and 2 lists when a later page finds
+the chunks before it) and 3 R2 reads (a check per page). Storage assumes 150 KB a visit, gzipped; a minute on a busy
+dashboard page measured 30 to 60 KB. Watching a recording reads one R2 object per chunk.
+
 The tracker endpoint is public, so each site has a daily write cap, on by default: your sites share 80,000 rows a day,
 and a busy site can use what quiet sites leave, up to half. Fake traffic can't use up the free plan or run up a paid bill. Past the
 cap, website events are dropped and the app holds its events until 00:00 UTC. You can give a site its own cap in its
@@ -469,7 +552,7 @@ server.
 
 The code is laid out like this:
 
-- `public/js/script.js` is the tracker. The build minifies it to about 4 KB gzipped.
+- `public/js/script.js` is the tracker. The build minifies it to 15,554 bytes, 6,670 gzipped.
 - `src/worker` is a [Hono](https://hono.dev) app on Cloudflare Workers. It takes in events, webhooks and API calls and
   runs the stats queries on D1.
 - `src/dashboard` is the React dashboard (Vite, Tailwind, Recharts). The same Worker serves it as static files.
@@ -481,7 +564,7 @@ The code is laid out like this:
 
 - [Guide](docs/GUIDE.md): everything the dashboard tracks, cookies and consent, each payment provider, how revenue is
   counted, accuracy notes. Sections marked (Pro) need FounderData Pro.
-- [FounderData vs other tools](docs/vs/README.md): side-by-side pages for DataFast, Plausible, OpenSEO, Astro, RevenueCat and ChartMogul, Peec and Profound, with what FounderData does not do and how to move over.
+- [FounderData vs other tools](docs/vs/README.md): side-by-side pages for DataFast, Plausible, PostHog, OpenSEO, Astro, RevenueCat and ChartMogul, Peec and Profound, with what FounderData does not do and how to move over.
 - [Import web history](docs/IMPORT.md): bring in a Plausible CSV export, or read a DataFast site through its API with your key. Past traffic shows in the chart and the top panels, and a source filter answers from it. Other tools that export Plausible's CSV files may work; only Plausible's is tested.
 - [App API](docs/APP-API.md): the contract between the server and the iOS SDK.
 - [App events](docs/APP-EVENTS.md): a naming convention for onboarding, paywall and purchase events.
@@ -495,7 +578,7 @@ The code is laid out like this:
   subprocessors, a GDPR checklist, a balancing test template, a breach procedure and an answer sheet for procurement.
 - [MCP server](docs/MCP.md): connect Claude Code, Cursor or another agent to `/mcp` with one scoped key, and the OpenAPI
   spec at `/api/v1/openapi.json`. Pro adds a research log where agents record what they found and paid for, the
-  history of AI answer checks, and nine workflows as MCP prompts.
+  history of AI answer checks, and twelve workflows as MCP prompts.
 - [API](docs/API.md): the payments and goals API, the read API for stats, share links and badges, CSV export, and
   erasing one person.
 

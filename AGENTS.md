@@ -75,6 +75,10 @@ Run these in order. Steps marked **(human)** need the person you work for, so as
      themselves, so the value stays out of this chat. Google's **Connect Google** click is theirs too.
    - You do the rest: site settings, keywords, the DataForSEO cap, AI prompts, the ASO collector's `--probe` and its
      schedule.
+   - Recordings (Pro): `npm run setup -- --replay` adds the R2 bucket and deploys again, so ask before you run it. Add
+     `--record <site id>` or `--record all` to turn Record visits on in the same run; it prints what recording means for
+     visitors in the EU and the UK, and asks before it turns on more than one site unless they say `--yes`. Ask whether
+     they want `--consent`, which records only visitors who accept the cookie banner. `--help` lists every flag.
 7. Check the setup checklist. Log in with a cookie jar (`curl -c jar` on the login above), then call
    `curl -s -b jar <url>/api/setup`. Each row they picked must say `ok`, and the rest `off`. For any other status, do
    what its `next` field says. Test the DataForSEO and X logins with `curl -s -b jar -X POST <url>/api/setup/test/dataforseo`

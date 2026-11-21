@@ -5,6 +5,8 @@ import { JwsError, verifyAppleJws } from './lib/apple-jws';
 import { announce, pusherOf, type Pusher } from './notify';
 import { creditedSession, currencyDecimals, recordPayment, recordSignal, SANDBOX_PROVIDER } from './payments';
 import { appleSubscriptionEvent, recordSubscription, type AppleNotice } from './subscriptions';
+import { storeCancelStatement } from './surveys';
+import type { StoreReason } from '../shared/surveys';
 
 /** The fields of a StoreKit 2 / App Store Server API JWSTransactionDecodedPayload that we use. */
 export interface AppleTransaction {
@@ -148,7 +150,33 @@ export async function recordAppleSubscriptionNotice(db: D1Database, site: Site, 
   const sub = appleSubscriptionEvent(tx, prov, {}, notice);
   if (!sub) return 'free';
   await recordSubscription(db, site, sub);
+  // Apple's reason for a cancellation, for "Why they cancel" (1 row; none for a retry or for the EXPIRED of a period
+  // whose AUTO_RENEW_DISABLED came first).
+  const reason = appleCancelReason(notice);
+  if (reason && prov !== SANDBOX_PROVIDER) {
+    await storeCancelStatement(db, site, {
+      via: 'app_store',
+      subscriptionId: String(tx.originalTransactionId),
+      at: Number(notice.signedDate) || Date.now(),
+      expiresAt: Number(tx.expiresDate) || null,
+      reason,
+      visitorId: null,
+      eventId: `${notice.type}:${tx.transactionId}`,
+    }).run();
+  }
   return 'subscription';
+}
+
+/**
+ * The cancel reason an App Store Server Notification carries (src/shared/surveys.ts STORE_REASONS): renewal turned off,
+ * or the subscription expired for a reason Apple names. Null for every other notification.
+ */
+export function appleCancelReason(n: Pick<AppleNotice, 'type' | 'subtype'>): StoreReason | null {
+  const sub = String(n.subtype ?? '').toUpperCase();
+  if (n.type === 'DID_CHANGE_RENEWAL_STATUS') return sub === 'AUTO_RENEW_DISABLED' ? 'unsubscribed' : null;
+  if (n.type === 'GRACE_PERIOD_EXPIRED') return 'billing_error';
+  if (n.type !== 'EXPIRED') return null;
+  return ({ VOLUNTARY: 'unsubscribed', BILLING_RETRY: 'billing_error', PRICE_INCREASE: 'price_increase', PRODUCT_NOT_FOR_SALE: 'developer' } as Record<string, StoreReason>)[sub] ?? 'unknown';
 }
 
 /** REFUND / REVOKE: a negative row for the transaction, linked like the original payment. */

@@ -47,6 +47,12 @@ Under them, one row holds every section of the site in four groups:
 In core, every section after Overview opens the Pro card, which explains what the section shows and how to get Pro.
 The rest of this part describes Pro.
 
+**What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
+builder. The Worker picks each visitor's flag and experiment version when the page view arrives, and the browser gets it
+in the answer. There is no flag call for a backend or an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
+frames point at the minified file. App Store and Google Play cancel reasons are the store's categories, never the
+customer's words. [FounderData vs PostHog](vs/posthog.md) says what to keep PostHog for.
+
 Every section is one click away on every site. A section the site cannot use yet stays in the row in gray with a
 hollow dot. It opens a screen that names the missing step and links to it in Settings: a website for Content, SEO and
 AI visibility, an app for App, ASO and App Store, a payment provider for Subscriptions. Meta ads and Apple Search Ads
@@ -345,8 +351,23 @@ prompt** button: paste the prompt into Claude Code or Cursor and it does the ins
 | --- | --- |
 | 100,000 Worker requests/day | One request per web event (pageview, goal, outbound click, engaged-time ping) and one per app batch of up to 50 events. The script and dashboard files are static and don't count. |
 | 100,000 D1 rows written/day | The binding limit. See the table below: about 3,100 typical web visits a day, or 2,700 app sessions, or a mix. |
-| 5M D1 rows read/day | A dashboard load reads roughly 10 times the sessions in the range, so with 10k visitors/month that's hundreds of loads a day |
+| 5M D1 rows read/day | A dashboard load reads roughly 10 times the sessions in the range, so with 10k visitors/month that's hundreds of loads a day. Some Pro reports read more, measured on the demo below. Past 5 million, D1 refuses queries until 00:00 UTC |
 | 5 GB D1 storage | Years of data at side-project traffic |
+
+Rows read by the Pro reports, measured on local D1 with the demo (6,196 visits in 30 days). Rows read on a production
+database: not measured.
+
+| Pro report | D1 rows read |
+| --- | --- |
+| [Paths](#paths): top pages / one page / a sequence of 1 to 3 pages | About 23 / 13 / 22 to 28 per visit of the range. A range with more than 75,000 events (40,000 with a sequence) reads only its newest visits, so one look stays under 1 million |
+| [Experiment](#experiments-pro) page | About 9 per visit of the site during the run |
+| Experiments list | About 10 per visit of the site during each web experiment's run, for each one, 20 at most |
+| [Retention and lifecycle](#retention-and-lifecycle) | About 30,000 / 40,000 on the demo, whatever the period. With Known people they read every visit of the people the site recognizes |
+| Click map | About 15 per mapped page view, the newest 2,000 at most (about 30,000), and the overlay about the same again |
+
+An example at 3,000 visits a day. A 30-day Paths view has about 315,000 events, so it hits the cap and reads up to
+825,000 rows. An experiment that ran 30 days reads about 840,000 on its page, and the list reads about 940,000 for it.
+Six such opens a day use the 5 million. Shorter ranges cost less: a 7-day Paths view reads about 480,000.
 
 D1 counts each index entry it writes as a row. These are the rows each write path costs, measured on local D1 by
 `test/cost.test.ts` for core and by a cost test in the Pro repository for Pro's write paths. Each test fails if a
@@ -361,6 +382,19 @@ number changes:
 | Web: the ping when a page of a recorded visit is hidden or left, with its clicks, rage clicks and errors ([People and recordings](#people-and-recordings-pro)) | 4 more (one `activity` event: the row, its 2 index entries and the id counter), 0 when the page had none |
 | Recorded visit (Pro): the first chunk / each later chunk | 3 (its row in `replays` and 2 index entries) / 0. Each chunk is 1 Worker request, about one every 30 seconds of the visit, and 1 R2 write |
 | Web: the ping when a page is hidden, with that page load's Core Web Vitals ([Page speed](#page-speed)) | 2: the ping and 1 row in `vitals`. At a lower sample, 1 for the loads it skips |
+| Web: a running experiment ([Experiments](#experiments-pro)) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
+| Experiment (Pro): created, changed or deleted / started or stopped | 2: its row and the site's list of running experiments / 5: those 2 and 3 for its [chart note](#chart-notes) |
+| Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change, 0 for the same answer again that day. Each answer is 1 Worker request |
+| Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on. `/js/survey.js` is 1 request, cached |
+| Cancel reason from a Stripe or Polar webhook | 1, plus 1 when the subscription has a visitor. The webhook request is already counted |
+| Cancel reason from the App Store or Google Play (a RevenueCat cancellation or expiration, Apple's renewal turned off or expired notice) | 1, no trait. The expiry that follows a cancellation of the same period, and a retry, 0 |
+| Web: click map of one page view ([Click maps](#click-maps-heatmaps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more. 0 with click maps off |
+| Web: scroll depth of one page load | 0, a column of the page speed row |
+| Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
+| Error issue (Pro) resolved, ignored or reopened | 1 |
+| Errors page (Pro) opened in the dashboard | 0. 1 the first time it saves the dashboard address alerts link to, or when that address moved |
+| New error alert rule (Pro): the first one / a later one / checked hourly | 3 (the rule's 2 rows plus 1 for the dashboard address its alerts link to) / 2 / 1 when it fires, plus 1 [inbox](#alert-inbox-pro) row per alert |
+| Reading lifecycle, retention, paths, experiment results or a click map (Pro), or error issues through the API | 0. Rows read are in the table above |
 | App: new install's first `session_start` | 7 (6 with a kept install id: consent or `.vendor`) |
 | App: relaunch on the same day without consent, `session_start` only | 3 within 30 minutes of the last activity (the session continues), 5 later |
 | App: screens and goals in one batch | 3 each, plus 2 per batch (the session update and the id counter) |
@@ -372,7 +406,7 @@ number changes:
 | App: consented install (`ctx.consent`) | 0 extra, 1 fewer for the first `session_start` |
 | App Store purchase (app event or notification) | 6, a repeat delivery 0 to 1; 7 for a subscription (its row in `subscriptions`). Each payment credited to a visitor counts 1 for its entry in the index that tells the [live globe](MOBILE-API.md#9-live-visitors) who has paid before |
 | App Store free trial from the app (a `trial_start` signal, no payment) | 3, a repeat delivery 1; 5 with the subscription's row and its entry in the trial index |
-| App Store auto-renew off or on, failed renewal, expiry (notification) | 1, plus 1 [inbox](#alert-inbox-pro) row when a paying subscription fails to renew or is canceled |
+| App Store auto-renew off or on, failed renewal, expiry (notification) | 1, plus 1 [inbox](#alert-inbox-pro) row when a paying subscription fails to renew or is canceled, plus 1 for the cancel reason when renewal turns off or the subscription expires (once per period) |
 | App Store sales import (below): a day with 20 sales rows, first import / re-import | 63 / 82 |
 | Apple Search Ads import (below): 1 campaign and 2 keywords over 3 days, first import / unchanged re-import | 13 / 1 |
 | Meta ads import ([below](#meta-ads-pro)): 3 ad-days, 4 names and the 7-day frequency of 1 ad, first import / unchanged re-import | 11 / 1 |
@@ -382,7 +416,7 @@ number changes:
 | Stripe subscription payment (`invoice.paid`) | 9: the payment and its invoice id in `stripe_objects`, and the subscription's row |
 | Stripe `customer.subscription.*`, `invoice.payment_failed`, a subscription Checkout | 1 each (2 when it creates a subscription with a trial: the trial index), a repeat delivery 0. A failed payment or cancellation of a paying subscription adds 1 [inbox](#alert-inbox-pro) row |
 | RevenueCat purchase / refund | 6 / 4 (a subscription purchase updates its row), a repeat delivery (or a purchase the SDK already sent) 0 |
-| RevenueCat trial start / cancellation, expiration, billing issue | 4 (the signal, the subscription's row and its entry in the trial index) / 3 each (the signal and the subscription's row), 4 for a paying subscription (its [inbox](#alert-inbox-pro) row) |
+| RevenueCat trial start / cancellation, expiration, billing issue | 4 (the signal, the subscription's row and its entry in the trial index) / 3 each (the signal and the subscription's row), 4 for a paying subscription (its [inbox](#alert-inbox-pro) row). An App Store or Google Play cancellation or expiration adds 1 for its cancel reason, once per period |
 | Lemon Squeezy, Polar, Paddle or Gumroad payment / refund | 5 / 4, a repeat delivery 0 |
 | Dodo payment / a subscription's payment / a subscription event / a cancellation, expiry or failed renewal | 5 / 6 (the subscription's row) / 1 / 3 (the signal and the row), 4 for a paying subscription (its [inbox](#alert-inbox-pro) row), a repeat delivery 0 |
 | A payment that fills its visitor's empty email or name | 1 more for the visitor row, plus 1 for each of email and user id the visitor has after it (2 for a first email). 0 when both are already set |
@@ -2801,6 +2835,14 @@ notes clears it. The Monday report and
 site's status chip, "down 3 weeks" says its weekly revenue (or visitors, without revenue) ended below the week before
 3 weeks in a row. It shows from 2 weeks.
 
+FounderData adds notes of its own: each new app version, and each start and stop of a web experiment, such as
+"Experiment started: Pricing headline" with "experiments" as who made it ([Experiments](#experiments-pro)). A version
+note gets a verdict and a review like your notes. An experiment note gets no verdict: both versions run in the days
+after it, so before and after compare a mix of the two. Its row says "Judged on the experiment page" and has a **See
+results** button that opens the experiment, and the strip above the list counts it as "judged as experiments". A
+note_verdict alert never fires on it, and `GET /api/v1/notes/<id>/impact` answers `verdict` `null` with a link to the
+experiment ([API.md](API.md#experiments-pro)). You can delete either kind the same way.
+
 Deploy scripts and CI add notes with the site's API key ([API.md](API.md#post-apiv1notes)):
 
 ```bash
@@ -2917,6 +2959,27 @@ Each stored page load writes 1 D1 row with no visitor id ([PRIVACY.md](PRIVACY.m
 sample setting: 100% of page loads by default, or 50%, 25%, 10% or off. A busy site can lower it to save rows. The rows
 are deleted after 90 days.
 
+### Paths
+
+Content has two views, **Pages** and **Paths**. Paths follows visits through the site one page at a time. It starts
+with the pages where visits begin. Click one, and it follows every visit that viewed that page, wherever the visit
+started. It shows the pages people went to next, with how many visits did, how many left right there and how many of
+those visitors paid later. Click a next page to add it as a step. Paths follows up to 3 pages, such as `/` >
+`/pricing` > `/signup`, and lists the pages visits went to after the last one. A page that repeats in a row counts once.
+**Left there** is the share of visits that ended on that page.
+
+Each step has **Watch visits**, which opens the recorded visits that viewed that page, and a link to the page's
+Content detail. The URL keeps the steps (`/content/paths?seq=/,/pricing`), so you can share it with a teammate.
+
+The page detail has a smaller version, **Before and after this page**: the 5 pages visits came from and went to next.
+
+Agents read the same numbers with `get_app_funnel`, `report: "paths"` and `sequence: ["/", "/pricing"]`
+([API.md](API.md#funnels-and-paths)). An agent's key without `read:revenue` gets no paid numbers. Paths writes no
+rows. It reads the page views of the period: about 23 database rows per visit for the first view, 13 for one page and 22
+to 28 for a sequence. A period with more than 75,000 events
+(40,000 once you pick a page) reads only its newest visits, so one look stays under 1 million rows. The card says so
+under its table.
+
 ## Email (Resend) (Pro)
 
 The Email panel at the bottom of a site's Overview counts the emails the site sent through Resend: sent, delivered,
@@ -2969,7 +3032,10 @@ The list has four filters:
 | People you know | Signed in, paid, came back on another day, or use your app |
 | Customers | Paid at least once. Newest payment first, with the day of the payment |
 | Has recordings | At least one recorded visit |
-| Had trouble | A recorded visit with an error, or 3 or more fast clicks on one thing (a rage click) |
+| Had trouble | A recorded visit with an error, or one where someone clicked one thing again and again (3 or more clicks, each within a second) |
+
+Recorded visits have their own section, **Recordings**, right after People. See
+[The Recordings page](#the-recordings-page). A Watch button on a person's visit still opens the player in place.
 
 ### Identify people
 
@@ -3024,25 +3090,145 @@ app visit shows "Opened the app" and the screens viewed, and a subscription show
 
 ### Turn on recordings
 
-Recordings are of your website only. The iPhone app is never recorded: its visits show as screens and events.
+Recordings are of your website only. The iPhone app is never recorded: its visits show as screens and events. Do the
+first four steps before you turn the switch on, so the first recording already follows them.
 
-1. Run `npm run setup -- --replay`. It creates the R2 bucket `<database name>-replay` in the database's jurisdiction,
-   adds a rule that deletes each file 90 days after upload, and binds the bucket as `REPLAY_BUCKET`. Cloudflare asks
-   for a payment method once to turn on R2, even when you stay inside the free tier.
-2. Open the site's Settings, then Data and privacy, and check **Record visits**. A website you add with Pro starts with it
-   on when it has a website, and recording begins once the bucket is bound. A site you added before this release keeps the setting it had.
-3. Decide on consent. In the EU and the UK, recording a visitor's screen usually needs their consent. By default a
-   visit is recorded whether or not the visitor accepted your cookie banner. Turn on **Wait for consent** under
-   Advanced, and a visit records only after your banner calls `founderdata('consent', true)`, or on pages with
-   `data-cookies="on"`. Then add the paragraph from [PRIVACY.md](PRIVACY.md#recordings-pro) to your privacy policy.
-4. List the pages that must never be recorded, such as an account area or an admin dashboard that shows your
-   customers' data. Open **Advanced** and enter them under **Pages that are never recorded**, one per line, such as
+1. **Storage.** Run `npm run setup -- --replay` in your FounderData folder. It creates the R2 bucket
+   `<database name>-replay` in the database's jurisdiction, adds a rule that deletes each file 90 days after upload,
+   binds the bucket as `REPLAY_BUCKET`, and deploys the Worker again, as every run of `npm run setup` does. R2 must be
+   on for the Cloudflare account: Cloudflare asks for a payment method once to turn it on, even when you stay inside
+   the free tier. `npm run setup -- --help` lists every flag.
+2. **Consent.** In the EU and the UK, recording a visitor's screen usually needs their consent. By default a visit is
+   recorded whether or not the visitor accepted your cookie banner. Turn on **Wait for consent** under Advanced, and a
+   visit records only after your banner calls `founderdata('consent', true)`, or on pages with `data-cookies="on"`.
+   Add the paragraph from [PRIVACY.md](PRIVACY.md#recordings-pro) to your privacy policy; the Record visits card has a
+   sentence you can copy.
+3. **Pages that are never recorded.** List the pages that show your customers' data, such as an account area or an
+   admin dashboard. Open **Advanced** and enter them under **Pages that are never recorded**, one per line, such as
    `/dashboard`. A page is skipped when its path is `/dashboard` or starts with `/dashboard/`, so `/dashboards` is
    still recorded. Up to 20 paths.
+4. **Masking.** Typing is always hidden. Put `data-fd-mask` on text that must not show, such as a name or an address,
+   and `data-fd-block` on whole parts of a page, such as an embedded document ([What a recording hides](#what-a-recording-hides)).
+5. **Content-Security-Policy.** If your site sends one, add your FounderData host to the `script-src` and
+   `connect-src` it already has, and keep what is there:
+
+   ```
+   script-src 'self' https://founderdata.example.com
+   connect-src 'self' https://founderdata.example.com
+   ```
+
+   A policy with only `default-src` covers scripts and uploads too: add a `script-src` and a `connect-src` that each
+   repeat what `default-src` allows, plus the host, or the recorder stays blocked. When the tracker loads through a
+   proxy on your own domain, the host is that domain, which `'self'` already allows; the proxy must pass
+   `/js/replay.js` and `/api/rec` on to FounderData as well.
+6. **The switch.** Open the site's Settings, then Data and privacy, and turn on **Record visits**. The Recordings page
+   has the same switch while recording is off. `npm run setup -- --replay --record <site id>` (or `--record all`)
+   turns it on from the terminal; it prints what recording means for visitors in the EU and the UK, asks before it
+   turns on more than one site unless you add `--yes`, and with `--consent` turns on Wait for consent in the same step.
+   A website you add with Pro starts with Record visits and Remember visitors on, and recording begins once the bucket
+   is bound. A site you added before 1.5 keeps the setting it had.
 
 The script tag stays the same. For a visit the server picks, the script loads `/js/replay.js` from your Worker. Other
 visits load nothing more. Your own visits with `?rt_ignore=true` and bots are never recorded. Recording sets no
 cookie and stores nothing in the browser.
+
+**The checklist.** The Record visits card (Settings, Data and privacy, or `/site/<id>/settings#record-visits`) shows
+four lines. While one is open it checks them again every 15 seconds for 10 minutes, then every minute, and not while
+the tab is hidden:
+
+1. Storage ready: step 1 above is done.
+2. Recording is on.
+3. Your site sent a visit since then. Open your site in a new tab to send one.
+4. First recording received. A recording shows up a minute or two after the visit.
+
+Once all four are done, the card shows one line instead, such as "Recording works. Last recording 3 minutes ago."
+When visits arrive and no recording does, after 10 visits or 30 minutes, the card lists the causes that apply.
+
+**No recording arrives.** What can cause it, and what to do:
+
+| Cause | What you see | What to do |
+| --- | --- | --- |
+| R2 is not on, or `--replay` never ran | Line 1 of the checklist is open | Run `npm run setup -- --replay`. Turn on R2 in the Cloudflare dashboard first if it asks |
+| The Content-Security-Policy blocks the recorder or its upload | Visits arrive, recordings don't. A blocked script leaves a note on the card | Add the host to `script-src` and `connect-src` (step 5) |
+| An ad blocker | Some visitors' recordings are missing, and the card may say a browser could not load the recorder | Nothing for those visitors. Proxying the script through your own domain helps |
+| Wait for consent is on | Only visitors who accepted the banner are recorded | Accept your own banner when you test |
+| Only a share of visits is recorded | Few recordings on a quiet site | Set **Record every visit, or only some** to every visit while you test |
+| Today's maximum is reached | No new recordings until 00:00 UTC | Raise **Most visits recorded a day**, or wait |
+| The visit saw only pages that are never recorded | No recording for that visit | Test on another page |
+| A bot, an automated browser, or a visit from a hosting network (a cloud server, many VPNs) | No recording, by design | Test from a normal browser on a home or office connection |
+| Your own visit with `?rt_ignore=true` | No recording, by design | Open the site without it |
+| A very short visit | A recording with steps and no video ("too short to save the video") | Stay on the page a few seconds |
+| The upload came from another domain | The card names the domain an upload came from | Check the site's domain in Settings, Site |
+
+**Copy AI prompt** on the card gives your coding assistant the whole setup as one prompt: the setup command when
+storage is missing (it asks you before it runs it, since it deploys), the two policy lines, `data-fd-mask` and
+`data-fd-block` on private text, the logged-in paths for **Pages that are never recorded**, and a call to
+`founderdata('consent', true)` from your cookie banner.
+
+### The Recordings page
+
+Open **Recordings** in the Analytics group of the site's sections, or go to `/site/<id>/recordings`. The period picker
+sets the dates. The page has two parts.
+
+**What to fix** puts the patterns across recorded visits in plain sentences, such as "12 people clicked "Compare
+plans" on /pricing and nothing happened", with the recorded visits under each. Errors, clicks that did nothing, clicks
+again and again and forms left behind come first, the ones that hit the most people on top; within one kind, a
+checkout, pricing or signup page, or a page where a goal fired, comes first. Pages people went right back from and
+pages most visits scroll less than a quarter of follow under **Also worth a look**, so a blog post nobody scrolled
+never ranks above a broken pricing button. The words mean the same everywhere on the page:
+
+| Words | What happened |
+| --- | --- |
+| Error | A JavaScript error on the page |
+| Clicked, nothing happened | A click after which the page did not change for 2.5 seconds, and nothing scrolled, opened or was copied |
+| Clicked again and again | 3 or more clicks on one element, each within a second of the last |
+| Left a form | Typed in a field and never sent its form |
+| Went right back | Left a page within 5 seconds for the page before |
+
+Each line has **Watch** and up to two more examples, which open the player 3 seconds before the moment. **Copy AI
+prompt** copies the whole list as text for your coding assistant, with the element, the example ids and how to dig
+further with `get_recordings`; paste it into your coding assistant (Claude Code, Cursor) in your website's folder. The
+part shows from 5 recorded visits, and under 30 it says to treat each line as a lead. The page and device filters below
+narrow it too. What happened, Result and Left from pick visits for the list only, and the part says so while one is on.
+
+**Worth watching** lists the recorded visits with the most going on first, each with one sentence on what happened,
+in the order it happened, such as "Saw the error "TypeError: plan is undefined" on /signup, then clicked "Buy" again and
+again, 4 times on /signup." A visit scores points for an error (30), a click that did nothing (20, or 30 for 3 or
+more), clicking again and again (25), leaving a form (15), going right back (10), paying or signing up (15) and
+leaving from a pricing or checkout page without converting (10). Visits under 5 seconds lose 30. Switch to **Newest**
+for every recording by time. Filters sit in the address, so a filtered list can be shared:
+
+| Filter | Address | Keeps the visits that |
+| --- | --- | --- |
+| Page | `?page=/pricing` | saw that page. Type to pick from the pages recorded visits saw |
+| What happened | `?signal=dead`, `rage`, `error`, `abandoned`, `quick_back` | had that signal |
+| Result | `?outcome=paid`, `signed_up`, `none` | paid, signed up, or did neither |
+| Device | `?device=desktop`, `mobile`, `tablet` | used that device |
+| Left from | `?exit=/pricing` | ended on that page (Drop-off's links set it) |
+
+**The player** opens at `/site/<id>/recordings/<session id>?t=<seconds>` and starts at that second, also when you open
+it from People or a person's page, so a reload keeps it open. Closing it puts the list's address back, so Back does not
+open it again. **Copy link** copies the address at the second on screen and says "Copied". The header shows the
+sentence on what happened, the visit's length (the same length as in the list) and how far down the page on screen the
+visitor scrolled. A click that did nothing is a small amber dot on the bar and a step in the list; at that step, and
+at a click again and again, a ring on the cursor shows where the click was. When a visitor left before the first part
+of the video could be saved, the player says "This visit was too short to save the video. Its steps are below." and
+lists the steps. The old address `/site/<id>/people/recordings` opens the Recordings page.
+
+Three reports link here when the period has recorded visits:
+
+- Content: **Watch visits** next to a page opens the visits that saw it.
+- Drop-off: **Watch visits that left here** next to a web exit page opens the visits that ended there without buying.
+- Overview: a small card under the numbers, such as "3 visits worth watching", when a visit of the period scores 40 or more.
+
+### Let your agent read recordings
+
+An agent can't watch a video, so FounderData gives it the facts behind each recording. The MCP tool `get_recordings`
+answers with the same patterns, list and steps the page shows ([MCP.md](MCP.md#recordings-pro)). A good order is
+`view` `patterns` first, then one or two examples with `view` `one` and the example's `session_id`, then the site's
+code. The answer never guesses why a visitor did something, and every `watch_url` in it opens the player at the
+moment for you. When recording is off or caught nothing yet, the answer says what you need to do instead. The
+`founderdata-recordings-review` skill ([Skills](MCP.md#skills-pro)) runs this order and logs each fix with `add_note`.
 
 ### What a recording hides
 
@@ -3056,29 +3242,38 @@ cookie and stores nothing in the browser.
 
 Put `data-fd-mask` on anything that shows personal data, such as the name and address on an account page.
 
-A recorded visit also notes clicks on links and buttons, form submits, rage clicks (3 or more clicks on one element,
-each within a second of the last) and JavaScript errors. They travel with the ping the script already sends when a page
-is hidden. A click's label is the button's visible text, cut to 40 characters. Inside `data-fd-mask` or
-`data-fd-block` it is the tag name instead, such as `button`.
+A recorded visit also notes clicks on links and buttons, form submits, clicks again and again (3 or more clicks on one
+element, each within a second of the last, with the element's tag and class) and JavaScript errors. They travel with
+the ping the script already sends when a page is hidden. A click's label is the button's visible text, cut to 40
+characters, without the text of anything inside it that is masked, blocked, editable or a form field. Inside
+`data-fd-mask` or `data-fd-block` it is the tag name instead, such as `button`. A click on a large block that is no
+button or link, holding several elements, is named by its tag and class, such as `div.card`, never by its text.
 
 ### What it costs
 
-A site with 100 recorded visits a day stays far inside the free tiers: about 1,500 rows written and 700 requests a
-day, and 21,000 R2 writes and about 450 MB of storage a month.
+What recordings cost, for 200, 1,000 and 3,000 recorded visits a day, kept the default 30 days:
 
-The numbers behind it, per recorded visit of 3 minutes with clicks on 3 pages:
+| Recorded visits a day | 200 | 1,000 | 3,000 | Free plan |
+| --- | --- | --- | --- | --- |
+| D1 rows written a day | 7,800 | 39,000 | 117,000 | 100,000 a day |
+| Worker requests a day | 2,400 | 12,000 | 36,000 | 100,000 a day |
+| R2 writes a month (Class A) | 48,000 | 240,000 | 720,000 | 1 million a month |
+| R2 reads a month (Class B) | 18,000 | 90,000 | 270,000 | 10 million a month |
+| R2 storage | 0.9 GB | 4.5 GB | 13.5 GB | 10 GB |
 
-| What | Per visit | Free tier |
-| --- | --- | --- |
-| D1 rows written | 3 for the index row, plus 4 for each page with clicks or errors: 15 | 100,000 a day |
-| Worker requests | 1 per chunk, a chunk about every 30 seconds: 7 | 100,000 a day |
-| R2 writes | 1 per chunk: 7 | 1 million a month |
-| R2 storage | About 150 KB, gzipped. A minute on a busy dashboard page measured 30 to 60 KB | 10 GB |
+The free plan ends near 2,200 recorded visits a day, where storage passes 10 GB; D1 rows pass 100,000 near 2,500. Before
+that, FounderData's daily write cap stops all sites together at 80,000 rows a day, about 2,000 recorded visits, and one
+site at 40,000 when there are several, unless you change it (Settings, Data and privacy). Visits you don't record write their own rows on top. The default maximum of 1,000
+recorded visits a day stays inside every limit; keeping recordings 7 days instead of 30 cuts storage to a quarter.
 
-At the default limit of 1,000 recorded visits a day that is 15,000 rows and 7,000 requests a day, out of 100,000 of
-each, and 210,000 R2 writes a month. To record fewer, lower **Most visits recorded a day** or **Record every visit, or
-only some** under Advanced.
+The table assumes each recorded visit is a new visitor with 3 page loads of a minute each and clicks on one page. Per
+visit that is 39 rows (21 for the three pageviews, 6 for the pings with page speed, 4 for the clicks, 3 for the
+recording's row and 5 digest updates, the counts `pro/test/cost.test.ts` pins), 12 requests (3 pageviews, 3 pings,
+6 chunks: one 30 seconds into each page and one as it is left), 8 R2 writes (6 chunks and 2 lists when a later page finds
+the chunks before it) and 3 R2 reads (a check per page). Storage assumes 150 KB a visit, gzipped; a minute on a busy
+dashboard page measured 30 to 60 KB. Watching a recording reads one R2 object per chunk.
 
+To record fewer, lower **Most visits recorded a day** or **Record every visit, or only some** under Advanced.
 ### Settings
 
 The **Record visits** switch is all most sites need. **Advanced** holds the rest:
@@ -3088,13 +3283,427 @@ The **Record visits** switch is all most sites need. **Advanced** holds the rest
 | Record every visit, or only some | Every visit |
 | Keep recordings for | 30 days (7, 30 or 90) |
 | Most visits recorded a day | 1,000. After that, new visits are not recorded until 00:00 UTC |
-| Keep only visits where someone signed up, hit a goal or paid | Off. When on, the other recordings go after 24 hours, also the ones with an error |
+| Keep only visits where someone signed up, hit a goal or paid | Off. When on, the other recordings go after 24 hours, also the ones where someone got stuck, which What to fix is built from |
 | Wait for consent | Off. When on, a visit records only after the visitor consents to cookies |
 | Pages that are never recorded | None. Up to 20 paths, one per line, such as `/dashboard` or `/account` |
 
 A job that runs every hour deletes recordings older than the days you picked. The bucket's 90-day rule deletes anything left behind.
 Erasing a person ([Erase one person](#erase-one-person)) deletes their recordings too. [PRIVACY.md](PRIVACY.md#recordings-pro)
 lists what a recording stores.
+
+### Retention and lifecycle
+
+People has two views: **People** (the list) and **Retention**, at `/people/retention`. Retention answers two questions
+about your website: does the base grow, and do people come back?
+
+- **Lifecycle** draws each week as a bar. Above the axis: new people (active for the first time), returning people
+  (active this week and the week before) and people back after a break (active, not the week before, but earlier).
+  Below the axis: people who went quiet (active the week before, not this week). The current week is still running, so
+  some of its quiet people may come back before it ends.
+- **Retention** groups people by the week they were first seen and shows the share of each group seen again in every
+  week after. The average row weighs each group by its size. **By first channel** splits it by the channel of each
+  person's first visit, so you can see whether people from X stay as long as people from Google.
+
+Pick days, weeks or months, and **Customers** to count only people who paid. The lifecycle shows 12 periods and the grid
+8 groups, ending with the period of the dashboard's date range. The legend under the lifecycle defines each bar in one
+line. A grid column reads "1 week later", "2 weeks later" and so on. A group of fewer than 20 people is grey, with its
+size in the cell's tooltip: one person more or less moves its rates by 5 points or more.
+
+**Who counts.** Retention needs people your site recognizes on another day. **Known people**, the default, are
+signed-in people and customers: the visitors your site named with [`identify()`](#identify-people) or a payment,
+joined by user id, then email, as on a person's page. **Every visitor id** adds everyone else, and counts a visitor id
+as new in the period the site first saw it. Use it only when your site keeps visitors in cookies (consent,
+or [Remember visitors](#cookies-and-consent)): without cookies a visitor gets a new id every day and counts as new each
+time, so retention reads close to 0%. Both cards say so above their numbers while Every visitor id is picked. With
+nobody known yet, the view says so. On a site without cookies it offers Remember visitors first, then `identify()`.
+Your iOS app has its own retention in the App section.
+
+Agents read the same numbers with `get_app_funnel`, `report: "lifecycle"` or `report: "retention"` with
+`platform: "web"`, and scripts with `GET /api/v1/web/lifecycle` and `/api/v1/web/retention`
+([API.md](API.md#retention-and-lifecycle-pro)). Reading costs no rows.
+
+## Errors (Pro)
+
+Stack frames are what the browser gives, not mapped back to your source, so a minified build shows functions named `t`
+or `e`. Only uncaught browser errors and unhandled promise rejections arrive: no errors your code catches, no server
+errors, no releases and no breadcrumbs.
+
+The Errors section shows the JavaScript errors visitors hit on your website, grouped into issues. An issue is one bug:
+the same message with other numbers, ids or quoted text, from the same function. The function name counts, so the same
+message thrown in two functions makes two issues. A minified name of 1 to 3 characters, such as `Jt`, does not count:
+the next build renames it, and the bug stays one issue. Each row says how often it happened, how many people it hit and how many of them pay you, with their monthly revenue in coral. Issues that cost money come
+first.
+
+### Turn it on
+
+Open **Errors** and turn on **Catch JavaScript errors**, or use the card in Settings, group "Errors, maps and surveys".
+A site that records visits catches errors already. With Wait for consent on, those errors arrive only with a
+recording, after the visitor consents. Catch JavaScript errors sends them from the first page view, without consent,
+with the visit and visitor id. Nothing changes in your code: the tracking script catches uncaught
+errors and rejected promises, at most 5 per page view, each with its message, file, line and the top 3 stack frames.
+Errors show up about a minute after they happen. [PRIVACY.md](PRIVACY.md#errors) lists what a row keeps.
+
+One thing helps. A script from another domain (a CDN, your app's subdomain) reaches the page as "Script error." with
+no details, because browsers hide them across domains. Add `crossorigin="anonymous"` to its `<script>` tag and serve it
+with an `Access-Control-Allow-Origin` header. The **Copy AI prompt** button on the empty Errors page and in Settings
+writes these steps for your coding assistant.
+
+### Read an issue
+
+The list has three tabs: Open, Resolved and Ignored. Filter by page or device, and click the Events, People or
+Paying customers column header to sort by it. All three stay in the URL, so `/site/<id>/errors?page=/checkout&sort=events`
+is a link you can share. **New** marks an issue first seen in the last 24 hours. **Back again** marks one you resolved
+that happened after that. A row without a recorded visit says **No recording**; hover it to see why: recording is off,
+its pages are never recorded, or none of its visits was picked for recording. "Script error." rows say the error came
+from a script on another domain.
+
+Open an issue for:
+
+- the stack, top frame first, and the variants of the message
+- the pages and browsers it happened on, each page linked to its Content page
+- the people it hit, customers first with what they pay, each linked to their person page
+- recorded visits with it. **Watch** opens the player 3 seconds before the error. Each recording says whether that
+  person pays, and the section says how many of the paying customers were recorded, such as "0 of 2 paying customers
+  recorded". **All recordings with it** opens Recordings filtered to the issue
+- **Resolve**, **Ignore** and **Copy AI prompt**. The prompt gives your coding assistant the message, frames, pages,
+  browsers and counts, and tells it to read more with `get_recordings` and log the fix with `add_note`
+
+Resolve an issue once the fix is live. If it happens again, it comes back to Open as Back again. Right after a deploy,
+a visitor whose browser still runs the old bundle can bring it back too. Set the alert rule's **Minimum people** to 2,
+and it waits for a second person before it alerts. Ignore an issue you
+will not fix, such as "ResizeObserver loop completed with undelivered notifications", which browsers raise for layout
+code that works. Ignored issues never send an alert.
+
+The Overview shows a small card when there are open issues: how many are new since yesterday, and the one that hit the
+most paying customers. The weekly report adds one line per site with the top new issue of the week and the top
+recordings pattern.
+
+### Alert me about new errors
+
+**Alert me about new errors on /checkout** on the Errors page makes an alert rule in one click: metric `new_error`,
+the page and every page under it, sent to your notification channels and the iPhone app. Rules run once an hour, so
+the alert arrives up to an hour after the error. It fires once for each issue first seen in the last 24 hours, so the
+same bug does not alert twice. An issue you resolved that happens again fires once more, titled "Resolved error is
+back", with when you resolved it and when it came back. It fires again only if you resolve it again, or after a whole
+day without it. A rule sends at most 5 alerts an hour, the issues that hit the most people first; the rest follow in
+the next hours. The alert names the message and the page, how many people it hit, how many of them pay you and what
+they pay a month, and links to the issue. The link needs your dashboard's address, which FounderData saves when you
+open the Errors page or make the rule there. Until then the alert says to open the issue from the Errors page.
+Settings, Alert rules lists it,
+and the preset "A new error on the checkout" makes the same rule there. An AI agent reads the alert's issue with
+`get_recordings`, `view` `error`.
+
+### Recordings filters
+
+The Recordings list takes more filters, which other sections link to:
+
+| Filter | Comes from |
+| --- | --- |
+| An error issue | An issue's **All recordings with it** and its **Issue** button in What to fix |
+| An experiment version | An experiment's results |
+| A channel | The **Any channel** menu, or `?channel=Organic%20Search` in the address |
+| Paying customers | The **Anyone** menu, set to Paying customers |
+| A funnel step | **Watch them** on a drop-off line of the Funnel tab under the breakdowns: the visitors who reached that step and not the next, with the filters the tab has on |
+
+A filter that came from a link shows as a chip you can remove: the issue by its message, the experiment by its name
+and version. What to fix then counts only those visits, such as "Patterns in 1 recorded visit with this error".
+
+Every visit in the list also has a summary of 2 to 4 sentences, such as "Came from Google to /blog/launch-checklist on
+a phone. Read 22% of it, opened /pricing and clicked "Compare plans" 3 times in a row on /pricing. Left from /pricing
+after 1 min 40 s without signing up or paying." It follows the order of the visit, names the page of each click, and
+is built from what the recorder saw, never from a guess about why.
+
+### Costs
+
+Each distinct error of a page view writes 1 row, so a page view costs 0 to 5 rows. An issue seen for the first time
+writes 1 more row, its first sighting. Resolving, ignoring or reopening an issue writes 1 row. Opening the Errors page saves the dashboard address alerts
+link to: 1 row the first time or when the address changed, 0 after. Making the first `new_error` rule before that
+writes 3 rows, the rule's 2 and 1 for the address. A later one writes 2. A `new_error` rule writes 1 row when it fires, plus 1 row for the alert inbox. Reading
+issues writes nothing.
+
+## Experiments (Pro)
+
+Test two versions of a page, or turn new code on for a share of visitors, and see which one brings more revenue per
+visitor, not only more clicks. Experiments from your iOS app (`FounderData.experiment()`) sit in the same list.
+
+**Start one.**
+
+1. Experiments > **New experiment**. Pick versions of a page or a feature flag, a name and a key, the versions with
+   their share of visitors (the first is the control: the page as it is today), the pages and the goal it is judged on
+   beside revenue. Pages are path prefixes: `/pricing` also covers `/pricing/annual`, `/` is the home page only, and
+   empty means every page. The goal field offers the goals your site sent in the last 90 days, and warns when the name
+   you typed has not fired in that time. Left empty, it is your primary goal. A site without a primary goal then has no
+   goal at all, and revenue per visitor alone judges the experiment: the page says "no goal, judged on revenue per
+   visitor" and shows no goal verdict. It saves a draft.
+2. **Copy AI prompt** on the experiment's page and paste it into your coding agent. It marks each version in your HTML
+   with `data-fd-exp` and `data-fd-variant` (the other versions start `hidden`), adds one CSS line so page styles cannot
+   show both versions, or reads the flag in code with `founderdata('flag', key)` or `founderdata('flags', fn)`. See
+   "Experiments in the tracker" in [API.md](API.md#experiments-in-the-tracker).
+3. Open each preview link (`/pricing?fd_exp=pricing_headline:b`). It shows that version and stores nothing.
+4. **Start**. If another running experiment uses the same pages, FounderData names it and asks first: visitors would be
+   in both, and each result would include the other's effect. Within a minute new visitors on those pages get a
+   version. Until the first one arrives the page says "Waiting for the first visitor on /pricing". The start also puts
+   a chart note on the Overview chart, "Experiment started: Pricing headline", so the chart shows when the test ran.
+   That note gets no before and after verdict: see [Chart notes](#chart-notes).
+
+Visitors see the control until the page view's answer arrives. On a local server that took 4 to 17 ms. In production
+it also waits for a database write, and that time has not been measured. Keep both versions the same size so nothing
+jumps.
+
+**Read the result.** Each row of the list has one sentence, such as "b: $1.84 per visitor against $1.21, likely
+better", or "Too few customers to compare revenue: 12 of 30". The list shows every experiment of the site; one that ran
+outside the period you picked says when it ran, and its link opens the experiment with its run as the period.
+
+The experiment's page has each version's visitors, people who reached the goal, customers, the paid rate, revenue,
+revenue per visitor, MRR and MRR per visitor. Each version links to the Overview filtered to its visitors over the run
+and to **Watch visits** for its recorded visits. The customers per version link to their pages. FounderData calls a
+gap likely real when a gap that big would show up by chance less than 5 times in 100, and shows the uplift and its 95%
+range. Revenue gets a verdict only once each version has 30 customers; the goal once each has 100 visitors. Pick that
+bar before you start and wait for it: stopping at the first good day finds wins that are not there.
+
+What counts as revenue: what a person paid on your website after their first visit in the version, one-time payments
+and first subscription payments. Renewals are left out, and so is anyone who had paid before they saw the experiment.
+Purchases in an app through the App Store, Google Play or RevenueCat are left out too: no web version showed there.
+When revenue per visitor and MRR per visitor point different ways (a version that sells more one-time licenses and
+fewer subscriptions), the sentence says so. The page also counts the web payments of the run and how many of them a
+version got.
+
+Four warnings replace the verdict when they apply:
+
+- **The split is off.** Visitors split 45/55 against the 50/50 you set. That means assignment or tracking broke in one
+  version, so check the setup before you trust the result.
+- **The goal never fired.** Every version has 100 visitors and nobody reached the goal. Check its name.
+- **Too few buyers (app).** An app experiment gets a verdict once each version has 100 installs and 30 buyers.
+- **Overlap.** The page lists running experiments on the same pages.
+
+Without cookies a visitor id lasts one day, so someone who comes back tomorrow can land in the other version. People
+who sign in count once through `identify()`. Without Remember visitors FounderData can only see people your site
+identifies in two versions, so the page says "at least" that many and names the share of identified visitors.
+Remember visitors keeps one version per person across days.
+
+**End it.** **Stop** and pick the winner. Every visitor on the experiment's pages then gets the winner: the variant
+elements show it and `founderdata('flag', key)` answers it, so nothing changes for visitors while the code catches up.
+The results stay as they were at the stop. The page shows a cleanup prompt: paste it into your coding agent to keep
+the winner and remove the rest, then delete the experiment. Stop without a winner and every visitor sees the page as
+written (the control). The stop adds a chart note too, such as "Experiment stopped: Pricing headline. Winner: b". A
+stopped experiment without a winner gets **Pick winner**, which starts serving it. A stopped
+experiment stays stopped; start a new one to test again. At most 10 run at once, and at most 10 stopped ones serve a
+winner.
+
+**Change it.** **Edit** on the experiment's page changes the name and the goal, and on a draft the pages too. The
+versions stay as created.
+
+**Flags.** A flag has the versions `off` and `on` and a rollout, the percent who get `on`. **Change rollout** on the
+flag's page sets it while the flag runs. Raise it and people who had `on` keep it, as long as their visitor id stays
+the same. Without cookies or Remember visitors, a visitor gets a new id every day at 00:00 UTC, so a flag can switch for
+the same person the next day. Turn on Remember visitors to keep one version per person. Your code checks
+`founderdata('flag', 'new_checkout') === 'on'`; without an answer it is `null`, so keep the old path as the default.
+
+### Test a price
+
+A version that changes the price has to charge that price too, or the result looks valid and is not. FounderData has
+no server-side flag call, so the browser carries the version to your server:
+
+1. In the browser, read the version: `founderdata('flags', (x) => ...)` gives `x.pricing_test`.
+2. Send it with the checkout request, for example `{ plan: 'pro', version: 'b' }`.
+3. On the server, map the version to a price id from a fixed list (`{ control: 'price_123', b: 'price_456' }`). Any
+   other value gets the control's price, so nobody can pick their own price.
+4. Put the version in the checkout session's metadata, so each payment says which price it was sold at.
+
+The Copy AI prompt adds these steps when the versions differ in price.
+
+**App experiments.** They count installs, not sessions. Each install counts once, in the version of its first session
+in the period, and it is a buyer when it bought in a session with the version. An install that opens the app ten
+times still counts once, so a version whose users open the app more often does not look worse. The page shows the
+sessions beside the installs. A verdict compares buyers over installs and needs 100 installs and 30 buyers in each
+version. Without consent or the vendor install id, FounderData knows a device for one day only, so the same person
+counts again the next day. The control is the version named `control`, `baseline`, `default`, `original`, `off` or `a`,
+else the first name in alphabetical order; the experiment's page says which rule picked it. See
+[ios/README.md](../ios/README.md#session-properties-and-experiments).
+
+**Agents.** `get_app_funnel` with `report` `experiments` answers web and app experiments with the verdicts. The skill
+`founderdata-experiments` reads them, waits for the minimums and recommends a winner. A draft's answer carries the
+markup and preview links the coding agent needs. Keys cannot create, start or stop experiments: what to test and when
+to stop is the owner's call, so those stay in the dashboard.
+
+**Cost.** A visit's version rides on the row its first pageview writes (0 rows). A visit that reaches the pages later
+costs 1 row, once. A stopped experiment's winner writes nothing. Creating, changing or deleting an experiment, or
+picking a winner, writes 2 rows. Starting or stopping it writes 5: those 2 and 3 for its chart note.
+
+## Surveys
+
+Two questions, asked of the right people: **How did you hear about us?** right after signup, and **Why are you
+canceling?** when a customer cancels. The first fills the gap attribution leaves: a podcast, a friend or a newsletter
+arrives as Direct, and the answer names it. The second puts reasons next to churn.
+
+The questions are fixed so the answers add up across sites. You can change their wording and the labels of the
+answers, for a site in another language, but not add questions.
+
+| Survey | Answers |
+| --- | --- |
+| How did you hear about us? (`heard_about`) | Google, an AI assistant, X, Reddit, YouTube, LinkedIn, a friend, a podcast, a newsletter, somewhere else (with their own words) |
+| Why are you canceling? (`cancel_reason`) | Costs too much, missing something, switched to another product, not used enough, too hard to use, did not work well enough, support did not help, another reason (with their own words) |
+
+### Where answers come from
+
+- **Your own question.** If your signup or cancel flow already asks, keep it and send each answer with one line:
+  `founderdata('answer', 'heard_about', 'podcast')`. An option of yours that is not on the list arrives as "somewhere
+  else" with its label as the text. This works in both editions ([API.md](API.md#survey-answers)).
+- **Stripe's cancel reasons.** In Stripe, open Settings, Billing, Customer portal and turn on Cancellation reasons.
+  Customers who cancel in the portal pick a reason and may add a comment. FounderData reads both from the webhook it
+  already gets, with no code. Polar sends its cancellation reason the same way.
+- **The survey card (Pro).** A small card at the bottom right of the page (a sheet at the bottom on a phone) asks the
+  question. It uses no cookie and no storage. Closing it counts as "skipped", so the same visitor is not asked again;
+  without cookies the visitor's id changes daily, so someone who closed it may see it again on another day. It works by
+  keyboard: Tab reaches it, Esc closes it.
+
+- **The App Store and Google Play.** The stores never pass on what a customer typed. They report a category: turned
+  off renewal with no reason given, payment failed, did not accept a price increase, canceled by you, or refunded.
+  FounderData stores that category from RevenueCat's webhook or from Apple's App Store Server Notifications, with no
+  code. "Why they cancel" lists these under **From the App Store and Google Play**, apart from the reasons customers
+  gave in their own words. Reasons RevenueCat sent before you updated are added once, for customers whose app visit is
+  known ([API.md](API.md#survey-answers)).
+
+Reasons come from Stripe's Customer Portal, Polar, the card on your cancel page and the stores' categories.
+
+Each answer is also saved on the person: their page lists `heard_about` or `cancel_reason` with the other traits.
+
+### Turn on the survey card (Pro)
+
+1. Settings, **Surveys**: turn on a question and enter the page it shows on, such as `/welcome` for the page after
+   signup or `/account/cancel` for your cancel page. Pages under that path count too. **Preview the card** shows what
+   visitors see; **Change the wording** sets the question and the labels.
+2. Or press **Copy AI prompt** and paste it into your coding assistant. It finds the welcome page or the step before
+   the cancellation, and calls `founderdata('survey', 'heard_about')` there, or wires a question your site already
+   asks to `founderdata('answer', ...)`. The Stripe step stays yours.
+
+Step 1 needs no code: the card shows on those pages by itself. The AI prompt is only for showing it at one step of a
+flow, such as after the signup form, or for sending answers from a question your site already asks.
+
+The card shows on those pages, and where your code calls it, to visitors who have not answered or closed it yet.
+Checking that costs one read of the visitor row on each page view while a survey is on, and no row written. An answer
+writes 2 rows: the answer and the person's trait. The same answer again that day writes none.
+
+**Content-Security-Policy.** If your site sends one, add your FounderData host to the `script-src` and `connect-src`
+it already has, as for recordings ([step 5](#turn-on-recordings)):
+
+```
+script-src 'self' https://founderdata.example.com
+connect-src 'self' https://founderdata.example.com
+```
+
+`script-src` loads `/js/survey.js` and `connect-src` lets it read the question from `/api/surveys/`. `style-src` needs
+nothing: the card styles itself with a constructed stylesheet, which a policy does not block, in Chrome, Edge, Firefox
+and Safari 16.4 or later. An older browser gets a `<style>` element inside the card instead, and without
+`'unsafe-inline'` in `style-src` it shows the card unstyled.
+
+### Read the answers
+
+- **Overview, Channel card, Heard about.** The people who answered in the period, by their answer, with their revenue
+  and the channels they arrived by ("Tracked as Direct 15, Organic Search 4, other channels 2"). The line above the rows
+  says how many answered. Each person counts once, by their latest answer, and someone who answers twice in a day
+  stores one answer. A row with fewer than 20 answers has an amber dot: compare its count, not its share. Filter the
+  Overview by Direct to see what the direct visitors said. Without answers the tab says how to start.
+- **Subscriptions, Why they cancel (Pro).** The reasons of the period with the MRR those customers canceled, the reasons
+  per plan, and the newest comments in the customer's own words. It counts what the tiles above it count: "13 won't
+  renew" paid and still pay until their period ends, "ended" ones paid and are in Churned. A reason given up to a year
+  before the period counts, since a yearly plan can cancel long before it ends. The header adds how many of the tiles'
+  subscriptions gave no reason, so the card and the tiles add up. Trials that stopped before paying get one line of
+  their own, with no MRR. A card on your cancel page asks before the cancel runs, so people who answered and stayed are
+  counted under the reasons, apart from customers who turned renewal back on. Their comments are listed there too, not
+  under "In their words". Without reasons it shows where reasons come from.
+- **Settings, Surveys (Pro).** The people who answered in the last 30 days per question, the same count as the
+  Overview's tab for that range, and the share of people who answered out of those who answered or closed the card.
+  The card counts no views, so people who left it open are not in that number. The App Store's and Google Play's
+  categories are not answers people gave, so they get a line of their own that links to Why they cancel.
+- **Agents.** `get_breakdown` with `dim: "heard_about"`, and `get_subscriptions`, whose summary has `cancel_reasons`.
+  Text people typed comes marked as untrusted. CSV: `survey_answers` in the export.
+
+[PRIVACY.md](PRIVACY.md#surveys) lists what is stored and for how long.
+
+## Click maps (heatmaps) and scroll depth (Pro)
+
+A click map is a heatmap of the clicks on one page, drawn over the live page. A page's Content detail has a **Clicks
+and scroll** card. It answers two questions: what do people click on this page, and how far down do they read it. The
+card covers the last 28 days, whatever the period picker says.
+
+**Scroll depth** works for every site with page speed on. The tracker notes how far down the page the bottom of the
+screen got, in percent, and sends it with the page speed numbers. Click maps keep it too, for every mapped page view,
+including pages reached by a single-page move inside your app. A page with 30 or more page speed rows in the 28 days
+gets its numbers from those. Below that, the click map rows answer when there are more of them. The card names the
+source and the count ("Median 70%, from 410 page views"), shows bars for the share of page views that reached 25%,
+50%, 75% and the end, and Content's page list has a **Median scroll** column. All three read the same rows, so they
+agree.
+
+**Click maps** are off by default. Turn them on in Settings, Errors, maps and surveys, **Click maps**, or with the switch
+on the empty card. From the next visit on, the tracker sends each page view's clicks: where on the page, which element
+and its text. The card then lists the most clicked elements, with the share of page views that clicked each one and
+the rage clicks of recorded visits. Pages with a map get a **Click map** label in Content's list. Content lists the
+pages where visits start, so a page like `/checkout` may not be there. The Click maps card in Settings lists every
+page with a map in the last 28 days and links to each one's detail.
+
+**Open click map** shows the clicks on your real page. The dashboard opens your page in a frame, 1,280 px wide for
+desktop or 390 px for mobile, and draws the clicks over it:
+
+- blue spots where people clicked, brighter where more did
+- amber rings on elements people clicked 3 times in a row
+- the click count on each of the 10 most clicked elements
+- lines at 25%, 50% and 75% of the page with the share of visitors that scrolled that far
+
+The map draws on your live site only: a page on `https://` at the site's domain or one of its subdomains. A local
+copy or a page on plain `http://` cannot load it, because FounderData sends the clicks to no other address. The page
+needs:
+
+- the FounderData tracking script
+- your FounderData host in `script-src` (for `/js/map.js`) and in `connect-src` (for the clicks), if your site sends a
+  Content-Security-Policy. The tracking script needs both already.
+- your FounderData host in `frame-ancestors`, only to see the map inside the dashboard. **Open on your site** works
+  without it.
+
+The map also shows in a browser where you ignore your own visits with `?rt_ignore=true`, and it sends nothing.
+
+Many sites forbid other sites to frame them (`X-Frame-Options` or `frame-ancestors` in their Content-Security-Policy).
+Then the card says so and offers **Open on your site**, which opens the same view in a new tab for 15 minutes. To see
+it inside the dashboard instead, allow your FounderData host to frame your pages:
+
+```
+Content-Security-Policy: frame-ancestors 'self' https://founderdata.example.com
+```
+
+The **Copy AI prompt** button on the Click maps card asks your coding agent to add that line and to mark text that
+names a person with `data-fd-mask`.
+
+### What a click map stores
+
+One row per page view: the path, the device type, the window width, the page height, the deepest scroll and up to 50
+clicks. A click keeps its position, the element's tag with its first class or id (`button.buy`), and its visible text up
+to 40 characters. It never keeps what someone typed, form fields, editable text, or text inside `data-fd-mask` or
+`data-fd-block`. Emails, phone numbers and runs of 6 or more digits in that text become `[removed]`. A name in a link
+stays, so mark elements that show a person's name with `data-fd-mask`. A row has no visitor or session id, so a click
+map cannot follow a person, and erasing a person cannot remove a name that reached a label. Pages on the never-record list
+(Settings, Record visits) get no click map. Rows are deleted after 90 days ([PRIVACY.md](PRIVACY.md#click-maps-and-scroll)).
+
+### What it costs
+
+Each mapped page view writes 1 D1 row, on the ping the tracker sends anyway. A visitor who leaves the tab and comes
+back to click more updates that row, 1 row more each time. Scroll depth writes nothing: it is a column of the page
+speed row. A site with 3,000 page views a day uses 3,000 of the free plan's 100,000 rows. The Click
+maps card has a share setting (100%, 50%, 25% or 10% of page views) for a busy site. Reading maps writes nothing.
+
+Reading costs rows too. Opening a page's card reads about 15 rows per mapped page view in its 28 days: 6,615 for a
+page with 400. A read takes the newest 2,000 mapped page views of the page at most, so one open reads about 30,000
+rows or fewer, and the overlay about the same again. The free plan allows 5 million rows read a day. When a page had
+more than 2,000 mapped page views, the card says it shows the newest 2,000. The Content list reads 1 row per page for
+its **Click map** label.
+
+### For agents
+
+`get_content` with a `path` answers `scroll` with its `source`, and `clicks`, the 10 most clicked elements with their
+rage clicks ([API.md](API.md#clicks-and-scroll-pro)). Click positions show only in the dashboard overlay. Without a
+`path`, each page row has `scroll_median_pct` and `has_click_map`. A page with neither scroll nor clicks gets
+`click_maps`, which says whether the switch is on and what to check. `get_web_vitals` answers `scroll` per page from
+page speed rows only. The setup checklist has a row **Click maps arrive**: `off` while no site
+maps clicks, `ok` when every site with the switch on got a map in the last 7 days, `warn` otherwise.
 
 ## Mail (Pro)
 
@@ -3229,6 +3838,9 @@ not set itself. Each entry, and `defaults`, takes:
 | `lemonsqueezy_secret`, `polar_secret`, `paddle_secret` | The signing secrets of those providers |
 | `gumroad_seller_id` | Your Gumroad seller id. The first run makes the site's ping URL and prints it with the refunds loop; later runs keep it |
 | `gumroad` | `true` makes the Gumroad ping URL without a seller id, which the first sale then sets |
+| `errors_on`, `maps_on` (Pro) | `true` turns on [Catch JavaScript errors](#errors-pro) or [Click maps](#click-maps-heatmaps-and-scroll-depth-pro), `false` turns it off |
+| `map_sample` (Pro) | The percent of page views that send a click map, 1 to 100 (100 when unset) |
+| `surveys` (Pro) | `heard_about` and `cancel_reason`, each `{ "on": true, "paths": ["/signup"] }`. `paths` lists the pages the card shows on by itself; leave it out to show it only where your code calls `founderdata('survey', key)`. `null` for a survey turns it off. See [Surveys](#surveys) |
 
 Running it again changes nothing unless a setting drifted, and it never clears a bundle id that was set by hand. The
 API never shows a secret back, so a secret that is already set stays as it is. After you rotate one, put the new value
@@ -3249,7 +3861,7 @@ node scripts/setup-sites.mjs https://founderdata.example.com --replace-secrets  
 
 ## How it's built
 
-- `public/js/script.js`: the tracker, 13 KB (about 4.8 KB gzipped). It handles consent and cookies, pageviews, engaged time, goals, outbound links and checkout link tagging
+- `public/js/script.js`: the tracker, 34 KB of source that the build minifies to 15,554 bytes (6,670 gzipped). It handles consent and cookies, pageviews, engaged time, goals, outbound links and checkout link tagging
 - `src/worker`: a Hono app on Cloudflare Workers that handles web and app event ingestion, the Stripe, Dodo and App Store webhooks, the payments and goals API, and stats queries on D1 (SQLite). `lib/apple-jws.ts` and `lib/x509.ts` verify Apple's signed transactions with WebCrypto
 - `src/dashboard`: the React dashboard (Vite, Tailwind, Recharts), served as static files by the same Worker
 - `migrations/`: the database schema

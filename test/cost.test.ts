@@ -119,7 +119,9 @@ describe('free-plan cost: D1 rows written per write path', () => {
     await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { record_visits: 1 } });
     forgetSite(site.id);
     const act = { p: '/pricing', s: Date.now(), c: [{ t: 900, l: 'Buy', k: 'button', n: 3, r: 1 }], e: [{ t: 1000, m: 'TypeError: x', s: 'app.js:1' }] };
-    expect(await rows('web: ping with the page activity of a recorded visit', () => web({ t: 'ping', d: 30_000, a: act }))).toBe(5);
+    // Its error is also an errors row (round 7, lane errors: a site that records visits catches errors): 1 more, and 1 for
+    // the issue's first sighting (error_first), the first time that error appears.
+    expect(await rows('web: ping with the page activity of a recorded visit', () => web({ t: 'ping', d: 30_000, a: act }))).toBe(7);
     expect(await rows('web: ping of a recorded visit, page without clicks or errors', () => web({ t: 'ping', d: 30_000, a: { p: '/pricing', c: [] } }))).toBe(1);
     await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { record_visits: 0 } });
     forgetSite(site.id);
@@ -286,7 +288,13 @@ describe('free-plan cost: D1 rows written per write path', () => {
       const payload = { notificationType: type, subtype, notificationUUID: crypto.randomUUID(), version: '2.0', signedDate: now + 2000, data: { bundleId: BUNDLE, environment: 'Production', signedTransactionInfo: await signJws(paid, chain) } };
       return w.fetch(`/api/webhooks/apple/${site.id}`, { method: 'POST', json: { signedPayload: await signJws(payload, chain) } });
     };
-    expect(await rows('App Store auto-renew off, failed renewal or expiry (notification), with its inbox row', () => notice('DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_DISABLED'))).toBe(2);
+    // Auto-renew off is a cancellation: its row, its inbox row and Apple's reason for "Why they cancel" (1 answer row,
+    // src/worker/surveys.ts storeCancelStatement). The EXPIRED of the same period finds that answer and writes none.
+    expect(await rows('App Store auto-renew off (notification), with its inbox row and the store reason', () => notice('DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_DISABLED'))).toBe(3);
+    expect(await rows('App Store failed renewal (notification), with its inbox row', () => notice('DID_FAIL_TO_RENEW', 'GRACE_PERIOD'))).toBe(2);
+    expect(await rows('App Store expiry of the same period (notification; its reason is stored already)', () => notice('EXPIRED', 'VOLUNTARY'))).toBe(1);
+    const reason = await w.db.prepare("SELECT answer, via, subscription_id, visitor_id FROM survey_answers WHERE site_id = ? AND survey = 'cancel_reason' AND subscription_id = '3100000001'").bind(site.id).all<any>();
+    expect(reason.results).toEqual([{ answer: 'unsubscribed', via: 'app_store', subscription_id: '3100000001', visitor_id: vid }]);
   });
 
   it('daily write cap counter', async () => {
@@ -327,7 +335,11 @@ describe('free-plan cost: D1 rows written per write path', () => {
     expect(await rows('RevenueCat purchase (INITIAL_PURCHASE)', () => rc('INITIAL_PURCHASE'))).toBe(6);
     expect(await rows('RevenueCat repeat of a purchase already stored (SDK or retry)', () => rc('INITIAL_PURCHASE'))).toBe(0);
     expect(await rows('RevenueCat trial start (stored as a signal, not revenue)', () => rc('INITIAL_PURCHASE', { period_type: 'TRIAL', transaction_id: '5000000002', original_transaction_id: '5000000002', price_in_purchased_currency: 0 }))).toBe(4);
-    expect(await rows('RevenueCat cancellation, expiration or billing issue (signal, subscription and inbox row)', () => rc('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }))).toBe(4);
+    expect(await rows('RevenueCat billing issue (signal and subscription)', () => rc('BILLING_ISSUE'))).toBe(3);
+    // A store cancellation also stores Apple's reason for "Why they cancel" (src/worker/surveys.ts storeCancelStatement):
+    // 1 answer row, no trait. The EXPIRATION of the same period finds that answer and writes none.
+    expect(await rows('RevenueCat cancellation (signal, subscription, inbox row and the store reason)', () => rc('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }))).toBe(5);
+    expect(await rows('RevenueCat expiration of the same period (signal and subscription; its reason is stored already)', () => rc('EXPIRATION', { expiration_reason: 'UNSUBSCRIBE' }))).toBe(3);
     expect(await rows('RevenueCat refund (CANCELLATION, CUSTOMER_SUPPORT)', () => rc('CANCELLATION', { cancel_reason: 'CUSTOMER_SUPPORT', price_in_purchased_currency: -9.99 }))).toBe(4);
   });
 
@@ -464,5 +476,197 @@ describe('free-plan cost: D1 rows written per write path', () => {
     expect(await rows('import: the same chunk again', () => w.admin(`/api/sites/${site.id}/imports/${id}/rows`, { method: 'POST', json: { rows: chunk(5) } }))).toBe(6);
     expect(await rows('import: finish', () => w.admin(`/api/sites/${site.id}/imports/${id}/finish`, { method: 'POST' }))).toBe(1);
     expect(await rows('import: delete with 5 day-rows', () => w.admin(`/api/sites/${site.id}/imports/${id}`, { method: 'DELETE' }))).toBe(6);
+  });
+});
+
+// Round 7 (plan 5.1): each lane pins its write paths inside its own block, with its own worker and site.
+describe('round 7: exp', () => {
+  // Exposure rides on the session INSERT of a new visit (0 rows more) and costs 1 row the first time a running visit
+  // reaches the experiment's pages (plan S3). Creating, starting and stopping: pro/test/cost.test.ts.
+  // Imported here, not at the top of the file, so the four lanes' blocks merge without touching shared lines.
+  let w: TestWorker;
+  let site: any;
+  let hooks: typeof import('../src/worker/pro-hooks');
+  let before: ReturnType<typeof hooks.proHooks>;
+  const view = (vid: string, path: string) =>
+    w.fetch('/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.31' },
+      body: JSON.stringify({ w: site.id, t: 'pageview', u: `https://exp-cost.example${path}`, vid, sid: `${vid}-s` }),
+    });
+  const rows = async (fn: () => Promise<unknown>) => {
+    w.takeRowsWritten();
+    await fn();
+    await w.flush();
+    return w.takeRowsWritten();
+  };
+  beforeAll(async () => {
+    resetBudgetForTests(Infinity);
+    w = await startWorker();
+    site = await w.createSite({ domain: 'exp-cost.example' });
+    hooks = await import('../src/worker/pro-hooks');
+    const { decide, parseExpLive } = await import('../src/worker/experiments');
+    before = hooks.proHooks();
+    hooks.installPro({ ...(before ?? {}), experimentDecision: (s, vid, p) => decide(parseExpLive(s.exp_live), vid, p) });
+    await w.db.prepare('UPDATE sites SET exp_live = ? WHERE id = ?').bind('[{"k":"pricing_headline","v":[["control",50],["b",50]],"p":["/pricing"]}]', site.id).run();
+    forgetSite(site.id);
+  });
+  afterAll(async () => {
+    hooks.installPro(before);
+    await w.dispose();
+  });
+
+  it('experiment exposure: 0 rows on a new visit, 1 on a running one, once', async () => {
+    const plainNew = await rows(() => view('expcost000001', '/about'));
+    expect(await rows(() => view('expcost000002', '/pricing'))).toBe(plainNew);
+    const plainLater = await rows(() => view('expcost000001', '/features'));
+    expect(await rows(() => view('expcost000001', '/pricing'))).toBe(plainLater + 1);
+    expect(await rows(() => view('expcost000001', '/pricing/annual'))).toBe(plainLater);
+    expect([plainNew, plainLater]).toEqual([11, 5]);
+  });
+});
+
+describe('round 7: survey', () => {
+  // src/worker/surveys.ts: the answer row (no index) and the visitor's trait.
+  let w: TestWorker;
+  let site: any;
+  const count = async (fn: () => Promise<unknown>) => {
+    w.takeRowsWritten();
+    await fn();
+    await w.flush();
+    return w.takeRowsWritten();
+  };
+  const ev = (body: Record<string, unknown>) =>
+    w.fetch('/api/event', { method: 'POST', headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.90' }, body: JSON.stringify({ w: site.id, u: 'https://survey-cost.example/welcome', ...body }) });
+  const stripeSub = (object: Record<string, unknown>) => {
+    const body = JSON.stringify({ id: `evt_${Math.random()}`, type: 'customer.subscription.updated', created: Math.floor(Date.now() / 1000), data: { object } });
+    const t = Math.floor(Date.now() / 1000);
+    return w.fetch(`/api/webhooks/stripe/${site.id}`, { method: 'POST', headers: { 'stripe-signature': `t=${t},v1=${createHmac('sha256', SECRET).update(`${t}.${body}`).digest('hex')}` }, body });
+  };
+  beforeAll(async () => {
+    resetBudgetForTests(Infinity);
+    w = await startWorker();
+    site = await w.createSite({ domain: 'survey-cost.example', stripe_webhook_secret: SECRET });
+  });
+  afterAll(() => w.dispose());
+
+  it('survey answer: 2 rows; 0 for a repeat the same day; 2 when the visitor changes the day\'s answer', async () => {
+    await ev({ t: 'pageview', vid: 'cost-svy-0001', sid: 'cost-svy-0001-s' });
+    const answer = (a = 'podcast') => ev({ t: 'survey', vid: 'cost-svy-0001', sid: 'cost-svy-0001-s', n: 'heard_about', p: { a } });
+    expect(await count(() => answer())).toBe(2);
+    expect(await count(() => answer())).toBe(0);
+    expect(await count(() => answer('friend'))).toBe(2);
+    // A dismissal after an answer: nothing.
+    expect(await count(() => answer('skipped'))).toBe(0);
+  });
+
+  it('cancel reason from a webhook: 2 rows with a visitor, 1 without, 0 for a retry', async () => {
+    const canceled = Math.floor(Date.now() / 1000) - 60;
+    const sub = (id: string, vid: string | null, why: unknown) => ({
+      id, object: 'subscription', customer: `cus_${id}`, status: 'active', start_date: canceled - 86400 * 40, cancel_at_period_end: true,
+      canceled_at: canceled, current_period_end: canceled + 86400 * 20, currency: 'usd',
+      metadata: { rt_site_id: site.id, ...(vid ? { rt_visitor_id: vid } : {}) },
+      items: { data: [{ price: { unit_amount: 2900, currency: 'usd', recurring: { interval: 'month', interval_count: 1 } }, quantity: 1 }] },
+      cancellation_details: why,
+    });
+    const why = { feedback: 'too_expensive', comment: 'Pricey', reason: 'cancellation_requested' };
+    // The same event without a reason first: the subscription's own rows, so the difference is the answer's.
+    for (const [id, vid] of [['sub_cost_svy_1', 'cost-svy-0001'], ['sub_cost_svy_2', null]] as const) {
+      await stripeSub(sub(id, vid, null));
+      await w.flush();
+      const base = await count(() => stripeSub(sub(id, vid, null)));
+      expect(await count(() => stripeSub(sub(id, vid, why)))).toBe(base + (vid ? 2 : 1));
+      expect(await count(() => stripeSub(sub(id, vid, why)))).toBe(base);
+    }
+  });
+});
+
+describe('round 7: pages', () => {
+  let w: TestWorker;
+  let site: any;
+  const ping = (extra: Record<string, unknown>) =>
+    w.fetch('/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.31' },
+      body: JSON.stringify({ w: site.id, t: 'ping', u: 'https://maps.example/pricing', d: 500, sw: 1440, ...extra }),
+    });
+  const rows = async (fn: () => Promise<unknown>) => {
+    w.takeRowsWritten();
+    await fn();
+    await w.flush();
+    return w.takeRowsWritten();
+  };
+  beforeAll(async () => {
+    resetBudgetForTests(Infinity);
+    w = await startWorker();
+    site = await w.createSite({ domain: 'maps.example' });
+    await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { maps_on: true } });
+    forgetSite(site.id);
+  });
+  afterAll(() => w.dispose());
+
+  it('click map: 1 row per page view at the default sample; scroll depth: 0 rows', async () => {
+    const speed = await rows(() => ping({ v: { l: 1200, p: '/pricing' } }));
+    // Scroll depth is a column of the page speed row: the same rows with it.
+    expect(await rows(() => ping({ v: { l: 1200, p: '/pricing', s: 80 } }))).toBe(speed);
+    // The click map is one row more, on the ping the tracker sends anyway.
+    const map = { p: '/pricing', w: 1280, H: 3000, s: 80, c: Array.from({ length: 50 }, (_, i) => [i * 20, i * 50, 'a.nav', 'Pricing']) };
+    expect(await rows(() => ping({ v: { l: 1200, p: '/pricing', s: 80 }, h: map }))).toBe(speed + 1);
+    // A page view that is hidden twice with new clicks: its first send adds the row, the next one updates it, 1 each.
+    const bare = await rows(() => ping({}));
+    const again = { ...map, i: 99, a: 5000 };
+    expect(await rows(() => ping({ h: again }))).toBe(bare + 1);
+    expect(await rows(() => ping({ h: { ...again, a: 6000, c: [...map.c.slice(0, 49), [1, 1, 'button.buy', 'Buy']] } }))).toBe(bare + 1);
+  });
+});
+
+describe('round 7: errors', () => {
+  it('errors: 1 row per distinct error of a page view, at most 5; 0 without errors or with the switch off', async () => {
+    resetBudgetForTests(Infinity);
+    const w = await startWorker();
+    try {
+      const site = await w.createSite({ domain: 'errors-cost.example' });
+      const web = (payload: Record<string, unknown>) =>
+        w.fetch('/api/event', {
+          method: 'POST',
+          headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.31' },
+          body: JSON.stringify({ w: site.id, u: 'https://errors-cost.example/checkout', vid: 'costerrvid0001', sid: 'costerrsid0001', ...payload }),
+        });
+      const rows = async (fn: () => Promise<unknown>) => {
+        w.takeRowsWritten();
+        await fn();
+        await w.flush();
+        return w.takeRowsWritten();
+      };
+      const errs = (n: number) => Array.from({ length: n }, (_, i) => ({ t: 10 * i, m: `Error ${'abcdefgh'[i]} broke`, s: 'https://errors-cost.example/app.js:1', k: 'https://errors-cost.example/app.js:1:1 go' }));
+      const ping = (e: unknown[]) => web({ t: 'ping', d: 30_000, a: { p: '/checkout', s: Date.now() - 1000, e } });
+      await web({ t: 'pageview' });
+      await w.flush();
+      // The switch off: the ping's session update only.
+      expect(await rows(() => ping(errs(2)))).toBe(1);
+      await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { errors_on: 1 } });
+      forgetSite(site.id);
+      expect(await rows(() => ping([]))).toBe(1);
+      // A new issue: its errors row and its first sighting (error_first, migration 0098). After that, 1 row per error.
+      expect(await rows(() => ping(errs(1)))).toBe(1 + 1 + 1);
+      expect(await rows(() => ping(errs(1)))).toBe(1 + 1);
+      // The same error twice is one row with n = 2.
+      expect(await rows(() => ping([...errs(1), ...errs(1)]))).toBe(1 + 1);
+      // a is known, b and c are new.
+      expect(await rows(() => ping(errs(3)))).toBe(1 + 3 + 2);
+      expect(await rows(() => ping(errs(3)))).toBe(1 + 3);
+      // At most 5 a page view: the last 5 of 8 (d to h), all new.
+      expect(await rows(() => ping(errs(8)))).toBe(1 + 5 + 5);
+      expect(await rows(() => ping(errs(8)))).toBe(1 + 5);
+      // A site that records visits catches errors on every visit (cfg.e). A visit that is not recorded sends its errors
+      // without the recorded mark (a.r) and without clicks: the errors row only, no activity events row.
+      await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { errors_on: 0, record_visits: 1 } });
+      forgetSite(site.id);
+      expect(await rows(() => ping(errs(1)))).toBe(1 + 1);
+      // A recorded visit's page (a.r = 1): the errors row and the activity row (itself, 2 index entries, the id counter).
+      expect(await rows(() => web({ t: 'ping', d: 30_000, a: { p: '/checkout', s: Date.now() - 1000, e: errs(1), r: 1 } }))).toBe(1 + 1 + 4);
+    } finally {
+      await w.dispose();
+    }
   });
 });

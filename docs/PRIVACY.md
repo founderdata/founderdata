@@ -15,8 +15,8 @@ without a name) is still personal data.
 | --- | --- | --- | --- |
 | `visitors` | Visitor id, first seen, and the first visit's source, channel, campaign, referring domain and entry page (first touch). `user_id`, `name`, `email` only when your site calls `identify()` or a payment carries them. `traits`: the other keys your site passes to `identify()`, at most 20, each value cut to 100 characters. For apps, whether the id persists: after consent, or with the opt-in `installId: .vendor`, a hash of `identifierForVendor` (see "The visitor id"). | Yes. Pseudonymous, and identifying once `identify()` fills it | Deleted once no visit or payment points at it after `RETENTION_MONTHS`. Name, email and user id cleared after `PII_RETENTION_MONTHS` without a visit, when set |
 | `sessions` | One visit: visitor id, start and end, pages, referrer, UTM tags, `ref`, country, region, city, coarse coordinates from the same lookup (one decimal, about 11 km), browser, OS, device type, the browser's first language from `Accept-Language` (`de`, never the full header), app version, app properties. Whether the visit came from a hosting network such as AWS (a 0 or 1 flag, from the network number Cloudflare reports; the IP is not kept). For a visit from another network's ad (its URL carried `gclid`, `gbraid`, `wbraid`, `msclkid`, `ttclid`, `twclid`, `li_fat_id`, `rdt_cid`, `ScCid` or `epik`): the network, the click id and when it was first seen. For a visit from a Meta ad or link (its URL carried `fbclid` or `ad_id`): Meta's click id and when it was first seen, the ad id, and the visit's user agent. Whether the visitor gave marketing consent (`founderdata('marketing', true)`), and with that consent the Meta browser id from the `_fbp` cookie, when a Meta pixel on the site set one | Yes, pseudonymous | `RETENTION_MONTHS` (default 24). The user agent, the Meta click id and the Meta browser id are cleared 28 days after the visit, and the browser id also when consent is withdrawn; the ad id stays. Other networks' click ids are cleared 90 days after the visit, the window Google Ads takes offline conversions in; the network name stays |
-| `events` | Pageviews, goals, outbound clicks: visitor and visit id, time, path, goal name, the properties you send, and the visit's hosting-network flag. On a recorded visit (Pro), one `activity` row per page with its clicks (the button's visible text, up to 40 characters, never what was typed), rage clicks and JavaScript error messages | Yes, pseudonymous. Properties hold whatever you put in them | `RETENTION_MONTHS` |
-| `replays` | One row per recorded visit (Pro): site, visit id, visitor id, start time and entry page. The recording itself is in R2, see "Recordings (Pro)" | Yes, pseudonymous | As long as the recording |
+| `events` | Pageviews, goals, outbound clicks: visitor and visit id, time, path, goal name, the properties you send, and the visit's hosting-network flag. On a recorded visit (Pro), one `activity` row per page with its clicks (the button's visible text, up to 40 characters, without anything inside `data-fd-mask`, `data-fd-block`, a form field or an editable part, never what was typed), rage clicks with the element's tag and class, and JavaScript error messages | Yes, pseudonymous. Properties hold whatever you put in them | `RETENTION_MONTHS` |
+| `replays` | One row per recorded visit (Pro): site, visit id, visitor id, start time, entry page and the digest (pages, time, scroll, clicks that changed nothing, names of fields changed). The recording itself is in R2, see "Recordings (Pro)" | Yes, pseudonymous | As long as the recording |
 | `vitals` | Page speed of one page load: site, time, path, device type (desktop, mobile or tablet) and the five timings LCP, INP, CLS, TTFB and FCP. No visitor id, no visit id, no IP, no user agent. The browser measures them with its own `PerformanceObserver`, and the tracker sends them inside the engaged-time ping it already sends when the page is hidden | No. A row can't be tied to a visitor or a visit | 90 days, or `RETENTION_MONTHS` when shorter. Settings, Daily write cap, sets the share of page loads stored, 0 turns it off |
 | `payments` | Provider, amount, currency, product, time, your payment id, subscription id, the provider's customer id, buyer email and name when the provider sends them, the visitor and visit credited, and a copy of that visit's channel, source and campaign (so revenue keeps its source after the visit is deleted) | Yes | Kept for your books. Email and name cleared after `PII_RETENTION_MONTHS`, when set. Erase clears the person's fields and the copied source |
 | `subscriptions` | Subscription state for MRR: provider ids, customer id, credited visitor and visit, a copy of that visit's source, prices and dates | Yes, pseudonymous | Kept for MRR. Erase clears the visitor, visit, customer id and source |
@@ -190,8 +190,9 @@ European Union" and not "processed only in the European Union". The policy text 
 
 Always:
 
-- **Cloudflare, Inc.**: Workers, D1, Workers Logs, Cache. Cloudflare's DPA is part of its self-serve terms
-  (cloudflare.com/cloudflare-customer-dpa), with the EU Standard Contractual Clauses.
+- **Cloudflare, Inc.**: Workers, D1, Workers Logs, Cache, and R2 once you set up recordings (Pro) or mail (Pro).
+  Cloudflare's DPA is part of its self-serve terms (cloudflare.com/cloudflare-customer-dpa), with the EU Standard
+  Contractual Clauses.
 
 Only when you turn the feature on. Each one receives what is listed, nothing else:
 
@@ -203,6 +204,8 @@ Only when you turn the feature on. Each one receives what is listed, nothing els
 | Apple App Store Connect, Apple Ads | `ASC_*` or `ASA_*` secrets | Nothing about visitors. The Worker downloads your sales and ad reports |
 | Meta Platforms Ireland (Marketing API) | `META_ACCESS_TOKEN` and an ad account in a site's settings | Nothing about visitors. The Worker downloads your ad account's numbers and the ads' thumbnails |
 | Meta Platforms Ireland (Conversions API) | A dataset id and a mode other than Off in a site's Meta settings | Per purchase: SHA-256 of the buyer's email, of the payment provider's customer id, of the visit's country and city; the ad click id (`fbc`); the Meta browser id (`fbp`) of a visit with marketing consent; the user agent; the landing page URL; amount, currency, payment id and product. Per mapped goal from an ad visit: the same without the purchase fields. No IP address, no name |
+| Cloudflare R2 | `npm run setup -- --replay` (recordings) or `--mail` | The recording files: the page as the visitor saw it, with masked text and inputs, mouse moves, scrolls and clicks. Mail bodies and attachments for mail. In the EU when the database is |
+| Your AI agent's model provider | A key you give an agent, and the agent calling `get_recordings` | Click labels, form field names, page paths and error messages from recordings, as the agent's input. No video, no names or emails |
 | Frankfurter (ECB rates) | Always, when a payment is in another currency | A currency code and a date |
 | Apple App Store search hints | Typing in the ASO tab's Add keywords box | The typed word and a country, from the Worker. No visitor data |
 | The websites you track | Opening the dashboard | A request for `/favicon.ico` from the Worker, with no visitor data |
@@ -263,31 +266,170 @@ clicks and the size of the window. Recording sets no cookie and stores nothing i
 - **How long.** The days you pick for the site: 7, 30 or 90, 30 by default. With "keep only visits where something
   happened", a recording without a goal or a payment goes after 24 hours. A rule on the bucket deletes every file 90
   days after upload, whatever the setting.
+- **The digest.** Next to each recording D1 keeps a short summary the script builds in the browser, at most 2,000
+  characters: the size of the window, and for each page its path, the seconds on it, how far down the visitor
+  scrolled, the label of each click that changed nothing, the names of form fields the visitor changed (such as
+  `email`, never what they typed) and whether a form was sent. A field inside `data-fd-mask` or `data-fd-block`, or a
+  password field, is never named. A click label leaves out the text of anything masked, blocked, editable or a form
+  field inside the element, and inside `data-fd-mask` or `data-fd-block` it is the tag name. Your agents read the
+  digest with a read key; it holds no name, email or user id. It goes with the recording: same days, same erase.
+- **Clicks and errors.** A recorded visit also sends, with the ping it already sends, each page's clicks (the same
+  labels, and a rage click's element tag and class) and JavaScript error messages with their file and line. The Worker
+  removes the query and hash of a web address in a message, and nothing else. They are
+  `activity` rows in `events`, and live as long as the visit's other events: `RETENTION_MONTHS`, 24 months by
+  default, not the recording's days. Erasing a person deletes them too.
 - **Who can watch.** People who sign in to the dashboard. Share links show no recordings.
 - **Erase.** Erasing a person deletes their recordings, files and rows, and the erase log counts them.
-- **Which visits.** Your own visits with `?rt_ignore=true` and bots are never recorded. The share of visits recorded and
+- **Which visits.** Your own visits with `?rt_ignore=true`, bots and visits from hosting networks (datacenter visits)
+  are never recorded. The share of visits recorded and
   the most visits a day are site settings.
 - **Consent.** Recording a visitor's screen usually needs their consent in the EU and the UK. By default the script
   records a picked visit whether or not the visitor accepted your cookie banner. With **Wait for consent** on (Settings,
   Record visits, Advanced), it records only after the visitor consents to cookies: your banner calls
   `founderdata('consent', true)`, or the page has `data-cookies="on"`. Until then it loads no recorder and sends no
   clicks or errors. Remember visitors does not count as consent.
-- **Your privacy policy.** Say that you record visits, what is hidden, where the recordings are and how long you keep
-  them. A paragraph you can adapt, with your own days and company name:
+- **Your AI agent.** When an agent reads recordings with `get_recordings` or the read API, the click labels, form
+  field names, page paths and error messages in the answer go into that agent's prompt, so its model provider
+  (Anthropic, OpenAI or whoever runs it) receives them. The video, the page's own text, what visitors typed, mouse
+  movement and names and emails never go. To keep text out of click labels and error messages, mark it with
+  `data-fd-mask`; a label inside it is the tag name. Use a model provider you have a data processing agreement with,
+  or don't give the agent a read key.
+- **Your privacy policy.** Say that you record visits, what is recorded and hidden, where the recordings are and how
+  long you keep each part. A paragraph you can adapt, with your own days, retention and company name:
 
-  > We record how visitors use this website: the pages, mouse moves, scrolling, clicks and errors. Anything you type is
-  > hidden before it leaves your browser. We use the recordings to find and fix problems on the site. They are stored
-  > with Cloudflare, our hosting provider, for 30 days, and nobody else gets them. We record your visit only after you
-  > accept cookies. You can ask us to delete your recordings at any time.
+  > We record some visits to this website to find and fix problems. A recording shows the pages as you saw them,
+  > including their text, with your mouse moves, scrolling and clicks. Anything you type into a form is never
+  > recorded, and we hide other personal details on our pages. We also keep the names of form fields you filled in,
+  > the words on buttons you clicked and error messages, without what you typed. Recordings are stored with
+  > Cloudflare, our hosting provider, and deleted after 30 days; the clicks and error messages are kept with our other
+  > visit statistics for 24 months. Nobody else gets them. You can ask us to delete your recordings at any time.
 
-  Drop the second-to-last sentence if you leave **Wait for consent** off. Ask your counsel whether that is allowed
-  where your visitors live.
+  The Record visits card has a shorter sentence with your own days and a copy button. If you turn on **Wait for
+  consent**, you can add: "We record your visit only after you accept cookies." Ask your counsel whether recording
+  without that is allowed where your visitors live.
+- **A data protection assessment.** If you write one (a DPIA under GDPR Article 35, which large-scale monitoring of
+  behavior can require), the facts it needs are here: the purpose (finding faults on the site), the data (the page as
+  shown, with masked inputs; clicks, scrolls, field names and error messages; a pseudonymous visitor id, no IP address),
+  who can see it (dashboard logins, and agents with a read key, which get no video), where it lives (your Cloudflare
+  account, in the EU when the database is), how long (the days above), and the controls (off by default, masking,
+  never-record pages, Wait for consent, a daily maximum, a share of visits, erase per person).
 
 **Remember visitors.** A site setting that keeps a visitor id in first-party cookies (`rt_vid`, `rt_sid` and
 `rt_consent=r`) without the visitor's consent, so People can follow someone across days. With Pro, each site you
 add with a website starts with it on. A site you added earlier keeps the setting it had. Storing
 an id on the device without consent breaks Article 5(3) of the ePrivacy Directive in most of the EU, so turn it on only
 where your counsel says you may.
+
+## Experiments
+
+Experiments (FounderData Pro) store no new personal data. The version a visit saw is one session property,
+`exp_<key>`, such as `exp_pricing_headline: b`, on the visit row FounderData writes anyway. The Worker picks it from a
+hash of the experiment's key and the visitor id. Nothing is stored in the browser for it: no cookie, no local storage.
+A preview link (`?fd_exp=`) stores nothing at all.
+
+Without cookies the visitor id changes every day at 00:00 UTC, so FounderData cannot keep a person in one version
+across days, and the results say how many people it saw in more than one. With Remember visitors on, the id in the
+cookie keeps them in one version; that setting needs the consent the section above describes.
+
+The results join payments and subscriptions to the people in each version, the same way the revenue reports do. A
+dashboard login sees the names of paying people per version; an API key gets visitor ids and amounts only. Erasing a
+person removes their visits, and with them the version they saw. Deleting an experiment keeps the property on old
+visits, which expire with them.
+
+## Surveys
+
+Two questions: how a visitor heard about you, and why a customer cancels
+([GUIDE.md](GUIDE.md#surveys)). An answer is stored in `survey_answers` with the visitor and visit ids, and as a trait on
+the visitor row. Once the visitor is identified, the answer is personal data about a named person.
+
+- **What is kept.** The answer key, when it was given, where it came from (`widget`, `js`, `stripe`, `polar`,
+  `app_store`, `play_store`) and, for a cancel reason from a webhook, the subscription id. Free text ("Other", Stripe's and Polar's comment) keeps 200
+  characters. Emails, phone numbers and runs of 6 or more digits in it are replaced by `[removed]` before it is stored.
+- **How long.** As long as visits (`RETENTION_MONTHS`). The nightly job deletes older answers.
+- **Erase.** Erasing a person deletes their answers, and erasing by email or user id also deletes the cancel reasons of
+  their subscriptions that no visit links. Deleting a site deletes all of them.
+- **Who reads the text.** The owner. A viewer login without `VIEWER_PII` and an API key get exports with the text
+  empty, and agents get it marked as untrusted, because a stranger wrote it.
+- **The widget** (FounderData Pro, `/js/survey.js`) sets no cookie and uses no storage. Closing it stores `skipped`,
+  so the same visitor id is not asked again. Without cookies the visitor id changes every day at 00:00 UTC, so a visitor
+  who closed it may see it again on another day.
+- **Cancel reasons** come from Stripe's Customer Portal and Polar's cancel flow, which your customer filled in. They
+  carry no more than the reason and the comment. From the App Store and Google Play (through RevenueCat or Apple's
+  notifications) comes only the store's category, such as "turned off renewal" or "payment failed": no text, and no
+  trait on the visitor.
+
+## Click maps and scroll
+
+**Scroll depth** is one number on the page speed row each page load already writes: how far down the page the visitor
+scrolled, in percent. The row has no visitor or session id, and it is deleted after 90 days.
+
+**Click maps** (Pro) are off by default. Turn them on per site in Settings, Click maps. Each page view then stores one
+row with:
+
+- the page's path and the device type (desktop, mobile or tablet)
+- the width of the window and the height of the page, in px
+- the deepest scroll, in percent
+- up to 50 clicks: where on the page, the element's tag with its first class or id (`button.buy`), and its text up to
+  40 characters
+
+A row has no visitor id, no session id, no IP address and no time finer than the page view. Click text follows the
+masking rules of recordings: nothing a visitor typed, nothing from form fields or editable parts, and nothing inside an
+element marked `data-fd-mask` or `data-fd-block`. Pages on the never-record list (Settings, Record visits) send no
+click map. Rows are deleted after 90 days and when the site is deleted.
+
+The text of links and buttons is kept, so watch for text that names a person. The server replaces emails, phone
+numbers, runs of 6 or more digits and any word with an `@` with `[removed]` before it stores a label, the same scrub
+error messages get. "Logged in as anna@example.com" is stored as "Logged in as [removed]". A name is not caught: a
+link that reads "Anna Müller" is stored as it is. Put `data-fd-mask` on any element that shows the visitor's name,
+account or order details.
+
+A row has no visitor id, so erasing a person cannot find their click text. A name that reached a label stays until
+the row is 90 days old. Masking the element is the only way to keep it out. A share of page views (Settings, Click
+maps) keeps fewer rows.
+
+The overlay that shows the map runs on your own page. The dashboard opens it with a token that is valid for 15 minutes
+and reads only the counts of that one page.
+
+## Errors
+
+Catch JavaScript errors is off by default. A site that records visits catches errors already. With either on, the
+script sends the errors of each page view with its ping, and the Worker stores one row per distinct error in your own
+D1 database.
+
+Catch JavaScript errors does not wait for consent. Errors leave from the first page view with the visit and
+visitor id, the same ids a cookieless page view carries. A site that records visits with Wait for consent on and Catch
+JavaScript errors off sends errors only with a recording, after the visitor consents. Visits from hosting networks send
+none.
+
+Each row keeps:
+
+- the message, cut at 200 characters. Before it is stored, the Worker replaces these with `[removed]`: email
+  addresses, phone numbers (8 or more digits with spaces, dots, dashes or brackets), runs of 6 or more digits, and runs
+  of 16 or more letters and digits mixed, such as tokens and API keys. A web address in the message keeps its scheme,
+  host and path and loses its query and hash: "Failed to fetch https://api.example.com/v1/users?name=Anna" is stored as
+  "Failed to fetch https://api.example.com/v1/users"
+- the file and line it came from, without the query
+- at most 3 stack frames, each a file, line, column and function name, 300 characters in all
+- the page's path, the device and the browser
+- the visit's id and the visitor id, to count the people an error hit and to open a recording of the moment
+- whether the visit came from a hosting network, so bots stay out of the counts
+
+The first time an issue appears, the Worker also notes when, in a row that holds the issue id and the time and nothing
+about the visitor.
+
+No IP address, no form input and no page text beyond the message go in. A message can still quote something a visitor
+typed, when your own code puts it there. Mark that part of the page with `data-fd-mask` or keep it out of your error
+messages. Pages on the never-record list send no errors, and the Worker drops any that arrive for them.
+
+A recorded visit (Pro) keeps a second copy of each message in the page's `activity` row (see "Recordings (Pro)"). The
+Worker cuts that copy at 200 characters and removes the query and hash of any web address in it, as above. It removes
+nothing else, so an email address or a long number in the message stays. The copy lives as long as the visit's other
+events, `RETENTION_MONTHS`, and erasing the person deletes it.
+
+Rows are kept 90 days, then the nightly job deletes them, and an issue's first sighting goes once its last row does. Erasing a person deletes their rows. FounderData Pro shows an
+issue's people with links to their person pages, and its paying customers with their revenue. A viewer login without
+access to personal data sees the counts, not the names. An agent with a read key gets messages, frames, pages and
+counts, never names or emails. Whether an issue is resolved or ignored is a row of its own, with no visitor in it.
 
 ## Meta ads
 
@@ -341,6 +483,10 @@ of that data. Before you turn it on:
 10. **Recordings and Remember visitors (Pro).** Pro turns both on for each site with a website you add (recording starts once the
     bucket is bound). Read "Recordings (Pro)" above, then add them to your privacy policy, turn on **Wait for
     consent**, or turn them off.
+11. **Errors, surveys and click maps.** All three are off by default. Errors keep the message with the visit and
+    visitor id for 90 days and do not wait for consent. Survey answers are tied to the visitor, and to a named person
+    once `identify()` ran. Click maps keep link and button text with no visitor id, so erase cannot reach them. Read
+    "Errors", "Surveys" and "Click maps and scroll" above, and add what you turn on to your privacy policy.
 
 ### Legitimate interest balancing test
 
@@ -407,7 +553,12 @@ Replace the bracketed parts and delete what does not apply.
 >
 > The data is stored by Cloudflare, Inc. [in the European Union. The servers that receive each request run in the
 > Cloudflare data center nearest you, which can be outside the European Union.] [Alerts about purchases go to [Slack /
-> email via Resend] without your name or email.] To see or delete your data, write to [address].
+> email via Resend] without your name or email.] [When a page fails, we store the error message with the visit's
+> identifier for 90 days, to find and fix the fault. Email addresses, phone numbers, long numbers and the query of any
+> web address in the message are removed first.] [When you answer our question how you heard about us, or why you
+> cancel, we store your answer with your visit [and your account].] [We store where on a page visitors click and how
+> far they scroll, with the text of the link or button and no identifier of the visitor, for 90 days.] To see or
+> delete your data, write to [address].
 
 ## For procurement
 

@@ -64,6 +64,9 @@ function insertSub(r) {
 }
 
 const out = [];
+// Round 7 (plan 5.1): statements that must run after every row is in, such as a site switch on the sites row the
+// flush writes (sites.exp_live, sites.surveys, maps_on, errors_on). Each lane's block below pushes into it.
+const late = [];
 // Rows wait here per table and column list, and leave as multi-row INSERTs of up to ~90 KB (D1 takes 100 KB per
 // statement). Some 1,500 statements load in seconds; one statement per row took minutes.
 const rowsByTarget = new Map();
@@ -1323,6 +1326,11 @@ const seoParts = (() => {
 // signed in; Lea's recorded visit had nothing go wrong; Mia found the iPhone app on the App Store and subscribed there,
 // without a web visit. Each recorded visit has an index row (`replays`); the recording itself would be
 // in R2, which the seed does not fill. Page activity is the `activity` event the tracker sends (collect.ts parseActivity).
+// Each recorded visit also has the digest the recorder would have sent (replays.digest, migration 0082; its format is in
+// FounderData Pro's pro/docs/RECORDINGS.md, "The digest"): pages with time and scroll, clicks that changed nothing, form
+// fields changed and sent. Together they fill every list of the Recordings page's "What to fix": "Compare plans" on
+// /pricing changes nothing, fields left on /settings and /integrations, a quick back from /faq, and ten blog readers who
+// stop at the top of /blog/launch-checklist (a shallow page needs 10 recorded visits).
 {
   const MIN = 60_000;
   const HOUR = 60 * MIN;
@@ -1336,11 +1344,28 @@ const seoParts = (() => {
       browser: o.os === 'iOS' ? 'Mobile Safari' : 'Chrome', os: o.os ?? 'Mac OS', device: o.os === 'iOS' ? 'Mobile' : 'Desktop',
     });
     const step = (o.minutes * MIN) / (pages.length + 1);
-    insertEvents(site, sid, vid, pages.map((path, i) => ({ ts: start + Math.round(i * step), type: 'pageview', path })));
-    for (const [name, i] of o.goals ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round((i + 0.6) * step), type: 'goal', name, path: pages[i] }]);
-    for (const [i, act] of o.activity ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round((i + 0.9) * step), type: 'activity', path: pages[i], props: act }]);
-    if (o.recorded) insert('replays', { site_id: site, session_id: sid, visitor_id: vid, started_at: start, entry_page: pages[0] });
+    // `times`: when each page was shown, in ms from the start; else evenly spread.
+    const at = (i) => (o.times ? o.times[Math.min(i, o.times.length - 1)] : Math.round(i * step));
+    const next = (i) => (i + 1 < pages.length ? at(i + 1) : o.minutes * MIN);
+    insertEvents(site, sid, vid, pages.map((path, i) => ({ ts: start + at(i), type: 'pageview', path })));
+    for (const [name, i] of o.goals ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round(at(i) + 0.6 * (next(i) - at(i))), type: 'goal', name, path: pages[i] }]);
+    // Activity times count from the page's start (`s`), as the tracker sends them.
+    for (const [i, act] of o.activity ?? []) insertEvents(site, sid, vid, [{ ts: start + Math.round(at(i) + 0.9 * (next(i) - at(i))), type: 'activity', path: pages[i], props: { s: start + at(i), ...act } }]);
+    if (!o.recorded) return;
+    // The digest: `d[i]` adds sd (scroll %), dc (dead clicks, `t` in ms from the page's start), f (fields), fs, qb.
+    const digest = {
+      s: start,
+      v: o.os === 'iOS' ? [390, 844] : [1440, 900],
+      p: pages.map((u, i) => {
+        const extra = (o.digest ?? [])[i] ?? {};
+        const dc = extra.dc?.map((c) => ({ ...c, t: at(i) + c.t }));
+        return { u, a: at(i), g: 0, ms: next(i) - at(i), ...extra, ...(dc ? { dc } : {}) };
+      }),
+      x: pages.at(-1),
+    };
+    insert('replays', { site_id: site, session_id: sid, visitor_id: vid, started_at: start, entry_page: pages[0], digest: JSON.stringify(digest) });
   };
+  const COMPARE = { l: 'Compare plans', s: 'div.plan-card' };
   const BERLIN = ['DE', 'Berlin', 'Berlin'];
   // Anna: her Mac's visitor id is kept in cookies (Remember visitors), so its visits join; identify() names it and her iPhone.
   insert('visitors', {
@@ -1352,14 +1377,17 @@ const seoParts = (() => {
   web('people-anna-mac', 'people-anna-s1', now - 21 * DAY, { geo: BERLIN, minutes: 6, source: 'Google', channel: 'Organic Search', referrer: 'www.google.com', domain: 'google.com', pages: ['/', '/blog/launch-checklist', '/pricing'] });
   web('people-anna-mac', 'people-anna-s2', now - 9 * DAY, {
     geo: BERLIN, minutes: 8, pages: ['/pricing', '/signup', '/dashboard'], goals: [['signup', 1]], recorded: true,
+    digest: [{ sd: 64, dc: [{ ...COMPARE, n: 2, t: 9000 }] }, { sd: 100, f: ['email', 'company', 'password'], fs: 1 }, { sd: 35 }],
     activity: [[0, { c: [{ t: 4200, l: 'Start free trial', k: 'button' }] }], [1, { c: [{ t: 21000, l: 'Create account', k: 'submit' }] }]],
   });
   web('people-anna-iphone', 'people-anna-s3', now - 3 * DAY, {
     geo: BERLIN, minutes: 5, os: 'iOS', pages: ['/dashboard', '/billing'], recorded: true,
+    digest: [{ sd: 40 }, { sd: 72, f: ['card_name'], fs: 1 }],
     activity: [[1, { c: [{ t: 6100, l: 'Pay now', k: 'button', n: 5, r: 1 }, { t: 15400, l: 'Pay now', k: 'button' }], e: [{ t: 6900, m: "TypeError: Cannot read properties of undefined (reading 'card')", s: 'https://shipkit.example.com/assets/billing.js:212' }] }]],
   });
   insert('payments', { id: 'pay_people_anna', site_id: site, provider: 'stripe', ts: now - 3 * DAY + 4 * MIN, amount: 4900, kind: 'payment', currency: 'USD', visitor_id: 'people-anna-iphone', session_id: 'people-anna-s3', customer_id: 'cus_people_anna', email: 'anna.weber@example.com', name: 'Anna Weber', product: 'shipkit_pro_monthly', matched_by: 'metadata', channel: 'Organic Search', source: 'Google' });
-  web('people-anna-mac', 'people-anna-s4', now - 2 * HOUR, { geo: BERLIN, minutes: 4, pages: ['/dashboard', '/settings', '/docs/webhooks'], recorded: true, activity: [[1, { c: [{ t: 3000, l: 'Invite teammate', k: 'button' }] }]] });
+  web('people-anna-mac', 'people-anna-s4', now - 2 * HOUR, { geo: BERLIN, minutes: 4, pages: ['/dashboard', '/settings', '/docs/webhooks'], recorded: true, activity: [[1, { c: [{ t: 3000, l: 'Invite teammate', k: 'button' }] }]],
+    digest: [{ sd: 30 }, { sd: 55, f: ['teammate_email', 'role'] }, { sd: 18 }] });
 
   // Anna's iPhone app: the SDK's identify() joins the install to her by user id. App visits are never recorded.
   const app = (vid, sid, start, o) => {
@@ -1384,26 +1412,517 @@ const seoParts = (() => {
 
   // Ben: found ShipKit on X, signed up, and saw an error on the next visit.
   insert('visitors', { site_id: site, id: 'people-ben-1', first_seen: now - 6 * DAY, user_id: 'usr_ben', name: 'Ben Okafor', email: 'ben.okafor@example.com', first_source: 'X', first_channel: 'Organic Social', traits: json({ plan: 'Trial', company: 'Okafor Studio' }) });
-  web('people-ben-1', 'people-ben-s1', now - 6 * DAY, { geo: ['GB', 'England', 'London'], minutes: 7, source: 'X', channel: 'Organic Social', referrer: 't.co', domain: 't.co', pages: ['/', '/features', '/signup'], goals: [['signup', 2]], recorded: true, activity: [[2, { c: [{ t: 9000, l: 'Create account', k: 'submit' }] }]] });
+  web('people-ben-1', 'people-ben-s1', now - 6 * DAY, { geo: ['GB', 'England', 'London'], minutes: 7, source: 'X', channel: 'Organic Social', referrer: 't.co', domain: 't.co', pages: ['/', '/features', '/signup'], goals: [['signup', 2]], recorded: true, activity: [[2, { c: [{ t: 9000, l: 'Create account', k: 'submit' }] }]],
+    digest: [{ sd: 80 }, { sd: 22, dc: [{ l: 'Live demo', s: 'img.hero-shot', n: 1, t: 15000 }] }, { sd: 100, f: ['email', 'company'], fs: 1 }] });
   web('people-ben-1', 'people-ben-s2', now - 26 * HOUR, {
     geo: ['GB', 'England', 'London'], minutes: 3, pages: ['/dashboard', '/integrations'], recorded: true,
+    digest: [{ sd: 20 }, { sd: 45, f: ['stripe_key'] }],
     activity: [[1, { c: [{ t: 2500, l: 'Connect Stripe', k: 'button' }], e: [{ t: 2700, m: 'Error: Request failed with status 500', s: 'https://shipkit.example.com/assets/app.js:88' }] }]],
   });
 
   // Kenji: no name, but his visitor id came back on three days (Remember visitors).
   insert('visitors', { site_id: site, id: 'people-kenji-1', first_seen: now - 12 * DAY, first_source: 'Reddit', first_channel: 'Organic Social' });
   web('people-kenji-1', 'people-kenji-s1', now - 12 * DAY, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 4, source: 'Reddit', channel: 'Organic Social', referrer: 'www.reddit.com/r/SaaS', domain: 'reddit.com', pages: ['/blog/stripe-webhooks', '/pricing'] });
-  web('people-kenji-1', 'people-kenji-s2', now - 5 * DAY, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 2, pages: ['/pricing'], recorded: true, activity: [[0, { c: [{ t: 8000, l: 'Monthly', k: 'button', n: 4, r: 1 }, { t: 12000, l: 'Yearly', k: 'button' }] }]] });
-  web('people-kenji-1', 'people-kenji-s3', now - 50 * MIN, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 3, pages: ['/pricing', '/faq'], recorded: true });
+  web('people-kenji-1', 'people-kenji-s2', now - 5 * DAY, { geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 2, pages: ['/pricing'], recorded: true, activity: [[0, { c: [{ t: 8000, l: 'Monthly', k: 'button', n: 4, r: 1 }, { t: 12000, l: 'Yearly', k: 'button' }] }]],
+    digest: [{ sd: 58, dc: [{ ...COMPARE, n: 3, t: 20000 }] }] });
+  // Kenji opened the FAQ and went back to pricing 3 seconds later: a quick back.
+  web('people-kenji-1', 'people-kenji-s3', now - 50 * MIN, {
+    geo: ['JP', 'Tokyo', 'Tokyo'], minutes: 3, pages: ['/pricing', '/faq', '/pricing'], times: [0, 60_000, 63_000], recorded: true,
+    digest: [{ sd: 50, dc: [{ ...COMPARE, n: 1, t: 30000 }] }, { sd: 10, qb: 1 }, { sd: 66 }],
+  });
 
   // Lea: one calm recorded visit.
   insert('visitors', { site_id: site, id: 'people-lea-1', first_seen: now - 4 * HOUR });
-  web('people-lea-1', 'people-lea-s1', now - 4 * HOUR, { geo: ['ES', 'Madrid', 'Madrid'], minutes: 2, source: 'ChatGPT', channel: 'AI', referrer: 'chatgpt.com', domain: 'chatgpt.com', pages: ['/', '/features'], recorded: true, activity: [[1, { c: [{ t: 5000, l: 'See pricing', k: 'link' }] }]] });
+  web('people-lea-1', 'people-lea-s1', now - 4 * HOUR, { geo: ['ES', 'Madrid', 'Madrid'], minutes: 2, source: 'ChatGPT', channel: 'AI', referrer: 'chatgpt.com', domain: 'chatgpt.com', pages: ['/', '/features'], recorded: true, activity: [[1, { c: [{ t: 5000, l: 'See pricing', k: 'link' }] }]],
+    digest: [{ sd: 30 }, { sd: 24 }] });
+
+  // Ten blog readers from Google, each gone from the top of /blog/launch-checklist within a minute or so.
+  const READERS = [['US', 'California', 'San Francisco'], ['DE', 'Hamburg', 'Hamburg'], ['FR', 'Ile-de-France', 'Paris'], ['IN', 'Karnataka', 'Bengaluru'], ['BR', 'Sao Paulo', 'Sao Paulo']];
+  for (let i = 0; i < 10; i++) {
+    const vid = `people-reader-${i}`;
+    insert('visitors', { site_id: site, id: vid, first_seen: now - (i + 1) * 7 * HOUR, first_source: 'Google', first_channel: 'Organic Search' });
+    web(vid, `people-reader-s${i}`, now - (i + 1) * 7 * HOUR, {
+      geo: READERS[i % READERS.length], minutes: 1, source: 'Google', channel: 'Organic Search', referrer: 'www.google.com', domain: 'google.com',
+      os: i % 3 ? 'Mac OS' : 'iOS', pages: ['/blog/launch-checklist'], recorded: true, digest: [{ sd: 6 + ((i * 7) % 19) }],
+    });
+  }
+}
+
+// ---------- Round 7: experiments (lane exp)
+// A lane deletes its own table's demo rows here first (out.push of a DELETE ... WHERE site_id IN (ids)): the table
+// does not exist before its lane's migration, so the list at the top cannot name it.
+// ShipKit runs pricing_headline on /pricing for the last 21 days: every visit that saw /pricing since then carries
+// exp_pricing_headline (sessions.props), the version the Worker would have stored. Extra pricing visitors bring each
+// version to about 900; version b sells the bigger licenses, so it leads on revenue per visitor (likely) while signups
+// stay level (not_yet). A flag, new_checkout, ran 50 to 30 days ago and stopped with on as the winner; hero_video is a
+// draft. sites.exp_live holds the running one and the stopped flag's winner (late), as expLiveOf in
+// pro/worker/experiments.ts builds it, so a /pricing pageview gets new_checkout: "on". Habitly's exp_paywall (above) is
+// the app experiment beside them.
+{
+  out.push(`DELETE FROM experiments WHERE site_id IN (${ids});`);
+  let s = 91;
+  const r = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+  const hex = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, () => Math.floor(r() * 16).toString(16));
+  const at = (list) => list[Math.floor(r() * list.length)];
+  const start = now - 21 * DAY;
+  const flagFrom = now - 50 * DAY, flagTo = now - 30 * DAY;
+  const row = (key, kind, name, variants, paths, status, started, stopped, winner, created) =>
+    insert('experiments', {
+      site_id: shipkit, key, kind, name, variants: JSON.stringify(variants), paths, goal: null, status,
+      started_at: started, stopped_at: stopped, winner, created_at: created, updated_at: stopped ?? started ?? created,
+    });
+  row('pricing_headline', 'experiment', 'Pricing headline', [{ key: 'control', weight: 50 }, { key: 'b', weight: 50 }], '/pricing', 'running', start, null, null, start - DAY);
+  row('new_checkout', 'flag', 'New checkout', [{ key: 'off', weight: 50 }, { key: 'on', weight: 50 }], '/pricing', 'stopped', flagFrom, flagTo, 'on', flagFrom - DAY);
+  row('hero_video', 'experiment', 'Video on the home page', [{ key: 'control', weight: 50 }, { key: 'video', weight: 50 }], '/', 'draft', null, null, null, now - 2 * DAY);
+
+  // Extra visitors on /pricing in the window, alternating versions. b's buyers pick bigger licenses.
+  const PRICE = { control: [4900, 9900, 9900, 9900], b: [9900, 16900, 16900, 29900] };
+  // Each named extra person gets a first and last name pair of their own (20 x 16 pairs) and a middle initial, which
+  // the rest of the demo's people do not have, so two people in the arms' customer lists never share a name.
+  let named = 0;
+  for (let i = 0; i < 920; i++) {
+    const arm = i % 2 ? 'b' : 'control';
+    const vid = hex(), sid = hex();
+    const t0 = start + Math.floor(r() * (now - start - 3600_000));
+    // Own random sequence (r), so the blocks after this one see the same rand() as before.
+    const src = at(SOURCES)[0];
+    const [country, region, city] = at(COUNTRIES);
+    const [browser, os, device] = at(DEVICES)[0];
+    const signs = r() < 0.12;
+    const buys = r() < 0.06;
+    const nm = signs || buys ? `${FIRST[named % FIRST.length]} ${'ABCDEFGHJKLMNPRSTVW'[named % 19]}. ${LAST[Math.floor(named++ / FIRST.length) % LAST.length]}` : '';
+    const who = signs || buys ? { name: nm, email: `${nm.toLowerCase().replace(/[^a-z]+/g, '.')}.exp@example.com` } : null;
+    const events = [
+      { ts: t0, type: 'pageview', path: '/pricing' },
+      { ts: t0 + 500, type: 'goal', name: 'paywall_view', path: '/pricing', props: { source: 'pricing' } },
+    ];
+    if (signs) events.push({ ts: t0 + 40_000, type: 'goal', name: 'signup', path: '/pricing' });
+    if (buys) events.push({ ts: t0 + 50_000, type: 'goal', name: 'checkout_click', path: '/pricing' });
+    insert('visitors', { site_id: shipkit, id: vid, first_seen: t0, user_id: who ? `usr_${vid.slice(0, 8)}` : null, name: who?.name ?? null, email: who?.email ?? null });
+    insert('sessions', {
+      site_id: shipkit, id: sid, visitor_id: vid, started_at: t0, last_seen_at: t0 + 60_000, duration: 60_000, pageviews: 1, goals: events.length - 1,
+      hostname: 'shipkit.example.com', entry_page: '/pricing', exit_page: '/pricing', referrer: src.referrer, referrer_domain: src.domain,
+      source: src.source, channel: src.channel, country, region, city, browser, os, device, props: JSON.stringify({ exp_pricing_headline: arm }),
+    });
+    insertEvents(shipkit, sid, vid, events);
+    if (buys) {
+      insert('payments', {
+        id: `pay_demo_exp_${i}`, site_id: shipkit, provider: 'dodo', ts: Math.min(now - 1000, t0 + 120_000), amount: at(PRICE[arm]), kind: 'payment',
+        currency: 'USD', visitor_id: vid, session_id: sid, customer_id: `cus_exp_${i}`, email: who.email, name: who.name, matched_by: 'metadata',
+      });
+    }
+  }
+  // Every other visit that saw /pricing in a run gets its version from its visitor id: the parity of the code points of
+  // its last two characters, an even split for any id format (the demo's ids are not all hex, so a split by the first
+  // character gave b 55%). The Worker's FNV hash cannot run in SQL. The arms then add up to the visitors of /pricing in
+  // the window and pass the split check (critique 1, shared-3).
+  const tag = (key, from, to, variants) =>
+    // One line: the loaders split seed.sql into statements by line.
+    late.push(
+      `UPDATE sessions SET props = json_set(COALESCE(props, '{}'), '$.exp_${key}', CASE WHEN (unicode(substr(visitor_id, -1)) + unicode(substr(visitor_id, -2, 1))) % 2 = 0 THEN '${variants[0]}' ELSE '${variants[1]}' END)` +
+        ` WHERE site_id = ${q(shipkit)} AND datacenter = 0 AND json_extract(COALESCE(props, '{}'), '$.exp_${key}') IS NULL` +
+        ` AND id IN (SELECT session_id FROM events WHERE site_id = ${q(shipkit)} AND type = 'pageview' AND (path = '/pricing' OR path LIKE '/pricing/%') AND ts >= ${from} AND ts < ${to});`,
+    );
+  tag('pricing_headline', start, now + DAY, ['control', 'b']);
+  tag('new_checkout', flagFrom, flagTo, ['off', 'on']);
+  // Each start and stop put a chart note on the Overview chart (pro/worker/experiments.ts experimentNote, owner item 13):
+  // the same text, actor and target the Worker writes. The note gets no verdict; its impact links the experiment.
+  const expNote = (id, ts, text, key) =>
+    insert('notes', { id, site_id: shipkit, ts, text, kind: 'manual', created_at: ts, actor: 'experiments', target: `experiment:${key}`, metric: 'visits', window_days: 7 });
+  expNote('note_demo_exp_1', flagFrom, 'Flag started: New checkout', 'new_checkout');
+  expNote('note_demo_exp_2', flagTo, 'Flag stopped: New checkout. Winner: on', 'new_checkout');
+  expNote('note_demo_exp_3', start, 'Experiment started: Pricing headline', 'pricing_headline');
+  // Running ones first, then the stopped ones that keep serving their winner (f: 1), as expLiveOf orders them.
+  const live = [
+    { k: 'pricing_headline', v: [['control', 50], ['b', 50]], p: ['/pricing'] },
+    { k: 'new_checkout', v: [['on', 100]], p: ['/pricing'], f: 1 },
+  ];
+  late.push(`UPDATE sites SET exp_live = ${q(JSON.stringify(live))} WHERE id = ${q(shipkit)};`);
+}
+
+// ---------- Round 7: surveys, retention and lifecycle (lane survey)
+// ShipKit: 150 people who sign in over 14 weeks, so People > Retention has cohorts and the lifecycle chart has new,
+// returning, resurrecting and dormant people; about 60 "How did you hear about us" answers in the last 30 days, a
+// third from Direct visitors (a podcast, a friend), 5 with their own words; 15 cancel reasons from Stripe on the
+// cancelled subscriptions, 6 with a comment; Anna and Ben carry their answer as a trait. Own random sequence, so the
+// rows above stay the same. Late statements are one line each: test/round-trips.test.ts runs the file line by line.
+{
+  out.push(`DELETE FROM survey_answers WHERE site_id IN (${ids});`);
+  let s = 77;
+  const r = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+  const at = (list) => list[Math.floor(r() * list.length)];
+  const WEEK = 7 * DAY;
+  const ARRIVE = [
+    [{ source: 'Google', channel: 'Organic Search', referrer: 'www.google.com', domain: 'google.com' }, 30],
+    [{ source: 'X', channel: 'Organic Social', referrer: 't.co', domain: 't.co' }, 25],
+    [{ source: 'Direct/None', channel: 'Direct', referrer: null, domain: null }, 25],
+    [{ source: 'Indie Hackers', channel: 'Referral', referrer: 'www.indiehackers.com', domain: 'indiehackers.com' }, 10],
+    [{ source: 'ChatGPT', channel: 'AI', referrer: 'chatgpt.com', domain: 'chatgpt.com' }, 10],
+  ];
+  const pickArrive = () => {
+    let x = r() * 100;
+    for (const [v, w] of ARRIVE) if ((x -= w) <= 0) return v;
+    return ARRIVE[0][0];
+  };
+  const DIRECT = ARRIVE[2][0];
+  let payments = 0;
+  for (let i = 0; i < 150; i++) {
+    // More people joined in recent weeks: the product grew.
+    const joined = Math.min(13, Math.floor(14 * (1 - Math.sqrt(r()))));
+    const first = pickArrive();
+    const who = { name: `${at(FIRST)} ${at(LAST)}` };
+    who.email = `${who.name.toLowerCase().replace(/[^a-z]+/g, '.')}.${i}@example.com`;
+    const user = `usr_life_${i}`;
+    // Half keep one visitor id (cookies, Remember visitors); the others get a new id each visit, joined by identify().
+    const remember = r() < 0.5;
+    const stay = 0.25 + r() * 0.6;
+    const geo = at(COUNTRIES);
+    let lastWeek = joined;
+    for (let wk = joined; wk >= 0; wk--) {
+      // Coming back gets less likely the longer someone stayed away; a few return after a gap (resurrecting).
+      const gap = lastWeek - wk;
+      if (wk !== joined && !(r() < (gap <= 1 ? stay : stay * 0.35))) continue;
+      lastWeek = wk;
+      const start = now - wk * WEEK - Math.floor(r() * (wk ? WEEK : 3 * DAY)) - 3600_000;
+      const vid = remember ? `life-${i}` : `life-${i}-${wk}`;
+      const sid = `life-${i}-s${wk}`;
+      const src = wk === joined ? first : r() < 0.7 ? DIRECT : first;
+      if (!remember || wk === joined) {
+        insert('visitors', {
+          site_id: shipkit, id: vid, first_seen: start, user_id: user, name: who.name, email: who.email,
+          first_source: src.source, first_channel: src.channel, first_referrer: src.referrer, first_entry_page: wk === joined ? '/' : '/login',
+        });
+      }
+      const pages = wk === joined ? ['/', '/pricing', '/signup', '/welcome'] : ['/login', '/dashboard'];
+      const duration = 60_000 + Math.floor(r() * 400_000);
+      insert('sessions', {
+        site_id: shipkit, id: sid, visitor_id: vid, started_at: start, last_seen_at: start + duration, duration, pageviews: pages.length,
+        goals: wk === joined ? 1 : 0, hostname: 'shipkit.example.com', entry_page: pages[0], exit_page: pages.at(-1), referrer: src.referrer,
+        referrer_domain: src.domain, source: src.source, channel: src.channel, country: geo[0], region: geo[1], city: geo[2],
+        browser: 'Chrome', os: 'Mac OS', device: 'Desktop',
+      });
+      const events = pages.map((p, k) => ({ ts: start + k * Math.floor(duration / pages.length), type: 'pageview', path: p }));
+      if (wk === joined) events.push({ ts: start + duration - 1000, type: 'goal', name: 'signup', path: '/signup' });
+      insertEvents(shipkit, sid, vid, events);
+      // About a quarter buy a license in their first week.
+      if (wk === joined && i % 4 === 1) {
+        insert('payments', {
+          id: `pay_demo_life_${++payments}`, site_id: shipkit, provider: 'dodo', ts: Math.min(now - 1000, start + duration), amount: [4900, 9900, 9900, 16900][i % 4],
+          kind: 'payment', currency: 'USD', visitor_id: vid, session_id: sid, customer_id: `cus_life_${i}`, email: who.email, name: who.name, matched_by: 'metadata',
+        });
+      }
+    }
+  }
+
+  // Anna and Ben answered the widget on /welcome after they signed up.
+  insert('survey_answers', { site_id: shipkit, survey: 'heard_about', ts: now - 9 * DAY + 5 * 60_000, id: 'demo_ha_anna', visitor_id: 'people-anna-mac', session_id: 'people-anna-s2', subscription_id: null, answer: 'friend', text: null, via: 'widget' });
+  insert('survey_answers', { site_id: shipkit, survey: 'heard_about', ts: now - 6 * DAY + 6 * 60_000, id: 'demo_ha_ben', visitor_id: 'people-ben-1', session_id: 'people-ben-s1', subscription_id: null, answer: 'podcast', text: null, via: 'widget' });
+
+  const since = now - 30 * DAY;
+  // Identified visitors of the last 30 days, oldest visit first, one row each: n numbers them.
+  const people = (channel) =>
+    `SELECT s.site_id, s.visitor_id, s.id AS sid, MIN(s.started_at) AS started_at, s.channel, s.source, ROW_NUMBER() OVER (ORDER BY MIN(s.started_at), s.visitor_id) AS n FROM sessions s JOIN visitors v ON v.site_id = s.site_id AND v.id = s.visitor_id WHERE s.site_id = ${q(shipkit)} AND s.started_at > ${since} AND v.user_id IS NOT NULL AND v.id NOT LIKE 'people-%' AND s.channel ${channel} GROUP BY s.visitor_id`;
+  const OTHER = ['The Indie Hackers forum', 'A Discord server for founders', 'My accountant', 'A conference talk in Berlin', 'Hacker News'];
+  const insertAnswers = (rows, answer, text, limit, via) =>
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'heard_about', started_at + 240000, 'demo_ha_' || visitor_id, visitor_id, sid, NULL, ${answer}, ${text}, ${via} FROM (${rows}) ORDER BY n LIMIT ${limit};`;
+  // 20 Direct visitors: two in three heard it on a podcast, the rest from a friend. Attribution calls them all Direct.
+  late.push(insertAnswers(people("= 'Direct'"), "CASE WHEN n % 3 = 0 THEN 'friend' ELSE 'podcast' END", 'NULL', 20, "CASE WHEN n % 4 = 0 THEN 'js' ELSE 'widget' END"));
+  // 40 others, mostly naming the channel that brought them; every eighth says something else in their own words.
+  const otherText = `CASE n % 40 ${OTHER.map((t, k) => `WHEN ${k * 8} THEN ${q(t)}`).join(' ')} END`;
+  late.push(
+    insertAnswers(
+      people("!= 'Direct'"),
+      `CASE WHEN n % 8 = 0 THEN 'other' WHEN source = 'Google' THEN 'google' WHEN source = 'X' THEN 'x' WHEN source = 'Reddit' THEN 'reddit' WHEN source = 'YouTube' THEN 'youtube' WHEN source = 'LinkedIn' THEN 'linkedin' WHEN channel = 'AI' THEN 'ai' WHEN n % 3 = 0 THEN 'newsletter' ELSE 'friend' END`,
+      `CASE WHEN n % 8 = 0 THEN ${otherText} END`,
+      40,
+      "'widget'",
+    ),
+  );
+  // 9 more identified visitors closed the card without answering: skipped, so the card's response rate is not 100%.
+  late.push(
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'heard_about', started_at + 240000, 'demo_ha_' || visitor_id, visitor_id, sid, NULL, 'skipped', NULL, 'widget' FROM (${people('IS NOT NULL')}) WHERE visitor_id NOT IN (SELECT visitor_id FROM survey_answers WHERE site_id = ${q(shipkit)} AND visitor_id IS NOT NULL) ORDER BY n DESC LIMIT 9;`,
+  );
+  // 15 cancelled Stripe subscriptions say why, 6 of them in words, as the Customer Portal's cancellation reasons.
+  const REASONS = ['too_expensive', 'missing_features', 'unused', 'too_expensive', 'switched_service', 'too_complex', 'unused', 'too_expensive', 'missing_features', 'low_quality', 'unused', 'customer_service', 'too_expensive', 'other', 'switched_service'];
+  // Each comment by the reason it goes with (n is the row number in REASONS, from 1).
+  const COMMENTS = [[1, 'Fine product, the price is high for a side project.'], [2, 'No team seats yet. We need three logins.'], [3, 'We only need it during launches, not every month.'], [5, 'Moved to a boilerplate my cofounder already knew.'], [6, 'The setup took longer than building it myself.'], [7, 'Paused the project for now.']];
+  // The 60 days above cancel only a few; 12 more running monthly plans turn auto-renew off, a few days after a renewal.
+  late.push(
+    `UPDATE subscriptions SET status = 'canceled', canceled_at = MIN(${now - DAY}, renewed_at + 2 * ${DAY}), updated_at = MIN(${now - DAY}, renewed_at + 2 * ${DAY}) WHERE site_id = ${q(shipkit)} AND id IN (SELECT id FROM subscriptions WHERE site_id = ${q(shipkit)} AND provider = 'stripe' AND interval = 'month' AND canceled_at IS NULL AND ended_at IS NULL AND billing_issue_at IS NULL AND renewed_at IS NOT NULL ORDER BY id LIMIT 12);`,
+  );
+  const reason = `CASE n ${REASONS.map((x, k) => `WHEN ${k + 1} THEN ${q(x)}`).join(' ')} END`;
+  const comment = `CASE n ${COMMENTS.map(([n, x]) => `WHEN ${n} THEN ${q(x)}`).join(' ')} END`;
+  late.push(
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'cancel_reason', canceled_at, 'stripe:' || id || ':' || canceled_at, visitor_id, NULL, id, ${reason}, ${comment}, 'stripe' FROM (SELECT sub.*, ROW_NUMBER() OVER (ORDER BY sub.canceled_at DESC, sub.id) AS n FROM subscriptions sub WHERE sub.site_id = ${q(shipkit)} AND sub.provider = 'stripe' AND sub.canceled_at IS NOT NULL) WHERE n <= 15;`,
+  );
+  // Each answer is also the person's trait (visitors.traits), as surveys.ts writes it.
+  for (const survey of ['heard_about', 'cancel_reason']) {
+    late.push(
+      `UPDATE visitors SET traits = json_set(COALESCE(traits, '{}'), '$.${survey}', (SELECT sa.answer FROM survey_answers sa WHERE sa.site_id = visitors.site_id AND sa.survey = '${survey}' AND sa.visitor_id = visitors.id ORDER BY sa.ts DESC LIMIT 1)) WHERE site_id = ${q(shipkit)} AND id IN (SELECT visitor_id FROM survey_answers WHERE site_id = ${q(shipkit)} AND survey = '${survey}' AND visitor_id IS NOT NULL);`,
+    );
+  }
+  // Habitly's App Store subscriptions that turned renewal off or ended carry Apple's category (owner item 8), as Apple's
+  // notifications and RevenueCat send it (src/worker/surveys.ts storeCancelStatement): mostly renewal turned off, every
+  // seventh a failed payment, one a price increase. No text and no trait.
+  late.push(
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'cancel_reason', COALESCE(canceled_at, ended_at), 'app_store:' || id || ':' || expires_at, visitor_id, NULL, id, CASE WHEN n = 2 THEN 'price_increase' WHEN n % 7 = 4 THEN 'billing_error' ELSE 'unsubscribed' END, NULL, 'app_store' FROM (SELECT sub.*, ROW_NUMBER() OVER (ORDER BY COALESCE(sub.canceled_at, sub.ended_at) DESC, sub.id) AS n FROM subscriptions sub WHERE sub.site_id = ${q(habitly)} AND sub.provider = 'app_store' AND (sub.canceled_at IS NOT NULL OR sub.ended_at IS NOT NULL));`,
+  );
+  // Both surveys on: the widget asks on /welcome after signup, and on the cancel page.
+  late.push(`UPDATE sites SET surveys = ${q(JSON.stringify({ heard_about: { on: 1, paths: ['/welcome'] }, cancel_reason: { on: 1, paths: ['/account/cancel'] } }))} WHERE id = ${q(shipkit)};`);
+}
+
+// ---------- Round 7: click maps, scroll depth and paths (lane pages)
+// ShipKit has click maps on: 400 page views each of / and /pricing and 100 of /features, desktop and mobile, with
+// clicks on the main button, the nav and "Compare plans" (the dead click the recordings demo names). Page speed rows
+// carry the scroll depth: /blog/seo-for-saas is read to the end, /blog/launch-checklist is left at the top (the
+// recordings demo's shallow page). 80 visits walk / > /pricing > /signup, or a part of it, so Paths has a route to
+// follow; 6 of them pay. Its own random sequence, so the blocks after it see the same numbers as before.
+{
+  out.push(`DELETE FROM page_maps WHERE site_id IN (${ids});`);
+  out.push(`DELETE FROM vitals WHERE site_id IN (${ids});`);
+  let s7 = 7;
+  const r = () => ((s7 = (s7 * 16807) % 2147483647) - 1) / 2147483646;
+  const around = (mid, spread) => Math.max(0, Math.min(100, Math.round(mid + (r() + r() + r() - 1.5) * spread)));
+  // [x per mille of the width, y px, hint, label, share of page views with this click]
+  const DESKTOP = {
+    '/': [[500, 520, 'a.cta', 'Start free trial', 0.34], [640, 32, 'a.nav', 'Pricing', 0.22], [560, 32, 'a.nav', 'Features', 0.09], [720, 32, 'a.nav', 'Docs', 0.06], [900, 32, 'a.login', 'Log in', 0.08], [500, 1850, 'a.cta', 'Get ShipKit', 0.05], [300, 1240, 'img', '', 0.04]],
+    '/pricing': [[500, 760, 'div.plan-card', 'Compare plans', 0.21], [330, 610, 'a.buy', 'Buy Starter', 0.07], [670, 610, 'a.buy', 'Buy Pro', 0.12], [500, 1420, 'summary', 'Can I get a refund?', 0.09], [560, 32, 'a.nav', 'Features', 0.05], [900, 32, 'a.login', 'Log in', 0.04]],
+    '/features': [[500, 480, 'a.cta', 'Start free trial', 0.18], [640, 32, 'a.nav', 'Pricing', 0.25], [250, 1100, 'button.tab', 'Payments', 0.11], [500, 1100, 'button.tab', 'Auth', 0.08]],
+  };
+  const MOBILE = {
+    '/': [[500, 610, 'a.cta', 'Start free trial', 0.29], [920, 28, 'button.menu', 'Menu', 0.24], [500, 2900, 'a.cta', 'Get ShipKit', 0.04]],
+    '/pricing': [[500, 1320, 'div.plan-card', 'Compare plans', 0.24], [500, 980, 'a.buy', 'Buy Pro', 0.1], [500, 760, 'a.buy', 'Buy Starter', 0.05], [920, 28, 'button.menu', 'Menu', 0.12]],
+    '/features': [[500, 560, 'a.cta', 'Start free trial', 0.15], [920, 28, 'button.menu', 'Menu', 0.2]],
+  };
+  const SCROLL = { '/': 58, '/pricing': 71, '/features': 44 };
+  for (const [path, views] of [['/', 400], ['/pricing', 400], ['/features', 100]]) {
+    for (let i = 0; i < views; i++) {
+      const mobile = r() < 0.38;
+      const spots = (mobile ? MOBILE : DESKTOP)[path];
+      const clicks = [];
+      for (const [x, y, hint, label, p] of spots) {
+        // Rage on "Compare plans": a few views click it three times.
+        const times = r() < p ? (hint === 'div.plan-card' && r() < 0.3 ? 3 : 1) : 0;
+        for (let k = 0; k < times; k++) clicks.push([Math.max(0, Math.min(1000, x + Math.round((r() - 0.5) * 90))), Math.max(0, y + Math.round((r() - 0.5) * 40)), hint, label]);
+      }
+      insert('page_maps', {
+        site_id: shipkit, path, ts: now - Math.floor(r() * 27 * DAY) - 60_000, id: Math.floor(r() * 2 ** 31), device: mobile ? 'Mobile' : 'Desktop',
+        width: mobile ? 390 : 1440, height: mobile ? (path === '/' ? 3400 : 2600) : path === '/' ? 2300 : 1900, scroll: around(SCROLL[path], 50),
+        clicks: clicks.length ? JSON.stringify(clicks) : null,
+      });
+    }
+  }
+  // Page speed rows with scroll depth (vitals.ts): a page load each, no visitor id.
+  const SPEED = [['/', 520, 58, 1900], ['/pricing', 410, 71, 2300], ['/features', 160, 44, 2100], ['/blog/seo-for-saas', 240, 88, 2600], ['/blog/launch-checklist', 90, 12, 3100], ['/docs', 120, 63, 1500]];
+  for (const [path, n, deep, lcp] of SPEED) {
+    for (let i = 0; i < n; i++) {
+      const mobile = r() < 0.4;
+      insert('vitals', {
+        site_id: shipkit, ts: now - Math.floor(r() * 27 * DAY) - 60_000, id: Math.floor(r() * 2 ** 31), path, device: mobile ? 'Mobile' : 'Desktop',
+        lcp: Math.round(lcp * (0.5 + r()) * (mobile ? 1.3 : 1)), inp: r() < 0.4 ? Math.round(60 + r() * 260) : null, cls: Math.round(r() * r() * 0.3 * 10_000) / 10_000,
+        ttfb: Math.round(120 + r() * 500), fcp: Math.round(lcp * 0.55 * (0.6 + r() * 0.8)), scroll: around(deep, path === '/blog/launch-checklist' ? 16 : 40),
+      });
+    }
+  }
+  // Paths: / > /pricing > /signup (> /dashboard), and the visits that leave on the way.
+  const ROUTES = [
+    [['/', '/pricing', '/signup', '/dashboard'], 22], [['/', '/pricing', '/signup'], 14], [['/', '/pricing'], 18], [['/', '/features', '/pricing', '/signup'], 8],
+    [['/', '/pricing', '/features'], 6], [['/', '/pricing', '/pricing', '/signup'], 4], [['/pricing', '/signup'], 8],
+  ];
+  const GEO = [['US', 'California', 'San Francisco'], ['GB', 'England', 'London'], ['DE', 'Berlin', 'Berlin'], ['IN', 'Karnataka', 'Bengaluru'], ['CA', 'Ontario', 'Toronto']];
+  let v = 0;
+  let paid = 0;
+  for (const [pages, count] of ROUTES) {
+    for (let i = 0; i < count; i++) {
+      const vid = `paths-v${++v}`;
+      const sid = `paths-s${v}`;
+      const start = now - Math.floor((1 + r() * 25) * DAY);
+      const mobile = r() < 0.35;
+      const geo = GEO[v % GEO.length];
+      const signup = pages.includes('/signup');
+      insert('visitors', { site_id: shipkit, id: vid, first_seen: start });
+      insert('sessions', {
+        site_id: shipkit, id: sid, visitor_id: vid, started_at: start, last_seen_at: start + pages.length * 70_000, duration: pages.length * 70_000, pageviews: pages.length,
+        goals: signup ? 1 : 0, hostname: 'shipkit.example.com', entry_page: pages[0], exit_page: pages.at(-1), referrer: null, referrer_domain: null, source: 'Direct/None',
+        channel: 'Direct', country: geo[0], region: geo[1], city: geo[2], browser: mobile ? 'Mobile Safari' : 'Chrome', os: mobile ? 'iOS' : 'Mac OS', device: mobile ? 'Mobile' : 'Desktop',
+      });
+      insertEvents(shipkit, sid, vid, [
+        ...pages.map((path, k) => ({ ts: start + k * 70_000, type: 'pageview', path })),
+        ...(signup ? [{ ts: start + pages.indexOf('/signup') * 70_000 + 30_000, type: 'goal', name: 'signup', path: '/signup' }] : []),
+      ]);
+      if (pages[3] === '/dashboard' && i % 4 === 0 && paid < 6) {
+        paid++;
+        insert('payments', { id: `pay_demo_paths_${paid}`, site_id: shipkit, provider: 'dodo', ts: Math.min(now - 60_000, start + 3 * DAY), amount: 9900, kind: 'payment', currency: 'USD', customer_id: `cus_paths_${paid}`, visitor_id: vid, session_id: sid, matched_by: 'metadata' });
+      }
+    }
+  }
+  late.push(`UPDATE sites SET maps_on = 1 WHERE id = ${q(shipkit)};`);
+}
+
+// ---------- Round 7: errors, recording filters and summaries (lane errors)
+// ShipKit catches JavaScript errors (src/worker/errors.ts). Four issues: a TypeError on /checkout first seen 6 hours ago
+// that hit 4 people, 2 of them paying customers, and one recorded visit (pro/scripts/seed-replays.mjs records it, so
+// Watch opens at the error); "ResizeObserver loop..." on every page, ignored; "Script error." from a script on another
+// domain; and a failed module load, resolved 3 days ago and back since yesterday. A new_error rule on /checkout sent
+// one alert for the TypeError; a rule on every page sent it too, and "Resolved error is back" for the module load. `fp` is fingerprint(message, source, stack); test/errors.test.ts checks each one.
+{
+  out.push(`DELETE FROM errors WHERE site_id IN (${ids});`, `DELETE FROM error_issues WHERE site_id IN (${ids});`, `DELETE FROM error_first WHERE site_id IN (${ids});`);
+  out.push(`DELETE FROM alert_events WHERE id LIKE 'evt_demo_err%';`);
+  const site = shipkit;
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  const H = 'https://shipkit.example.com';
+  const BUNDLE = `${H}/assets/index-B3kZ9a1x.js`;
+  const ERRORS = {
+    price: {
+      fp: '9c48328265cd',
+      message: "TypeError: Cannot read properties of undefined (reading 'priceId')",
+      source: `${BUNDLE}:120`,
+      // A literal \n here, turned into a line break after the flush: the seed file keeps one statement per line.
+      stack: `${BUNDLE}:120:14 handleCheckout\\n${BUNDLE}:88:3 HTMLButtonElement.onclick`,
+    },
+    resize: { fp: '14fe38236d8f', message: 'ResizeObserver loop completed with undelivered notifications', source: null, stack: null },
+    script: { fp: 'b7d19db721b1', message: 'Script error.', source: null, stack: null },
+    chunk: {
+      fp: '11c9286a34fa',
+      message: 'TypeError: Failed to fetch dynamically imported module: https://shipkit.example.com/assets/Dashboard-4f2a9c1e.js',
+      source: `${BUNDLE}:12`,
+      stack: `${BUNDLE}:12:9 loadRoute`,
+    },
+  };
+  let n = 0;
+  const err = (key, sid, vid, ts, path, device = 'Desktop', browser = 'Chrome', times = 1) => {
+    const e = ERRORS[key];
+    insert('errors', {
+      site_id: site, ts, id: 900_000 + ++n, fp: e.fp, session_id: sid, visitor_id: vid, path, message: e.message, source: e.source,
+      stack: e.stack, n: times, device, browser,
+    });
+  };
+  // The people of the checkout error. Kim and Sam pay (Sam on a second device that shares his user id); Joe and Ivy do
+  // not. Ivy's visit is recorded.
+  const visit = (vid, sid, start, o) => {
+    insert('sessions', {
+      site_id: site, id: sid, visitor_id: vid, started_at: start, last_seen_at: start + o.minutes * MIN, duration: o.minutes * MIN, pageviews: o.pages.length,
+      goals: 0, hostname: 'shipkit.example.com', entry_page: o.pages[0], exit_page: o.pages.at(-1), referrer: null, referrer_domain: null,
+      source: o.source ?? 'Google', channel: o.channel ?? 'Organic Search', country: o.geo[0], region: o.geo[1], city: o.geo[2],
+      browser: o.browser ?? 'Chrome', os: o.os ?? 'Mac OS', device: o.device ?? 'Desktop',
+    });
+    insertEvents(site, sid, vid, o.pages.map((path, i) => ({ ts: start + i * 40_000, type: 'pageview', path })));
+  };
+  const people = [
+    { vid: 'err-kim', name: 'Kim Novak', user: 'usr_kim', mrr: 4900, geo: ['US', 'New York', 'New York'] },
+    { vid: 'err-sam', name: 'Sam Patel', user: 'usr_sam', mrr: 1900, geo: ['GB', 'England', 'London'] },
+    { vid: 'err-joe', name: null, user: null, mrr: 0, geo: ['CA', 'Ontario', 'Toronto'] },
+    { vid: 'err-ivy', name: null, user: null, mrr: 0, geo: ['DE', 'Berlin', 'Berlin'] },
+  ];
+  people.forEach((p, i) => {
+    // A customer was first seen on the visit they paid on, 30 days ago; the others on the visit with the error. So the
+    // person page's "found you" date is a visit the timeline shows.
+    const start = now - (6 - i) * HOUR;
+    const bought = now - 30 * DAY - 12 * MIN;
+    insert('visitors', {
+      site_id: site, id: p.vid, first_seen: p.mrr ? bought : start, user_id: p.user, name: p.name,
+      email: p.name ? `${p.name.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com` : null,
+    });
+    if (p.mrr) visit(p.vid, `${p.vid}-s0`, bought, { minutes: 12, pages: ['/', '/pricing', '/checkout'], geo: p.geo });
+    const mobile = i === 2;
+    visit(p.vid, `${p.vid}-s1`, start, {
+      minutes: 3, pages: ['/pricing', '/checkout'], geo: p.geo, ...(mobile ? { device: 'Mobile', os: 'iOS', browser: 'Mobile Safari' } : {}),
+    });
+    // The error on /checkout, 50 s into the visit; Kim hit it twice.
+    err('price', `${p.vid}-s1`, p.vid, start + 50_000, '/checkout', mobile ? 'Mobile' : 'Desktop', mobile ? 'Mobile Safari' : 'Chrome', i === 0 ? 2 : 1);
+    if (p.mrr) {
+      const paid = now - 30 * DAY;
+      insert('payments', {
+        id: `pay_demo_err_${i}`, site_id: site, provider: 'stripe', ts: paid, amount: p.mrr, kind: 'payment', currency: 'USD', visitor_id: p.vid, session_id: `${p.vid}-s0`,
+        customer_id: `cus_demo_err_${i}`, email: `${p.name.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com`, name: p.name, product: p.mrr === 4900 ? 'shipkit_pro_monthly' : 'shipkit_starter_monthly',
+      });
+      insertSub({
+        id: `sub_demo_err_${i}`, provider: 'stripe', customer_id: `cus_demo_err_${i}`, visitor_id: p.vid, status: 'active', currency: 'USD', amount: p.mrr,
+        interval: 'month', interval_count: 1, mrr: p.mrr, first_mrr: p.mrr, paid_at: paid, renewed_at: now - 2 * DAY, expires_at: now + 28 * DAY,
+        product: p.mrr === 4900 ? 'shipkit_pro_monthly' : 'shipkit_starter_monthly', site_id: site,
+      });
+    }
+  });
+  // Ivy's visit is recorded: the index row with a digest, and the page activity with the error (pro/scripts/seed-replays.mjs
+  // rebuilds both around its recording and moves the error to the moment the video shows it).
+  {
+    const start = now - 3 * HOUR;
+    insert('replays', {
+      site_id: site, session_id: 'err-ivy-s1', visitor_id: 'err-ivy', started_at: start, entry_page: '/pricing',
+      digest: JSON.stringify({ s: start, v: [1440, 900], p: [{ u: '/pricing', a: 0, g: 0, ms: 40_000, sd: 64 }, { u: '/checkout', a: 40_000, g: 0, ms: 140_000, sd: 30, f: ['email'], fs: 1 }], x: '/checkout' }),
+    });
+    insertEvents(site, 'err-ivy-s1', 'err-ivy', [
+      { ts: start + 170_000, type: 'activity', path: '/checkout', props: { s: start + 40_000, c: [{ t: 9000, l: 'Pay $49', k: 'submit' }], e: [{ t: 10_000, m: ERRORS.price.message, s: ERRORS.price.source }] } },
+    ]);
+  }
+  // Sam's second device: the same person, counted once.
+  insert('visitors', { site_id: site, id: 'err-sam-phone', first_seen: now - 10 * DAY, user_id: 'usr_sam', name: 'Sam Patel', email: 'sam.patel@example.com' });
+  // The other issues hit visitors without a name, each on a visit of its own that was not recorded.
+  const GEOS = [['US', 'California', 'San Francisco'], ['FR', 'Île-de-France', 'Paris'], ['IN', 'Karnataka', 'Bengaluru'], ['BR', 'São Paulo', 'São Paulo']];
+  let anon = 0;
+  const anonErr = (key, ago, path) => {
+    const vid = `err-anon-${++anon}`;
+    const start = now - ago - 20_000;
+    insert('visitors', { site_id: site, id: vid, first_seen: start });
+    visit(vid, `${vid}-s1`, start, { minutes: 2, pages: [path], geo: GEOS[anon % GEOS.length], source: 'Direct/None', channel: 'Direct' });
+    err(key, `${vid}-s1`, vid, start + 20_000, path);
+  };
+  // ResizeObserver: on every page for weeks, from browsers' own layout code. The owner ignored it.
+  for (let d = 0; d < 12; d++) anonErr('resize', (d + 1) * 31 * HOUR, d % 2 ? '/' : '/blog/launch-checklist');
+  // Script error.: a widget from another domain, a few times a day.
+  for (let d = 0; d < 6; d++) anonErr('script', (d * 31 + 5) * HOUR, '/pricing');
+  // The failed module load: first seen 12 days ago, resolved 3 days ago, back since yesterday.
+  for (const ago of [12 * DAY, 11 * DAY, 9 * DAY, 20 * HOUR, 7 * HOUR]) anonErr('chunk', ago, '/dashboard');
+  insert('error_issues', { site_id: site, fp: ERRORS.resize.fp, status: 'ignored', changed_at: now - 15 * DAY });
+  insert('error_issues', { site_id: site, fp: ERRORS.chunk.fp, status: 'resolved', changed_at: now - 3 * DAY });
+  // The new_error rule on /checkout, its dedupe state and the alert it sent for the TypeError (the alert inbox, migration 0069).
+  const sent = now - 5 * HOUR - 20 * MIN;
+  insert('alert_rules', {
+    id: 'ar_demo_errors', site_id: site, name: 'A new error on /checkout', metric: 'new_error', path: '/checkout', comparison: 'rises_above', threshold: 0,
+    win: '24h', min_volume: 1, webhook_url: null, secret: null, channels: 1, push: 1, enabled: 1, crossed: JSON.stringify([ERRORS.price.fp]),
+    deliveries: JSON.stringify([{ id: 'dlv_demo_err', at: sent, kind: 'alert', to: 'push', ok: true, code: 200, attempts: 1, path: '/checkout', detail: '1 of 1 phone' }]),
+    created_at: now - 20 * DAY, updated_at: now - 20 * DAY, check_every: '1h', actor: null, change_kind: null,
+  });
+  insert('alert_events', {
+    ts: sent, id: 'evt_demo_err1', kind: 'threshold', site_id: site, title: 'New error on ShipKit /checkout',
+    text: [ERRORS.price.message, `First seen ${new Date(now - 6 * HOUR).toISOString().slice(0, 16).replace('T', ' ')} UTC on /checkout. 1 person so far.`, 'Rule: A new error on /checkout.', '', `An agent reads it with get_recordings, view error, issue ${ERRORS.price.fp}.`].join('\\n'),
+    data: JSON.stringify({ type: 'alert.crossed', delivery_id: 'dlv_demo_err', rule_id: 'ar_demo_errors', rule_name: 'A new error on /checkout', metric: 'new_error', path: '/checkout', window: '24h', current: 1, previous: 0, change_pct: null }),
+  });
+  // A second rule watches every page. It sent the TypeError too, and "Resolved error is back" for the module load when
+  // it came back 20 hours ago (owner item 12): the text pro/worker/alert-rules.ts alertMessage writes, without the
+  // link, since the seed does not know the dashboard's address. crossed keys a return by its resolve time.
+  const resolvedAt = now - 3 * DAY, backAt = now - 20 * HOUR, backSent = backAt + 20 * MIN;
+  const day = (t) => new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' });
+  insert('alert_rules', {
+    id: 'ar_demo_errors_all', site_id: site, name: 'A new JavaScript error', metric: 'new_error', path: null, comparison: 'rises_above', threshold: 0,
+    win: '24h', min_volume: 1, webhook_url: null, secret: null, channels: 1, push: 1, enabled: 1, crossed: JSON.stringify([ERRORS.price.fp, `${ERRORS.chunk.fp}:back:${resolvedAt}`]),
+    deliveries: JSON.stringify([
+      { id: 'dlv_demo_err_back', at: backSent, kind: 'alert', to: 'push', ok: true, code: 200, attempts: 1, path: '/dashboard', detail: '1 of 1 phone' },
+      { id: 'dlv_demo_err_all', at: sent, kind: 'alert', to: 'push', ok: true, code: 200, attempts: 1, path: '/checkout', detail: '1 of 1 phone' },
+    ]),
+    created_at: now - 10 * DAY, updated_at: now - 10 * DAY, check_every: '1h', actor: null, change_kind: null,
+  });
+  insert('alert_events', {
+    ts: backSent, id: 'evt_demo_err2', kind: 'threshold', site_id: site, title: 'Resolved error is back on ShipKit /dashboard',
+    text: [ERRORS.chunk.message, `You resolved it ${day(resolvedAt)} UTC, and it came back ${day(backAt)} UTC on /dashboard. 1 person since then. No paying customer yet.`, 'Rule: A new JavaScript error.', '', `An agent reads it with get_recordings, view error, issue ${ERRORS.chunk.fp}.`].join('\\n'),
+    data: JSON.stringify({
+      type: 'alert.crossed', delivery_id: 'dlv_demo_err_back', rule_id: 'ar_demo_errors_all', rule_name: 'A new JavaScript error', metric: 'new_error', path: '/dashboard', window: '24h',
+      current: 1, previous: 0, change_pct: null, from: new Date(backAt).toISOString(), to: new Date(Math.ceil(backSent / HOUR) * HOUR).toISOString(), reason: ERRORS.chunk.message,
+      issue: ERRORS.chunk.fp, issue_url: null, customers: 0, mrr: 0, regressed: true, resolved_at: new Date(resolvedAt).toISOString(), first_seen: new Date(now - 12 * DAY).toISOString(), notes: [],
+    }),
+  });
+  late.push(`UPDATE sites SET errors_on = 1 WHERE id = ${q(site)};`);
+  late.push(`UPDATE errors SET stack = replace(stack, '\\n', char(10)) WHERE site_id = ${q(site)} AND stack LIKE '%\\n%';`);
+  // Each issue's first sighting, as the ping writes it (migration 0098): the time of its oldest row.
+  late.push(`INSERT OR IGNORE INTO error_first (site_id, fp, first_seen) SELECT site_id, fp, MIN(ts) FROM errors WHERE site_id = ${q(site)} GROUP BY fp;`);
+  late.push(`UPDATE alert_events SET text = replace(text, '\\n', char(10)) WHERE id IN ('evt_demo_err1', 'evt_demo_err2');`);
 }
 
 flushInserts();
+out.push(...late);
 // ShipKit records visits (People and recordings). After the flush: the sites row is one of the rows it writes.
-out.push(`UPDATE sites SET record_visits = 1 WHERE id = ${q(shipkit)};`);
+out.push(`UPDATE sites SET record_visits = 1, record_on_at = ${now - 30 * DAY} WHERE id = ${q(shipkit)};`);
 // The snapshot parts go in after the rows above: each is one row, its text appended in chunks under the statement limit.
 for (const [part, value] of Object.entries(seoParts)) {
   const text = JSON.stringify(value);

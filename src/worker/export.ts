@@ -8,6 +8,7 @@ import { currencyDecimals } from './payments';
 import { LAPSE_MS } from './subscriptions';
 import { breakdown, filterSql, hasFilters, makeCtx, type Ctx } from './stats';
 import { dayInTz, resolveRange, tzOffset } from './lib/time';
+import { partExports } from './core-parts';
 
 /** Rows per D1 query. */
 const CHUNK = 1000;
@@ -35,7 +36,8 @@ const iso = (ms: number | null | undefined) => (typeof ms === 'number' ? new Dat
 const major = (minor: number | null | undefined, currency: string) =>
   typeof minor === 'number' ? Number((minor / 10 ** currencyDecimals(currency)).toFixed(currencyDecimals(currency))) : null;
 
-interface Table {
+/** One exportable table. Round 7's feature modules add theirs through their CorePart (core-parts.ts). */
+export interface ExportTable {
   columns: string[];
   /** The query for one chunk after `cursor` (null: from the start), ordered by the cursor columns. */
   chunk: (ctx: Ctx, cursor: Cursor | null, n: number) => D1PreparedStatement;
@@ -50,7 +52,8 @@ interface Table {
 }
 
 /** Keyset cursor: the time and id of the last row sent. */
-type Cursor = { ts: number; id: string };
+export type Cursor = { ts: number; id: string };
+type Table = ExportTable;
 
 const encodeCursor = (c: Cursor) => `${c.ts}.${c.id}`;
 function decodeCursor(raw: string | undefined): Cursor | null {
@@ -66,7 +69,7 @@ const SESSION_COLUMNS = [
   'language', 'click_network', 'datacenter',
 ];
 
-const TABLES: Record<string, Table> = {
+const BASE_TABLES: Record<string, Table> = {
   sessions: {
     columns: SESSION_COLUMNS,
     chunk: (ctx, cur, n) => {
@@ -187,7 +190,11 @@ const TABLES: Record<string, Table> = {
   },
 };
 
-export const EXPORT_TABLES = Object.keys(TABLES);
+/** Core's tables and those of round 7's parts, merged when first asked for, so no module load depends on another's. */
+let merged: Record<string, Table> | null = null;
+const tables = () => (merged ??= { ...BASE_TABLES, ...partExports() });
+/** The names of every exportable table. */
+export const exportTables = () => Object.keys(tables());
 
 /** The dashboard's range and filters; `from` or `to` without `period` mean a custom range, as in the read API. */
 function exportCtx(c: Context<AppEnv>): Ctx {
@@ -273,8 +280,8 @@ async function exportCsv(c: Context<AppEnv>, name: string, table: Table, opts: {
  */
 export async function exportTable(c: Context<AppEnv>) {
   const name = c.req.param('table')?.replace(/\.csv$/, '') ?? '';
-  const table = TABLES[name];
-  if (!table) return c.json({ error: `Export one of ${EXPORT_TABLES.join(', ')}` }, 404);
+  const table = tables()[name];
+  if (!table) return c.json({ error: `Export one of ${exportTables().join(', ')}` }, 404);
   const hidePerson = c.get('role') === 'viewer' && !viewerSeesPersonalData(c.env);
   const out = await exportCsv(c, name, table, { hidePerson, scrub: false });
   if ('error' in out) return c.json({ error: out.error }, 400);
@@ -287,8 +294,8 @@ export async function exportTable(c: Context<AppEnv>) {
  * and headers so the read API can cache it.
  */
 export async function exportForKey(c: Context<AppEnv>, name: string) {
-  const table = TABLES[name];
-  if (!table) return { status: 404 as const, error: `Export one of ${EXPORT_TABLES.join(', ')}` };
+  const table = tables()[name];
+  if (!table) return { status: 404 as const, error: `Export one of ${exportTables().join(', ')}` };
   const out = await exportCsv(c, name, table, { hidePerson: true, scrub: true });
   if ('error' in out) return { status: 400 as const, error: out.error! };
   return { status: 200 as const, ...out };

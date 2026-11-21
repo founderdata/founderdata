@@ -18,6 +18,8 @@ export interface Tool {
   annotations: Json;
   /** The scope a write tool needs; the route checks it. */
   scope?: WriteScope;
+  /** The route names unknown fields in `ignored`, so callTool passes them on instead of refusing them (the plan's writes). */
+  namesUnknown?: true;
   /** The route and query, from the arguments. Throws ArgError for a bad argument. */
   route: (a: Args) => { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; path: string; query?: string[]; body?: Json; auth?: 'write'; scope?: WriteScope };
   /** Turns the route's JSON into the tool's answer. */
@@ -135,6 +137,7 @@ export const BREAKDOWN_DIMS = [
   'channel', 'source', 'referrer', 'campaign', 'keyword', 'utm_source', 'utm_medium', 'utm_content', 'ref',
   'country', 'region', 'city', 'browser', 'os', 'device', 'platform', 'app_version', 'hostname',
   'page', 'entry_page', 'exit_page', 'goal', 'exit_link', 'x_post', 'referrer_domain', 'click_network', 'language',
+  'heard_about',
 ];
 export const NOTE_VIEWS = ['list', 'actors'];
 /** get_overview and get_portfolio: the numbers, or the next actions (pro/worker/actions.ts). */

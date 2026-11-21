@@ -85,6 +85,9 @@ describe('section row', () => {
     expect(ALL_VIEWS).toEqual(all);
     expect(SECTION_GROUPS.find((g) => g.id === 'paid')!.views).toEqual(['paid', 'ads', 'asa']);
     expect(SECTION_GROUPS.find((g) => g.id === 'organic')!.views).toEqual(['seo', 'ai', 'aso']);
+    // Recordings sit in Analytics right after People (pro/docs/recordings-agents-plan.md, R6); Errors after Recordings and
+    // Experiments before App (round 7, plan section 3).
+    expect(SECTION_GROUPS.find((g) => g.id === 'analytics')!.views).toEqual(['overview', 'people', 'recordings', 'errors', 'content', 'dropoff', 'experiments', 'app']);
   });
 
   it('links each section to a path that opens it, Apple Search Ads at /ads/asa next to Meta ads at /ads', () => {
@@ -103,7 +106,7 @@ describe('section row', () => {
     // A website without Meta, an app or subscriptions: those sections are muted, not gone.
     const muted = (s: Site) => ALL_VIEWS.filter((v) => sectionState(s, v).muted);
     expect(muted(webOnly)).toEqual(['app', 'aso', 'paid', 'ads', 'asa', 'subscriptions', 'appstore']);
-    expect(muted(appOnly)).toEqual(['content', 'seo', 'ai', 'paid', 'ads', 'asa']);
+    expect(muted(appOnly)).toEqual(['recordings', 'errors', 'content', 'seo', 'ai', 'paid', 'ads', 'asa']);
     expect(muted(both)).toEqual([]);
     // Apple Search Ads without the deployment's ASA_* secrets is muted but opens its own setup steps.
     expect(sectionState({ ...both, has_asa: false }, 'asa')).toEqual({ muted: true, setup: null });
@@ -118,8 +121,10 @@ describe('section row', () => {
     expect(sectionState(appOnly, 'seo').setup).toMatchObject({ title: 'This section needs a website', settings: 'general' });
     expect(sectionState(webOnly, 'subscriptions').setup).toMatchObject({ settings: 'payments' });
     expect(sectionState(webOnly, 'overview')).toEqual({ muted: false, setup: null });
-    expect(viewsFor(webOnly)).toEqual(['plan', 'overview', 'people', 'content', 'dropoff', 'seo', 'ai', 'paid', 'ads']);
-    expect(viewsFor(appOnly)).toEqual(['plan', 'overview', 'people', 'dropoff', 'app', 'aso', 'paid', 'asa', 'subscriptions', 'appstore']);
+    expect(viewsFor(webOnly)).toEqual(['plan', 'overview', 'people', 'recordings', 'errors', 'content', 'dropoff', 'experiments', 'seo', 'ai', 'paid', 'ads']);
+    // Experiments list the app's experiments too, so an app-only site has the section; Errors need a website.
+    expect(viewsFor(appOnly)).toEqual(['plan', 'overview', 'people', 'dropoff', 'experiments', 'app', 'aso', 'paid', 'asa', 'subscriptions', 'appstore']);
+    expect(sectionState(appOnly, 'errors').setup).toMatchObject({ title: 'This section needs a website' });
     // The plan needs neither a website nor an app.
     expect(sectionState(appOnly, 'plan')).toEqual({ muted: false, setup: null });
     expect(sectionState(webOnly, 'plan')).toEqual({ muted: false, setup: null });
@@ -128,6 +133,12 @@ describe('section row', () => {
   it('carries the period and filters to another section, not the section\'s own tab, view or visitor', () => {
     const search = '?period=7d&filters=%7B%22country%22%3A%22DE%22%7D&tab=source&view=keyword&visitor=v1';
     expect(carriedSearch(search)).toBe('?period=7d&filters=%7B%22country%22%3A%22DE%22%7D');
+    // The filters of Recordings and the second a recording opens at stay on Recordings too.
+    expect(carriedSearch('?period=7d&page=%2Fpricing&exit=%2Fpricing&signal=dead&outcome=none&device=mobile&sort=newest&t=27')).toBe('?period=7d');
+    // Round 7: the filters of Errors and Recordings, the click map device, a Paths sequence, the retention scope and split.
+    expect(
+      carriedSearch('?period=7d&issue=a1b2c3d4e5f6&exp=pricing%3Ab&status=open&map=mobile&seq=%2F%2C%2Fpricing&scope=known&split=channel&funnel=f1&step=2&channel=Direct&customer=1'),
+    ).toBe('?period=7d');
     expect(sectionUrl('s1', 'seo', search)).toBe('/site/s1/seo?period=7d&filters=%7B%22country%22%3A%22DE%22%7D');
     expect(sectionUrl('s1', 'overview', '')).toBe('/site/s1');
   });
@@ -149,7 +160,7 @@ describe('section row on the page', () => {
   };
   const nav = (html: string) => html.slice(html.indexOf('<nav aria-label="Sections"'), html.indexOf('</nav>', html.indexOf('<nav aria-label="Sections"')));
 
-  it('draws all 13 sections on every page of every kind of site, the open one marked and the unset ones muted', async () => {
+  it('draws all 17 sections on every page of every kind of site, the open one marked and the unset ones muted', async () => {
     for (const s of [webOnly, appOnly, both]) {
       for (const view of ALL_VIEWS) {
         const html = nav(await render(s, view));
@@ -254,6 +265,18 @@ describe('page state in the URL', () => {
 
   it('adds a filter to a link into another section', () => {
     expect(readQuery(searchWithFilter('?period=7d', 'utm_campaign', '123')).filters).toEqual({ utm_campaign: '123' });
+  });
+
+  it('opens the Heard about tab from ?tab=heard_about, also with a period (critique shared-11)', () => {
+    // Checked in a browser on the seeded demo: a direct load, a load through the login page and the Settings > Surveys
+    // link all open Heard about. These pin the two pieces that decide it: the tab state and the first request.
+    const channel = BREAKDOWN_CARDS[0].map((t) => t.dim);
+    expect(channel).toContain('heard_about');
+    expect(tabFrom('heard_about', channel)).toBe('heard_about');
+    const route = matchRoute('/site/demo0001');
+    expect(route).toBeTruthy();
+    const urls = dataOf(route!, '?tab=heard_about&period=30d');
+    expect(urls.some((u) => u.includes('/breakdown?') && u.includes('dim=heard_about') && u.includes('period=30d'))).toBe(true);
   });
 
   it('keeps one ?tab= list for every card, with each card\'s first tab as no entry', () => {
@@ -418,6 +441,31 @@ describe('dashboard_url', () => {
       const link = new URL(u(p)!);
       expect(matchRoute(link.pathname, false), p).toMatchObject({ page: 'dashboard', siteId: 'SITE' });
     }
+  });
+
+  it('links round 7\'s read routes: errors, experiments, web retention and lifecycle, paths', () => {
+    const o = 'https://founderdata.example.com';
+    const u = (p: string) => dashboardUrl(`${o}/api/v1/${p}`, 'SITE');
+    expect(u('errors?status=open&period=7d')).toBe(`${o}/site/SITE/errors?period=7d&status=open`);
+    expect(u('errors/a1b2c3d4e5f6')).toBe(`${o}/site/SITE/errors/a1b2c3d4e5f6`);
+    expect(u('experiments?platform=web')).toBe(`${o}/site/SITE/experiments`);
+    expect(u('experiments/pricing_headline')).toBe(`${o}/site/SITE/experiments/pricing_headline`);
+    expect(u('experiments/exp_paywall?platform=app')).toBe(`${o}/site/SITE/experiments/exp_paywall?platform=app`);
+    expect(u('errors?page=/checkout&device=mobile')).toBe(`${o}/site/SITE/errors?page=%2Fcheckout&device=mobile`);
+    // The Recordings links keep round 7's filters, so an agent's link opens the same visits.
+    expect(u('recordings?exp=pricing_headline:b&issue=a1b2c3d4e5f6&limit=5')).toBe(`${o}/site/SITE/recordings?issue=a1b2c3d4e5f6&exp=pricing_headline%3Ab`);
+    expect(u('recordings?funnel=f1&step=2&customer=1')).toBe(`${o}/site/SITE/recordings?customer=1&funnel=f1&step=2`);
+    expect(u('web/retention?scope=known&split=channel')).toBe(`${o}/site/SITE/people/retention?scope=known&split=channel`);
+    expect(u('web/lifecycle?period=90d')).toBe(`${o}/site/SITE/people/retention?period=90d`);
+    // app/retention on a site with no app answers web retention (critique 2 int-4), so it links to the web grid.
+    expect(dashboardUrl(`${o}/api/v1/app/retention?period=90d&scope=all`, 'SITE', false)).toBe(`${o}/site/SITE/people/retention?period=90d&scope=all`);
+    expect(dashboardUrl(`${o}/api/v1/app/retention?period=90d`, 'SITE', true)).toBe(`${o}/site/SITE/app?period=90d`);
+    expect(u('paths?seq=/,/pricing')).toBe(`${o}/site/SITE/content/paths?seq=%2F%2C%2Fpricing`);
+    expect(matchRoute('/site/SITE/errors', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'errors' });
+    expect(matchRoute('/site/SITE/errors/a1b2c3d4e5f6', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'errors' });
+    expect(matchRoute('/site/SITE/experiments/new', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'experiments' });
+    expect(matchRoute('/site/SITE/content/paths', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'content' });
+    expect(matchRoute('/site/SITE/people/retention', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'people' });
   });
 
   it('puts the field first in a JSON object and leaves arrays alone', () => {

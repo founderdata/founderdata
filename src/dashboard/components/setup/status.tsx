@@ -11,7 +11,7 @@ import type { SetupIconName } from './icons';
  * opens from routes that already exist. Each card's chip and the overview grid read the same answers, so they agree.
  */
 
-export type GroupId = 'overview' | 'site' | 'install' | 'payments' | 'appstore' | 'seo' | 'ads' | 'agents-api' | 'alerts' | 'imports' | 'sharing' | 'privacy' | 'product' | 'danger';
+export type GroupId = 'overview' | 'site' | 'install' | 'payments' | 'appstore' | 'seo' | 'ads' | 'capture' | 'agents-api' | 'alerts' | 'imports' | 'sharing' | 'privacy' | 'product' | 'danger';
 
 /** A group or card that only FounderData Pro has (`pro`) or only core shows (`core`). The other edition's list leaves it out. */
 interface Edition {
@@ -28,6 +28,7 @@ const ALL_GROUPS: (Edition & { id: GroupId; label: string; icon: SetupIconName; 
   { id: 'appstore', label: 'App Store', icon: 'appstore', desc: isPro ? 'Purchases, commission, sandbox purchases and Apple Search Ads.' : 'Purchases, commission and sandbox purchases.' },
   { id: 'seo', label: 'Search and SEO', icon: 'seo', pro: true, desc: 'Search Console queries, clicks and positions, pulled every day.' },
   { id: 'ads', label: 'Ads and social', icon: 'ads', pro: true, desc: 'Ad spend next to the customers it brought, and visits from X posts.' },
+  { id: 'capture', label: 'Errors, maps and surveys', icon: 'puzzle', pro: true, desc: 'Catch JavaScript errors, see where people click, and ask customers how they found you and why they cancel.' },
   { id: 'agents-api', label: 'Agents and API', icon: 'agents', desc: isPro ? 'Keys for your agents and scripts, the MCP server and the iPhone app.' : 'Keys for your agents and scripts.' },
   { id: 'alerts', label: 'Alerts', icon: 'alerts', pro: true, desc: 'Rules that post to a webhook or your phone when a number crosses a line.' },
   { id: 'imports', label: 'Imports', icon: 'imports', desc: 'Bring in history from before this site used FounderData.' },
@@ -75,6 +76,9 @@ const ALL_CARDS: CardDef[] = [
   { id: 'meta-ads', group: 'ads', title: 'Meta ads', pro: true, tile: true, applies: web },
   { id: 'x-posts', group: 'ads', title: 'X posts', pro: true, tile: true, applies: web },
   { id: 'ad-spend', group: 'ads', title: 'Ad spend from other channels', pro: true },
+  { id: 'catch-errors', group: 'capture', title: 'Catch JavaScript errors', pro: true, tile: true, applies: web },
+  { id: 'click-maps', group: 'capture', title: 'Click maps', pro: true, tile: true, applies: web },
+  { id: 'surveys', group: 'capture', title: 'Surveys', pro: true, tile: true, applies: web },
   { id: 'agents', group: 'agents-api', title: 'Agents', tile: true },
   { id: 'iphone-app', group: 'agents-api', title: 'iPhone app', pro: true, tile: true },
   { id: 'devices', group: 'agents-api', title: 'Devices', pro: true },
@@ -268,6 +272,13 @@ export function statusFor(id: string, site: Site, d: SetupData): CardStatus | nu
       if (site.usage?.capped_at) return { tone: 'error', label: 'Reached', detail: `Reached ${agoMs(site.usage.capped_at)}` };
       return { tone: 'ok', label: 'On' };
     }
+    case 'catch-errors':
+      if (site.errors_on) return { tone: 'ok', label: 'On' };
+      return site.record_visits ? { tone: 'ok', label: 'On', detail: 'Record visits catches them' } : { tone: 'neutral', label: 'Off' };
+    case 'click-maps':
+      return site.maps_on ? { tone: 'ok', label: 'On', detail: `${site.map_sample ?? 100}% of page views` } : { tone: 'neutral', label: 'Off' };
+    case 'surveys':
+      return site.surveys ? { tone: 'ok', label: 'On' } : { tone: 'neutral', label: 'Off' };
     case 'datacenter':
       return site.show_datacenter === 1 ? { tone: 'neutral', label: 'Counted' } : { tone: 'ok', label: 'Hidden' };
     case 'data-location': {

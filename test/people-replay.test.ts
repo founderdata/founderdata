@@ -2,10 +2,12 @@
 // answer, page activity on the ping, identify() traits, the site settings, and the hooks FounderData Pro fills.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_TRAITS, parseActivity, traitsOf } from '../src/worker/collect';
+import { cleanMessage, pageErrors } from '../src/worker/errors';
 import { forgetSite } from '../src/worker/env';
 import { installPro, proHooks, type Pro, type RecordConfig } from '../src/worker/pro-hooks';
 import { isSkipped, parseSkipList, patchRecording, skipList } from '../src/worker/recording';
 import { startWorker, type TestWorker } from './helpers/worker';
+import { app } from '../src/worker/index';
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129 Safari/537.36';
 const REC: RecordConfig = { mask: '[data-fd-mask]', block: '[data-fd-block]', v: '1' };
@@ -25,8 +27,9 @@ describe('parseActivity', () => {
   it('marks a rage click only with 3 or more clicks, and checks every field', () => {
     const a = parseActivity({
       c: [
-        { t: 1, l: 'Buy', k: 'button', n: 5, r: 1 },
-        { t: 2, l: 'Twice', k: 'link', n: 2, r: 1 },
+        { t: 1, l: 'Buy', k: 'button', n: 5, r: 1, s: 'button.buy' },
+        { t: 2, l: 'Twice', k: 'link', n: 2, r: 1, s: 'a.twice' },
+        { t: 2, l: 'Bad hint', k: 'button', n: 3, r: 1, s: '<img onerror=x>' },
         { t: 3, l: 'Odd kind', k: 'script' },
         { t: -1, l: 'Bad time', k: 'button' },
         { t: 4, l: '', k: 'button' },
@@ -37,13 +40,24 @@ describe('parseActivity', () => {
     })!;
     const props = JSON.parse(a.props);
     expect(props.c).toEqual([
-      { t: 1, l: 'Buy', k: 'button', n: 5, r: 1 },
+      { t: 1, l: 'Buy', k: 'button', n: 5, r: 1, s: 'button.buy' },
       { t: 2, l: 'Twice', k: 'link', n: 2 },
+      { t: 2, l: 'Bad hint', k: 'button', n: 3, r: 1 },
       { t: 3, l: 'Odd kind', k: 'other' },
       { t: 5, l: 'x'.repeat(40), k: 'submit' },
     ]);
     expect(props.e).toEqual([{ t: 2, m: 'TypeError: boom', s: '' }]);
     expect(a.path).toBeNull();
+  });
+
+  it('drops the query and hash of a URL in an error message, and the entry still matches its errors row', () => {
+    const raw = 'Failed to fetch https://api.shipkit.example.com/v1/users?name=Anna&city=Leeds#top';
+    const a = parseActivity({ p: '/checkout', s: 1_767_225_600_000, e: [{ t: 5, m: raw, s: 'https://shipkit.example.com/app.js?v=3:12' }] })!;
+    const m = JSON.parse(a.props).e[0].m;
+    expect(m).toBe('Failed to fetch https://api.shipkit.example.com/v1/users');
+    // The recordings code links an activity error to its issue by cleanMessage against the errors row's message.
+    const row = pageErrors({ p: '/checkout', s: 1_767_225_600_000, e: [{ t: 5, m: raw }] }, 1_767_225_600_010).errors[0];
+    expect(cleanMessage(m)).toBe(row.message);
   });
 
   it('is null when nothing is left', () => {
@@ -74,8 +88,8 @@ describe('traitsOf', () => {
 describe('patchRecording', () => {
   it('takes switches and numbers in range, and refuses the rest', () => {
     const next: any = {};
-    expect(patchRecording({ record_visits: true, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 }, next)).toBeNull();
-    expect(next).toEqual({ record_visits: 1, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 });
+    expect(patchRecording({ record_visits: true, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 }, next, 1000)).toBeNull();
+    expect(next).toEqual({ record_on_at: 1000, record_visits: 1, remember_visitors: 0, record_only_active: 1, record_sample: 25, record_keep_days: 90, record_daily_max: 500 });
     expect(patchRecording({ record_sample: 0 }, {} as any)).toMatch(/1 to 100/);
     expect(patchRecording({ record_sample: 50.5 }, {} as any)).toMatch(/1 to 100/);
     expect(patchRecording({ record_keep_days: 14 }, {} as any)).toMatch(/7, 30 or 90/);
@@ -229,11 +243,12 @@ describe('people and recordings in the Worker', () => {
   it('asks Pro for a recorded visit and passes its settings on as cfg.rec', async () => {
     await setSite({ record_visits: 1 });
     const res = JSON.parse((await answer(await event({ t: 'pageview', vid: 'recvisitor0001', sid: 'recsession0001' }))).text);
-    expect(res).toEqual({ cfg: { rec: REC } });
+    // A site that records visits also catches errors (round 7, src/worker/errors.ts errorsConfig): cfg.e.
+    expect(res).toEqual({ cfg: { rec: REC, e: 1 } });
     expect(decisions).toEqual([{ siteId: site.id, sid: 'recsession0001' }]);
     // Pro says no, or fails: no rec, and the event is stored anyway.
     decide = async () => null;
-    expect((await answer(await event({ t: 'pageview', vid: 'recvisitor0001', sid: 'recsession0001' }))).text).toBe('');
+    expect(JSON.parse((await answer(await event({ t: 'pageview', vid: 'recvisitor0001', sid: 'recsession0001' }))).text)).toEqual({ cfg: { e: 1 } });
     decide = async () => {
       throw new Error('down');
     };
@@ -243,9 +258,47 @@ describe('people and recordings in the Worker', () => {
     decide = async (_e, s, sid) => (decisions.push({ siteId: s.id, sid }), REC);
   });
 
+  it('never asks Pro to record a visit from a hosting network', async () => {
+    await setSite({ record_visits: 1 });
+    const req = new Request('http://localhost/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '3.3.3.3' },
+      body: JSON.stringify({ w: site.id, t: 'pageview', u: 'https://people.example/', vid: 'dcvisitor00001', sid: 'dcsession00001' }),
+    });
+    Object.defineProperty(req, 'cf', { value: { asn: 16509 } });
+    const res = await app.fetch(req, w.env as any, { waitUntil() {}, passThroughOnException() {}, props: {} } as any);
+    expect(res.status).toBe(202);
+    // No recording, and no cfg.e either (errors-9): a hosting-network visit sets no first sighting, so its errors could
+    // never raise a new-error alert.
+    expect(await res.text()).toBe('');
+    expect(decisions).toEqual([]);
+  });
+
+  it('keeps when Record visits was turned on, and the migration 0082 columns', async () => {
+    const at = async () => (await w.db.prepare('SELECT record_on_at, record_health FROM sites WHERE id = ?').bind(site.id).first<any>())!;
+    await setSite({ record_visits: 0 });
+    const t0 = Date.now();
+    await setSite({ record_visits: 1 });
+    const first = (await at()).record_on_at;
+    expect(first).toBeGreaterThanOrEqual(t0);
+    expect((await at()).record_health).toBeNull();
+    // On again, or another setting: the time stays.
+    await setSite({ record_visits: 1, record_sample: 100 });
+    expect((await at()).record_on_at).toBe(first);
+    const cols = await w.db.prepare("SELECT name FROM pragma_table_info('replays') WHERE name = 'digest'").all();
+    expect(cols.results).toHaveLength(1);
+    // patchRecording itself: off to on sets the time, on to on keeps it.
+    const next = { record_visits: 0 } as any;
+    expect(patchRecording({ record_visits: true }, next, 1234)).toBeNull();
+    expect(next.record_on_at).toBe(1234);
+    expect(patchRecording({ record_visits: 1 }, next, 5678)).toBeNull();
+    expect(next.record_on_at).toBe(1234);
+  });
+
   it('adds c: 1 to cfg.rec when the site waits for consent', async () => {
     await setSite({ record_visits: 1, record_consent: 1 });
     const res = JSON.parse((await answer(await event({ t: 'pageview', vid: 'recvisitor0002', sid: 'recsession0002' }))).text);
+    // No cfg.e: errors wait for consent with the recording (errors-2); Catch JavaScript errors would send them anyway.
     expect(res).toEqual({ cfg: { rec: { ...REC, c: 1 } } });
     await setSite({ record_consent: 0 });
   });
@@ -260,14 +313,15 @@ describe('people and recordings in the Worker', () => {
         headers: { 'user-agent': UA, cookie: '' },
         body: JSON.stringify({ w: s.id, t: 'pageview', u: 'https://nobucket.example/', vid: 'nobucketvisit1', sid: 'nobucketsess01' }),
       });
-      expect(await r.text()).toBe('');
+      expect(JSON.parse(await r.text())).toEqual({ cfg: { e: 1 } });
       expect(decisions).toEqual([]);
     } finally {
       await bare.dispose();
     }
     installPro(null);
     try {
-      expect((await answer(await event({ t: 'pageview', vid: 'recvisitor0001', sid: 'recsession0001' }))).text).toBe('');
+      // Core still catches errors without Pro (plan S1): cfg.e, no cfg.rec.
+      expect(JSON.parse((await answer(await event({ t: 'pageview', vid: 'recvisitor0001', sid: 'recsession0001' }))).text)).toEqual({ cfg: { e: 1 } });
     } finally {
       installPro(fake);
     }
@@ -279,8 +333,9 @@ describe('people and recordings in the Worker', () => {
     const activity = { p: '/pricing', s: 1_767_225_600_000, c: [{ t: 1200, l: 'Start trial', k: 'button' }, { t: 4000, l: 'Buy', k: 'button', n: 4, r: 1 }], e: [{ t: 4100, m: 'TypeError: x', s: 'https://people.example/app.js:12' }] };
     // The SPA moved on before the page was left: the row keeps the activity's own path.
     expect((await event({ t: 'ping', d: 5000, vid: 'actvisitor0001', sid: 'actsession0001', u: 'https://people.example/checkout', a: activity })).status).toBe(202);
-    // The ping's 1, and the events row with its 2 index entries and the id counter: 4.
-    expect(w.takeRowsWritten()).toBe(5);
+    // The ping's 1, and the events row with its 2 index entries and the id counter: 4. The error is also an errors
+    // row (round 7): 1, and its issue's first sighting: 1.
+    expect(w.takeRowsWritten()).toBe(7);
     const row = await w.db.prepare("SELECT * FROM events WHERE site_id = ? AND type = 'activity' AND session_id = 'actsession0001'").bind(site.id).first<any>();
     expect(row).toMatchObject({ visitor_id: 'actvisitor0001', path: '/pricing', name: null, datacenter: 0 });
     expect(JSON.parse(row.props)).toEqual({ s: activity.s, c: activity.c, e: activity.e });
@@ -303,7 +358,8 @@ describe('people and recordings in the Worker', () => {
     await event({ t: 'ping', d: 5000, vid: 'actvisitor0001', sid: 'actsession0001', u: 'https://people.example/dashboard', a: { c: activity.c } });
     expect(w.takeRowsWritten()).toBe(1);
     await event({ t: 'ping', d: 5000, vid: 'actvisitor0001', sid: 'actsession0001', a: { ...activity, p: '/dashboards' } });
-    expect(w.takeRowsWritten()).toBe(5);
+    // The activity row's 4, the ping's 1 and the errors row's 1 (round 7).
+    expect(w.takeRowsWritten()).toBe(6);
     await setSite({ record_skip: null });
   });
 

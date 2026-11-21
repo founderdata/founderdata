@@ -29,10 +29,17 @@ const DASHBOARD: [RegExp, View][] = [
   // The agent's growth plan (FounderData Pro). /seo/plan below is the SEO tab's own view, a different page.
   [/^\/site\/([\w-]+)\/plan\/?$/, 'plan'],
   [/^\/site\/([\w-]+)\/dropoff\/?$/, 'dropoff'],
+  // Recordings (FounderData Pro): the list, and /recordings/<session id> opens the player. /people/recordings, where the
+  // list used to be, opens it too; the section moves the address to /recordings.
+  [/^\/site\/([\w-]+)\/(?:people\/)?recordings(?:\/[\w-]+)?\/?$/, 'recordings'],
   // /people, and anything under it (/people/recordings, one person's page): People reads the rest of the path.
   [/^\/site\/([\w-]+)\/people(?:\/[^?#]*)?$/, 'people'],
-  // /content/page/<path> is one page's detail (ContentSection reads the rest of the path).
-  [/^\/site\/([\w-]+)\/content(?:\/page\/.*)?\/?$/, 'content'],
+  // /content/page/<path> is one page's detail, /content/paths the Paths screen (ContentSection reads the rest of the path).
+  [/^\/site\/([\w-]+)\/content(?:\/page\/.*|\/paths)?\/?$/, 'content'],
+  // Errors (FounderData Pro): the list, and /errors/<fingerprint> is one issue.
+  [/^\/site\/([\w-]+)\/errors(?:\/[\w-]+)?\/?$/, 'errors'],
+  // Experiments (FounderData Pro): the list, /experiments/new the form, /experiments/<key> one experiment.
+  [/^\/site\/([\w-]+)\/experiments(?:\/[\w-]+)?\/?$/, 'experiments'],
   // /seo/keywords, /seo/cannibalization, /seo/ranks, /seo/ai, /seo/plan and /seo/pages are the SEO tab's views
   // (VIEWS in SeoSection, which reads them). A view missing here would open Home instead.
   [/^\/site\/([\w-]+)\/seo(?:\/(?:search|keywords|cannibalization|ranks|ai|plan|pages))?\/?$/, 'seo'],
