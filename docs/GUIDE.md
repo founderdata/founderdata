@@ -3264,7 +3264,7 @@ The Recordings list takes more filters, which other sections link to:
 | An experiment version | An experiment's results |
 | A channel | `?channel=Organic%20Search` in the address |
 | Paying customers | The **Anyone** menu, set to Paying customers |
-| A funnel step | **Watch them** on a drop-off line of the Funnel tab under the breakdowns: the visitors who reached that step and not the next |
+| A funnel step | **Watch them** on a drop-off line of the Funnel tab under the breakdowns: the visitors who reached that step and not the next, with the filters the tab has on |
 
 Every visit in the list also has a summary of 2 to 4 sentences, such as "Came from Google to /blog/launch-checklist on
 a phone. Read 22% of it, opened /pricing and clicked "Compare plans" 3 times in a row. Left from /pricing after 1 min

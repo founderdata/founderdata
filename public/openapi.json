@@ -5415,7 +5415,7 @@
                           },
                           "first_seen": {
                             "type": "integer",
-                            "description": "ms since 1970, looking back 90 days."
+                            "description": "ms since 1970: the issue's first sighting, whatever the period."
                           },
                           "first_seen_iso": {
                             "type": "string"
@@ -5709,7 +5709,7 @@
                         },
                         "first_seen": {
                           "type": "integer",
-                          "description": "ms since 1970, looking back 90 days."
+                          "description": "ms since 1970: the issue's first sighting, whatever the period."
                         },
                         "first_seen_iso": {
                           "type": "string"
