@@ -101,7 +101,7 @@ describe('experiments: assignment', () => {
 describe('experiments: exposure on the visit', () => {
   let w: TestWorker;
   let site: any;
-  const before = proHooks();
+  let before: ReturnType<typeof proHooks>;
   const event = (body: Record<string, unknown>, p = '/pricing', ip = '198.51.100.70') =>
     w.fetch('/api/event', {
       method: 'POST',
@@ -121,6 +121,7 @@ describe('experiments: exposure on the visit', () => {
 
   beforeAll(async () => {
     resetBudgetForTests(Infinity);
+    before = proHooks();
     w = await startWorker();
     site = await w.createSite({ domain: 'exp.example' });
     // Pro's hook is these core functions over sites.exp_live (pro/worker/experiments.ts decideExperiments).
