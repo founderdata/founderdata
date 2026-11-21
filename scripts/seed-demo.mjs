@@ -1556,12 +1556,22 @@ const seoParts = (() => {
   }
   // Sam's second device: the same person, counted once.
   insert('visitors', { site_id: site, id: 'err-sam-phone', first_seen: now - 10 * DAY, user_id: 'usr_sam', name: 'Sam Patel', email: 'sam.patel@example.com' });
+  // The other issues hit visitors without a name, each on a visit of its own that was not recorded.
+  const GEOS = [['US', 'California', 'San Francisco'], ['FR', 'Île-de-France', 'Paris'], ['IN', 'Karnataka', 'Bengaluru'], ['BR', 'São Paulo', 'São Paulo']];
+  let anon = 0;
+  const anonErr = (key, ago, path) => {
+    const vid = `err-anon-${++anon}`;
+    const start = now - ago - 20_000;
+    insert('visitors', { site_id: site, id: vid, first_seen: start });
+    visit(vid, `${vid}-s1`, start, { minutes: 2, pages: [path], geo: GEOS[anon % GEOS.length], source: 'Direct/None', channel: 'Direct' });
+    err(key, `${vid}-s1`, vid, start + 20_000, path);
+  };
   // ResizeObserver: on every page for weeks, from browsers' own layout code. The owner ignored it.
-  for (let d = 0; d < 20; d++) err('resize', `people-reader-s${d % 10}`, `people-reader-${d % 10}`, now - (d + 1) * 19 * HOUR, d % 2 ? '/' : '/blog/launch-checklist');
+  for (let d = 0; d < 12; d++) anonErr('resize', (d + 1) * 31 * HOUR, d % 2 ? '/' : '/blog/launch-checklist');
   // Script error.: a widget from another domain, a few times a day.
-  for (let d = 0; d < 6; d++) err('script', `people-reader-s${(d + 3) % 10}`, `people-reader-${(d + 3) % 10}`, now - (d * 31 + 5) * HOUR, '/pricing');
+  for (let d = 0; d < 6; d++) anonErr('script', (d * 31 + 5) * HOUR, '/pricing');
   // The failed module load: first seen 12 days ago, resolved 3 days ago, back since yesterday.
-  for (const ago of [12 * DAY, 11 * DAY, 9 * DAY, 20 * HOUR, 7 * HOUR]) err('chunk', `people-reader-s${Math.round(ago / HOUR) % 10}`, `people-reader-${Math.round(ago / HOUR) % 10}`, now - ago, '/dashboard');
+  for (const ago of [12 * DAY, 11 * DAY, 9 * DAY, 20 * HOUR, 7 * HOUR]) anonErr('chunk', ago, '/dashboard');
   insert('error_issues', { site_id: site, fp: ERRORS.resize.fp, status: 'ignored', changed_at: now - 15 * DAY });
   insert('error_issues', { site_id: site, fp: ERRORS.chunk.fp, status: 'resolved', changed_at: now - 3 * DAY });
   // The new_error rule on /checkout, its dedupe state and the alert it sent for the TypeError (the alert inbox, migration 0069).
