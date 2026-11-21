@@ -3241,8 +3241,11 @@ written (the control) until you change the code. The page then shows a cleanup p
 agent to keep the winner and remove the rest. A stopped experiment stays stopped; start a new one to test again. At
 most 10 run at once.
 
-**Flags.** A flag has the versions `off` and `on` and a rollout, the percent who get `on`. You can raise the rollout
-while it runs: people who had `on` keep it. Your code checks `founderdata('flag', 'new_checkout') === 'on'`; without
+**Change it.** **Edit** on the experiment's page changes the name and the goal, and on a draft the pages too. The
+versions stay as created.
+
+**Flags.** A flag has the versions `off` and `on` and a rollout, the percent who get `on`. **Change rollout** on the
+flag's page sets it while the flag runs. Raise it and people who had `on` keep it. Your code checks `founderdata('flag', 'new_checkout') === 'on'`; without
 an answer it is `null`, so keep the old path as the default.
 
 **Agents.** `get_app_funnel` with `report` `experiments` answers web and app experiments with the verdicts. The skill

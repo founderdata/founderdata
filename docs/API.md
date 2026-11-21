@@ -2232,8 +2232,10 @@ name, and `mrr`, need `read:revenue`; names and emails are `null`.
 - A web arm counts people: the user id `identify()` set, else the visitor id. A person seen in two versions counts in
   the first; `switched` says how many. Visits from hosting networks stay out unless the site shows them.
 - `conversions`: people who reached the goal (`goal`, else the site's primary goal) in or after their first visit in the
-  version, until the stop. `revenue`: their payments in the same window, refunds subtracted, sandbox purchases out,
-  including payments on other devices joined by the user id. `revenue_per_visitor` is `revenue` over `visitors`, minor
+  version, until the stop. `revenue`: their payments in the same window, sandbox purchases out, including payments on
+  other devices joined by the user id. Refunds from their first counted payment on subtract, also those after the stop.
+  A person's revenue never goes below 0, so a refund of a purchase made before the experiment takes nothing away.
+  `revenue_per_visitor` is `revenue` over `visitors`, minor
   units. `customers`: people with revenue above 0. `mrr`: subscriptions they started in the window that still pay.
 - `vs_control.verdict` compares the conversion rate (two-proportion z-test): `small_sample` under 100 in an arm, then
   `likely` (p under 0.05) or `not_yet`. `revenue_verdict` compares revenue per visitor (Welch's test): `small_sample`
