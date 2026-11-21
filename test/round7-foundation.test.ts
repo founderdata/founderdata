@@ -131,6 +131,7 @@ describe('round 7 foundation', () => {
 
   it('starts with four empty parts, in lane order', () => {
     expect(CORE_PARTS).toHaveLength(4);
-    for (const p of CORE_PARTS) expect(p.siteTables).toEqual([]);
+    // Lane pages filled its part: page_maps (plan 5.4). The others stay empty until their lane fills them.
+    expect(CORE_PARTS[2].siteTables).toEqual(['page_maps']);
   });
 });

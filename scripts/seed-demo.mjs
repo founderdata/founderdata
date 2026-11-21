@@ -1459,7 +1459,91 @@ const seoParts = (() => {
 }
 
 // ---------- Round 7: click maps, scroll depth and paths (lane pages)
+// ShipKit has click maps on: 400 page views each of / and /pricing and 100 of /features, desktop and mobile, with
+// clicks on the main button, the nav and "Compare plans" (the dead click the recordings demo names). Page speed rows
+// carry the scroll depth: /blog/seo-for-saas is read to the end, /blog/launch-checklist is left at the top (the
+// recordings demo's shallow page). 80 visits walk / > /pricing > /signup, or a part of it, so Paths has a route to
+// follow; 6 of them pay. Its own random sequence, so the blocks after it see the same numbers as before.
 {
+  out.push(`DELETE FROM page_maps WHERE site_id IN (${ids});`);
+  out.push(`DELETE FROM vitals WHERE site_id IN (${ids});`);
+  let s7 = 7;
+  const r = () => ((s7 = (s7 * 16807) % 2147483647) - 1) / 2147483646;
+  const around = (mid, spread) => Math.max(0, Math.min(100, Math.round(mid + (r() + r() + r() - 1.5) * spread)));
+  // [x per mille of the width, y px, hint, label, share of page views with this click]
+  const DESKTOP = {
+    '/': [[500, 520, 'a.cta', 'Start free trial', 0.34], [640, 32, 'a.nav', 'Pricing', 0.22], [560, 32, 'a.nav', 'Features', 0.09], [720, 32, 'a.nav', 'Docs', 0.06], [900, 32, 'a.login', 'Log in', 0.08], [500, 1850, 'a.cta', 'Get ShipKit', 0.05], [300, 1240, 'img', '', 0.04]],
+    '/pricing': [[500, 760, 'div.plan-card', 'Compare plans', 0.21], [330, 610, 'a.buy', 'Buy Starter', 0.07], [670, 610, 'a.buy', 'Buy Pro', 0.12], [500, 1420, 'summary', 'Can I get a refund?', 0.09], [560, 32, 'a.nav', 'Features', 0.05], [900, 32, 'a.login', 'Log in', 0.04]],
+    '/features': [[500, 480, 'a.cta', 'Start free trial', 0.18], [640, 32, 'a.nav', 'Pricing', 0.25], [250, 1100, 'button.tab', 'Payments', 0.11], [500, 1100, 'button.tab', 'Auth', 0.08]],
+  };
+  const MOBILE = {
+    '/': [[500, 610, 'a.cta', 'Start free trial', 0.29], [920, 28, 'button.menu', 'Menu', 0.24], [500, 2900, 'a.cta', 'Get ShipKit', 0.04]],
+    '/pricing': [[500, 1320, 'div.plan-card', 'Compare plans', 0.24], [500, 980, 'a.buy', 'Buy Pro', 0.1], [500, 760, 'a.buy', 'Buy Starter', 0.05], [920, 28, 'button.menu', 'Menu', 0.12]],
+    '/features': [[500, 560, 'a.cta', 'Start free trial', 0.15], [920, 28, 'button.menu', 'Menu', 0.2]],
+  };
+  const SCROLL = { '/': 58, '/pricing': 71, '/features': 44 };
+  for (const [path, views] of [['/', 400], ['/pricing', 400], ['/features', 100]]) {
+    for (let i = 0; i < views; i++) {
+      const mobile = r() < 0.38;
+      const spots = (mobile ? MOBILE : DESKTOP)[path];
+      const clicks = [];
+      for (const [x, y, hint, label, p] of spots) {
+        // Rage on "Compare plans": a few views click it three times.
+        const times = r() < p ? (hint === 'div.plan-card' && r() < 0.3 ? 3 : 1) : 0;
+        for (let k = 0; k < times; k++) clicks.push([Math.max(0, Math.min(1000, x + Math.round((r() - 0.5) * 90))), Math.max(0, y + Math.round((r() - 0.5) * 40)), hint, label]);
+      }
+      insert('page_maps', {
+        site_id: shipkit, path, ts: now - Math.floor(r() * 27 * DAY) - 60_000, id: Math.floor(r() * 2 ** 31), device: mobile ? 'Mobile' : 'Desktop',
+        width: mobile ? 390 : 1440, height: mobile ? (path === '/' ? 3400 : 2600) : path === '/' ? 2300 : 1900, scroll: around(SCROLL[path], 50),
+        clicks: clicks.length ? JSON.stringify(clicks) : null,
+      });
+    }
+  }
+  // Page speed rows with scroll depth (vitals.ts): a page load each, no visitor id.
+  const SPEED = [['/', 520, 58, 1900], ['/pricing', 410, 71, 2300], ['/features', 160, 44, 2100], ['/blog/seo-for-saas', 240, 88, 2600], ['/blog/launch-checklist', 90, 12, 3100], ['/docs', 120, 63, 1500]];
+  for (const [path, n, deep, lcp] of SPEED) {
+    for (let i = 0; i < n; i++) {
+      const mobile = r() < 0.4;
+      insert('vitals', {
+        site_id: shipkit, ts: now - Math.floor(r() * 27 * DAY) - 60_000, id: Math.floor(r() * 2 ** 31), path, device: mobile ? 'Mobile' : 'Desktop',
+        lcp: Math.round(lcp * (0.5 + r()) * (mobile ? 1.3 : 1)), inp: r() < 0.4 ? Math.round(60 + r() * 260) : null, cls: Math.round(r() * r() * 0.3 * 10_000) / 10_000,
+        ttfb: Math.round(120 + r() * 500), fcp: Math.round(lcp * 0.55 * (0.6 + r() * 0.8)), scroll: around(deep, path === '/blog/launch-checklist' ? 16 : 40),
+      });
+    }
+  }
+  // Paths: / > /pricing > /signup (> /dashboard), and the visits that leave on the way.
+  const ROUTES = [
+    [['/', '/pricing', '/signup', '/dashboard'], 22], [['/', '/pricing', '/signup'], 14], [['/', '/pricing'], 18], [['/', '/features', '/pricing', '/signup'], 8],
+    [['/', '/pricing', '/features'], 6], [['/', '/pricing', '/pricing', '/signup'], 4], [['/pricing', '/signup'], 8],
+  ];
+  const GEO = [['US', 'California', 'San Francisco'], ['GB', 'England', 'London'], ['DE', 'Berlin', 'Berlin'], ['IN', 'Karnataka', 'Bengaluru'], ['CA', 'Ontario', 'Toronto']];
+  let v = 0;
+  let paid = 0;
+  for (const [pages, count] of ROUTES) {
+    for (let i = 0; i < count; i++) {
+      const vid = `paths-v${++v}`;
+      const sid = `paths-s${v}`;
+      const start = now - Math.floor((1 + r() * 25) * DAY);
+      const mobile = r() < 0.35;
+      const geo = GEO[v % GEO.length];
+      const signup = pages.includes('/signup');
+      insert('visitors', { site_id: shipkit, id: vid, first_seen: start });
+      insert('sessions', {
+        site_id: shipkit, id: sid, visitor_id: vid, started_at: start, last_seen_at: start + pages.length * 70_000, duration: pages.length * 70_000, pageviews: pages.length,
+        goals: signup ? 1 : 0, hostname: 'shipkit.example.com', entry_page: pages[0], exit_page: pages.at(-1), referrer: null, referrer_domain: null, source: 'Direct/None',
+        channel: 'Direct', country: geo[0], region: geo[1], city: geo[2], browser: mobile ? 'Mobile Safari' : 'Chrome', os: mobile ? 'iOS' : 'Mac OS', device: mobile ? 'Mobile' : 'Desktop',
+      });
+      insertEvents(shipkit, sid, vid, [
+        ...pages.map((path, k) => ({ ts: start + k * 70_000, type: 'pageview', path })),
+        ...(signup ? [{ ts: start + pages.indexOf('/signup') * 70_000 + 30_000, type: 'goal', name: 'signup', path: '/signup' }] : []),
+      ]);
+      if (pages[3] === '/dashboard' && i % 4 === 0 && paid < 6) {
+        paid++;
+        insert('payments', { id: `pay_demo_paths_${paid}`, site_id: shipkit, provider: 'dodo', ts: Math.min(now - 60_000, start + 3 * DAY), amount: 9900, kind: 'payment', currency: 'USD', customer_id: `cus_paths_${paid}`, visitor_id: vid, session_id: sid, matched_by: 'metadata' });
+      }
+    }
+  }
+  late.push(`UPDATE sites SET maps_on = 1 WHERE id = ${q(shipkit)};`);
 }
 
 // ---------- Round 7: errors, recording filters and summaries (lane errors)

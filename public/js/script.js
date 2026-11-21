@@ -289,7 +289,7 @@
     // INP: the slowest interaction, or the 98th percentile past 50 interactions
     if (list.length) v.i = list.sort(function (a, b) { return b - a; })[Math.min(list.length - 1, Math.floor(list.length / 50))];
     for (k in v) { v[k] = k === 'c' ? Math.round(v[k] * 1e4) / 1e4 : Math.round(v[k]); n++; }
-    if (n) { v.p = vitPath; return v; }
+    if (n) { v.p = vitPath; v.s = vitS || maxScroll(); return v; } // s: scroll depth of the page that loaded
   }
 
   // ---- engaged time (only while the tab is visible)
@@ -387,10 +387,42 @@
 
   // ==== region click maps and scroll (cfg.m, #fd-map=)
   // lane pages edits only inside this region
-  function cfgMap(m) {}
-  function mapPayload(end) {}
-  function mapMode() {}
-  function maxScroll() {}
+  // Scroll depth: the deepest point the bottom of the screen reached, in percent of the page height, checked at most
+  // every 250 ms. It rides on the page speed beacon (vitals, the page that loaded) and on the click map.
+  // Click map (cfg.m, docs/API.md "Click maps and scroll"): each click's position and element, once per page, on the
+  // ping that ends it. m.x matches the never-record list: no map there. #fd-map=<token> shows the map (pro/js/map.ts).
+  var mapOn, mapC = [], mapP = loc.pathname, deep = 0, vitS, scrollAt = 0;
+  function maxScroll() {
+    var H = d.documentElement.scrollHeight;
+    if (H) deep = Math.max(deep, Math.min(100, Math.round((w.pageYOffset + w.innerHeight) * 100 / H)));
+    return deep || undefined; // never 0 in a browser: the screen shows the top of the page
+  }
+  w.addEventListener('scroll', function () {
+    if (Date.now() - scrollAt > 250) { scrollAt = Date.now(); maxScroll(); }
+  }, { passive: true });
+  d.addEventListener('click', function (e) { // mapC is null once this page's map is sent
+    var t = e.target, el = t.closest && (t.closest('a,button,input,select,textarea,label,[role=button]') || t);
+    if (el && mapOn && mapC && mapC.length < 50) mapC.push([Math.round(e.clientX * 1000 / w.innerWidth), Math.round(e.pageY),
+      el.tagName.toLowerCase() + (el.classList[0] ? '.' + el.classList[0] : el.id ? '#' + el.id : ''),
+      (el.closest('[data-fd-mask],[data-fd-block]') || el.tagName == 'INPUT' ? '' : seen(el)).replace(/\s+/g, ' ').trim().slice(0, 40)]);
+  }, true);
+  function cfgMap(m) { mapOn = m; }
+  function mapPayload(end) { // once per page, when it is hidden or left; a single-page move starts the next page's
+    if (!end) return;
+    var s = maxScroll(), r = mapOn && mapC && !(mapOn.x && RegExp(mapOn.x).test(mapP)) ? { p: mapP, w: w.innerWidth, H: d.documentElement.scrollHeight, s: s, c: mapC } : undefined;
+    mapC = null;
+    if (loc.pathname != mapP) { if (vitS == null) vitS = s; mapP = loc.pathname; mapC = []; deep = 0; }
+    return r;
+  }
+  function mapMode() {
+    var t = /fd-map=([\w.~-]+)/.exec(loc.hash), el;
+    if (!t) return;
+    api._map = { token: t[1], host: host, site: siteId };
+    el = d.createElement('script');
+    el.src = host + '/js/map.js';
+    d.head.appendChild(el);
+    return 1;
+  }
   // ==== end of region click maps and scroll
 
   // (between regions)

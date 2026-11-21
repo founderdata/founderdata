@@ -1903,6 +1903,15 @@ TTFB. Each metric has `p75`, the 75th percentile by nearest rank, in ms (CLS is 
   "total_pages": 31 }
 ```
 
+`scroll` sums up how far down the page visitors scrolled (see "Click maps and scroll" under the tracker), over all
+pages or the one `path`, and each entry of `pages` has its own. `samples` counts the page loads that sent a scroll
+depth. `median` is the middle one in percent. `reached_25`, `reached_50`, `reached_75` and `reached_100` are the shares
+of those page loads whose screen bottom got that far down. Below 10 samples they are `null`.
+
+```json
+"scroll": { "samples": 380, "median": 62, "reached_25": 0.91, "reached_50": 0.64, "reached_75": 0.38, "reached_100": 0.17 }
+```
+
 The example leaves out some metrics for space; every group has all five. `GET /api/v1/content/page` answers the same
 numbers for its page as `vitals`. Settings, Daily write cap, sets the share of page loads stored; `PATCH
 /api/sites/<id>` with `{ "vitals_sample": 25 }` does the same, 0 to 100.
@@ -3718,7 +3727,50 @@ include `activity` rows.
 
 ### Click maps and scroll
 
-<!-- r7 pages: written by lane pages -->
+Every page load measures how far down the page the visitor scrolled: the deepest point the bottom of the screen
+reached, as a percent of the page height. The script checks it at most every 250 ms while the visitor scrolls. It goes
+out as `s` inside the page speed beacon `v` ("Page speed" in the guide), so it needs no request and no row of its own.
+It belongs to the page that loaded. A page reached by a single-page move gets its scroll depth only from a click map.
+
+With click maps on (Pro), the pageview answer carries `cfg.m`:
+
+```json
+{ "m": { "s": 100, "x": "^(?:/account(?:/|$))" } }
+```
+
+`s` is the percent of page views the server keeps (Settings, Click maps). `x` is present when the site has pages that
+are never recorded. It is a regular expression for those paths, and on a matching page the script sends no click map.
+The server drops one from such a page too.
+
+The script then notes every click on the page, up to 50. When the page is hidden or left, including a single-page move,
+the ping carries the page's map in `h`, once per page:
+
+```json
+{ "p": "/pricing", "w": 1280, "H": 4200, "s": 74,
+  "c": [[512, 640, "a.cta", "Start free trial"], [880, 92, "a", "Compare plans"]] }
+```
+
+`p` is the page's path, `w` the width of the window in px, `H` the height of the page in px and `s` the deepest scroll
+in percent. Each click is `[x, y, hint, label]`. `x` is thousandths of the window's width (0 to 1000), `y` px from the
+top of the page (0 to 50,000), `hint` the element's tag with its first class or else its id (`a.cta`), and `label` its
+text up to 40 characters. The element is the nearest link, button, form field or label around the click target, else
+the target itself. The label follows the rules of "Page activity": no text from inside `data-fd-mask`, `data-fd-block`,
+form fields or editable parts, and an empty label for a click inside a masked part. When the body would pass 8 KB the
+script drops the map's clicks first.
+
+The server checks each field and drops a click outside the ranges. A hint that is not a tag with an optional class or id
+becomes `""`. It stores one `page_maps` row per page view (migration 0093): the path, the device, `w`, `H`, `s` and
+the clicks as JSON, with no visitor or session id. A page view the sample skips stores nothing. Rows are deleted after
+90 days. The row is 1 D1 row written, on the ping the script sends anyway.
+
+`PATCH /api/sites/<id>` with `{ "maps_on": true }` turns click maps on, and `{ "map_sample": 25 }` keeps a quarter of
+page views (a whole percent from 1 to 100).
+
+#### Show the map on your page
+
+A page opened with `#fd-map=<token>` in its URL sends nothing: no pageview and no ping. The script loads
+`/js/map.js` from the FounderData host, which draws the clicks over the page. It hands over the token as
+`founderdata._map = { token, host, site }`. The dashboard makes the token ("Clicks and scroll (Pro)").
 
 ### Errors
 

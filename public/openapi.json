@@ -7781,6 +7781,45 @@
                       "type": "object",
                       "additionalProperties": true
                     },
+                    "scroll": {
+                      "type": "object",
+                      "description": "Scroll depth of the page loads: how far down the page the bottom of the screen reached, in percent. Each entry of pages has its own. Below 10 samples median and the shares are null.",
+                      "properties": {
+                        "samples": {
+                          "type": "integer"
+                        },
+                        "median": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "reached_25": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "reached_50": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "reached_75": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "reached_100": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
                     "overall": {
                       "type": "object",
                       "properties": {

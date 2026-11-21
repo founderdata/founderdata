@@ -38,12 +38,18 @@ const MAX: Record<Metric, number> = { lcp: 120_000, inp: 60_000, cls: 50, ttfb: 
 /** Payload keys: the tracker sends one letter per metric to keep the beacon small. */
 const KEYS: Record<string, Metric> = { l: 'lcp', i: 'inp', c: 'cls', t: 'ttfb', f: 'fcp' };
 
-export type Measured = Record<Metric, number | null>;
+/** The five metrics, plus the deepest scroll of the page load in percent (`v.s`, round 7, migration 0090). */
+export type Measured = Record<Metric, number | null> & { scroll?: number | null };
 
-/** The metrics in a ping's `v`, checked and rounded, or null when it holds none. */
+/**
+ * The metrics in a ping's `v`, checked and rounded, or null when it holds none. `v.s`, the deepest scroll in percent
+ * (0 to 100), rides along as `scroll`; alone it keeps no row.
+ */
 export function parseVitals(v: unknown): Measured | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const s = (v as Record<string, unknown>).s;
   const out: Measured = { lcp: null, inp: null, cls: null, ttfb: null, fcp: null };
+  if (typeof s === 'number' && Number.isFinite(s) && s >= 0 && s <= 100) out.scroll = Math.round(s);
   let any = false;
   for (const [k, m] of Object.entries(KEYS)) {
     const x = (v as Record<string, unknown>)[k];
@@ -79,8 +85,8 @@ export function insertVitals(
   const rate = sampleOf(site);
   if (rate <= 0 || (rate < 100 && random() * 100 >= rate)) return null;
   return db
-    .prepare('INSERT OR IGNORE INTO vitals (site_id, ts, id, path, device, lcp, inp, cls, ttfb, fcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(site.id, now, Math.floor(random() * 2 ** 31), path, device, m.lcp, m.inp, m.cls, m.ttfb, m.fcp);
+    .prepare('INSERT OR IGNORE INTO vitals (site_id, ts, id, path, device, lcp, inp, cls, ttfb, fcp, scroll) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(site.id, now, Math.floor(random() * 2 ** 31), path, device, m.lcp, m.inp, m.cls, m.ttfb, m.fcp, m.scroll ?? null);
 }
 
 // ---------- reading
@@ -158,6 +164,59 @@ function groups(rows: Row[]): Map<string, GroupSummary> {
 
 const empty = (): GroupSummary => ({ page_loads: 0, ...(Object.fromEntries(METRICS.map((m) => [m, summary(m, undefined)])) as Record<Metric, MetricSummary>) });
 
+// ---------- scroll depth (round 7, lane pages)
+
+/** Below this many page loads with a scroll depth, the median and shares answer null with the count. */
+export const MIN_SCROLL_SAMPLE = 10;
+
+export interface ScrollSummary {
+  /** Page loads that reported a scroll depth. */
+  samples: number;
+  /** The middle scroll depth, percent of the page height; null below MIN_SCROLL_SAMPLE. */
+  median: number | null;
+  /** Shares of those page loads whose screen bottom reached 25, 50, 75 and 100% of the page, 0 to 1. */
+  reached_25: number | null;
+  reached_50: number | null;
+  reached_75: number | null;
+  reached_100: number | null;
+}
+
+type ScrollRow = { g: string; n: number; median: number | null; r25: number; r50: number; r75: number; r100: number };
+
+/** One statement: the scroll summary per path (or one group), in D1. `limit` keeps the paths with the most samples. */
+export function scrollSql(byPath: boolean, pageFilter: boolean, topPages: boolean): string {
+  return `WITH b AS (
+      SELECT ${byPath ? 'path' : "''"} AS g, scroll FROM vitals
+      WHERE site_id = ?1 AND ts >= ?2 AND ts < ?3 AND scroll IS NOT NULL${pageFilter ? ' AND path = ?4' : ''}${
+        topPages ? ` AND path IN (SELECT path FROM vitals WHERE site_id = ?1 AND ts >= ?2 AND ts < ?3 GROUP BY path ORDER BY COUNT(*) DESC, path LIMIT ?5)` : ''
+      }
+    ),
+    r AS (SELECT g, scroll, ROW_NUMBER() OVER (PARTITION BY g ORDER BY scroll) AS rn, COUNT(*) OVER (PARTITION BY g) AS n FROM b)
+    SELECT g, MAX(n) AS n, MIN(CASE WHEN rn * 2 >= n THEN scroll END) AS median,
+      SUM(scroll >= 25) AS r25, SUM(scroll >= 50) AS r50, SUM(scroll >= 75) AS r75, SUM(scroll >= 100) AS r100
+    FROM r GROUP BY g`;
+}
+
+/** The summary of one scroll row, or the empty summary. */
+export function scrollSummary(r: ScrollRow | undefined): ScrollSummary {
+  const n = r?.n ?? 0;
+  if (!r || n < MIN_SCROLL_SAMPLE) return { samples: n, median: null, reached_25: null, reached_50: null, reached_75: null, reached_100: null };
+  return {
+    samples: n,
+    median: r.median,
+    reached_25: share(r.r25, n),
+    reached_50: share(r.r50, n),
+    reached_75: share(r.r75, n),
+    reached_100: share(r.r100, n),
+  };
+}
+
+/** Scroll summaries per path for the given window, keyed by path. Reads only `vitals`. */
+export async function scrollByPath(db: D1Database, siteId: string, from: number, to: number, limit = 100): Promise<Map<string, ScrollSummary>> {
+  const { results } = await db.prepare(scrollSql(true, false, true)).bind(siteId, from, to, null, limit).all<ScrollRow>();
+  return new Map(results.map((r) => [r.g, scrollSummary(r)]));
+}
+
 export interface VitalsReport {
   site_id: string;
   from: string;
@@ -168,9 +227,11 @@ export interface VitalsReport {
   min_sample: number;
   thresholds: typeof THRESHOLDS;
   overall: GroupSummary;
+  /** Scroll depth of the page loads in the window (all pages, or `path`). */
+  scroll: ScrollSummary;
   devices: ({ device: string } & GroupSummary)[];
-  /** Absent when `path` is set. */
-  pages?: ({ path: string } & GroupSummary)[];
+  /** Absent when `path` is set. Each page has its scroll depth too. */
+  pages?: ({ path: string; scroll: ScrollSummary } & GroupSummary)[];
   total_pages?: number;
 }
 
@@ -186,11 +247,16 @@ export async function vitalsReport(
   const path = opts.path ?? null;
   const limit = opts.limit ?? 20;
   const args = path ? [site.id, from, now, path] : [site.id, from, now];
-  const stmts = [db.prepare(groupSql("''", !!path, false)).bind(...args), db.prepare(groupSql('device', !!path, false)).bind(...args)];
+  const stmts = [
+    db.prepare(groupSql("''", !!path, false)).bind(...args),
+    db.prepare(groupSql('device', !!path, false)).bind(...args),
+    db.prepare(scrollSql(false, !!path, false)).bind(...args),
+  ];
   if (!path) {
     stmts.push(
       db.prepare(groupSql('path', false, true)).bind(site.id, from, now, null, limit),
       db.prepare('SELECT COUNT(DISTINCT path) AS n FROM vitals WHERE site_id = ?1 AND ts >= ?2 AND ts < ?3').bind(site.id, from, now),
+      db.prepare(scrollSql(true, false, true)).bind(site.id, from, now, null, limit),
     );
   }
   const res = await db.batch(stmts);
@@ -206,13 +272,15 @@ export async function vitalsReport(
     min_sample: MIN_SAMPLE,
     thresholds: THRESHOLDS,
     overall,
+    scroll: scrollSummary(res[2].results[0] as ScrollRow | undefined),
     devices,
   };
   if (!path) {
-    out.pages = [...groups(res[2].results as Row[])]
-      .map(([p, g]) => ({ path: p, ...g }))
+    const scrolls = new Map((res[5].results as ScrollRow[]).map((r) => [r.g, r]));
+    out.pages = [...groups(res[3].results as Row[])]
+      .map(([p, g]) => ({ path: p, ...g, scroll: scrollSummary(scrolls.get(p)) }))
       .sort((a, b) => b.page_loads - a.page_loads || a.path.localeCompare(b.path));
-    out.total_pages = (res[3].results[0] as { n: number } | undefined)?.n ?? 0;
+    out.total_pages = (res[4].results[0] as { n: number } | undefined)?.n ?? 0;
   }
   return out;
 }

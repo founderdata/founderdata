@@ -477,7 +477,37 @@ describe('round 7: survey', () => {
 });
 
 describe('round 7: pages', () => {
-  it.todo('click map: 1 row per page view at the default sample; scroll depth: 0 rows');
+  let w: TestWorker;
+  let site: any;
+  const ping = (extra: Record<string, unknown>) =>
+    w.fetch('/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.31' },
+      body: JSON.stringify({ w: site.id, t: 'ping', u: 'https://maps.example/pricing', d: 500, sw: 1440, ...extra }),
+    });
+  const rows = async (fn: () => Promise<unknown>) => {
+    w.takeRowsWritten();
+    await fn();
+    await w.flush();
+    return w.takeRowsWritten();
+  };
+  beforeAll(async () => {
+    resetBudgetForTests(Infinity);
+    w = await startWorker();
+    site = await w.createSite({ domain: 'maps.example' });
+    await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { maps_on: true } });
+    forgetSite(site.id);
+  });
+  afterAll(() => w.dispose());
+
+  it('click map: 1 row per page view at the default sample; scroll depth: 0 rows', async () => {
+    const speed = await rows(() => ping({ v: { l: 1200, p: '/pricing' } }));
+    // Scroll depth is a column of the page speed row: the same rows with it.
+    expect(await rows(() => ping({ v: { l: 1200, p: '/pricing', s: 80 } }))).toBe(speed);
+    // The click map is one row more, on the ping the tracker sends anyway.
+    const map = { p: '/pricing', w: 1280, H: 3000, s: 80, c: Array.from({ length: 50 }, (_, i) => [i * 20, i * 50, 'a.nav', 'Pricing']) };
+    expect(await rows(() => ping({ v: { l: 1200, p: '/pricing', s: 80 }, h: map }))).toBe(speed + 1);
+  });
 });
 
 describe('round 7: errors', () => {
