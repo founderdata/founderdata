@@ -46,7 +46,7 @@ import { erasePerson, eraseVisitor } from './erase';
 import { exportBreakdown, exportTable } from './export';
 import { refreshTrackingSince } from './sources';
 import { readKeyAnySite, registerShareRoutes } from './share';
-import { registerAgentRoutes } from './agent-api';
+import { checkPeriod, registerAgentRoutes } from './agent-api';
 import { keyOrLogin, registerKeyRoutes } from './keys';
 import { registerMcpRoutes } from './mcp';
 import { keepErasures, registerPrivacyRoutes } from './privacy';
@@ -125,6 +125,8 @@ const timed = async (c: Context<AppEnv>, next: Next) => {
 app.use('/api/*', timed);
 // A read answer the dashboard shows says where: X-Dashboard-Url and a dashboard_url field (dashboard-url.ts). No I/O.
 app.use('/api/v1/*', dashboardLinks);
+// A period outside the documented list answers 400 on every /api/v1 route (agent-api.ts checkPeriod).
+app.use('/api/v1/*', checkPeriod);
 app.use('/api/event', cors({ origin: '*', allowMethods: ['POST', 'OPTIONS'], maxAge: 86400 }));
 app.post('/api/event', handleEvent);
 // An app batch for a site without a bundle id gets a 403 (app.ts). Note it, at most every 10 minutes, so the

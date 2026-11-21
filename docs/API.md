@@ -418,7 +418,7 @@ Each read route takes the range the dashboard uses:
 
 | Parameter | |
 | --- | --- |
-| `period` | `today`, `yesterday`, `24h`, `48h`, `7d`, `30d` (default), `90d`, `12m`, `thisquarter`, `lastquarter` or `all`. Days start at midnight in the site's timezone. |
+| `period` | `today`, `yesterday`, `24h`, `48h`, `7d`, `30d` (default), `90d`, `12m`, `thisquarter`, `lastquarter` or `all`. Days start at midnight in the site's timezone. Any other value answers `400` with this list, on every `/api/v1` route. |
 | `from`, `to` | `YYYY-MM-DD` in the site's timezone, both days included. Either one replaces `period`. |
 | `filters` | JSON, the dashboard's filters: `{"country":"DE","utm_campaign":"launch"}`. Keys: `channel`, `source`, `referrer_domain`, `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `ref`, `country`, `region`, `city`, `browser`, `os`, `device`, `entry_page`, `exit_page`, `hostname`, `app_version`, `language` (`de`), `click_network` (`google_ads`, see below), `platform` (`Web` or `iOS`), `page`, `goal`, `prop:<name>`. An empty string matches "none". |
 

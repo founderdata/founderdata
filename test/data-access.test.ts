@@ -285,6 +285,19 @@ describe('data access', () => {
   describe('read API', () => {
     const get = (path: string, key: string) => w.fetch(path, { headers: { cookie: '', authorization: `Bearer ${key}` } });
 
+    it('answers 400 naming the list for a period outside it, on every /api/v1 route (shared-9)', async () => {
+      const key = (await w.admin(`/api/sites/${site.id}/share`, { method: 'POST', json: { kind: 'api', label: 'Periods' } })).body.token;
+      for (const p of ['1d', 'banana']) {
+        for (const route of ['/api/v1/stats/overview', '/api/v1/stats/breakdown?dim=page&x=1']) {
+          const res = await get(`${route}${route.includes('?') ? '&' : '?'}period=${p}`, key);
+          expect(res.status).toBe(400);
+          expect((await res.json<any>()).error).toMatch(/^period is one of today, yesterday, 24h, 48h, 7d, 30d, 90d, 12m, thisquarter, lastquarter, all/);
+        }
+      }
+      expect((await get('/api/v1/stats/overview?period=7d', key)).status).toBe(200);
+      expect((await get('/api/v1/stats/overview?from=2026-01-01&to=2026-01-02', key)).status).toBe(200);
+    });
+
     it('reads overview, breakdown and timeseries with a read key, money in minor units', async () => {
       const key = (await w.admin(`/api/sites/${site.id}/share`, { method: 'POST', json: { kind: 'api', label: 'Grafana' } })).body.token;
       expect(key).toMatch(/^rtr_\w{32}$/);

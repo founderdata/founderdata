@@ -8,7 +8,7 @@ import { scrub } from './auth';
 import type { AppEnv, Site } from './env';
 import { convertPayments } from './fx';
 import { exportForKey, MONEY_TABLES } from './export';
-import { previousRange } from './lib/time';
+import { PERIODS, previousRange } from './lib/time';
 import { goalByEntryPage, goalLabel } from './primary-goal';
 import {
   actorStats,
@@ -51,6 +51,18 @@ export class Refused extends Error {
  * `from` or `to` without `period` means a custom range, as on the other read routes. The dashboard's handlers read
  * `period=custom`, so the request gets it before they run (and before the cache key is made).
  */
+/**
+ * Every /api/v1 route: a period outside the documented list answers 400 naming the list, instead of the 30-day default
+ * (index.ts registers it). `custom` comes with from and to.
+ */
+export async function checkPeriod(c: Context<AppEnv>, next: Next) {
+  const p = c.req.query('period');
+  if (p !== undefined && !(PERIODS as readonly string[]).includes(p)) {
+    return c.json({ error: `period is one of ${PERIODS.filter((x) => x !== 'custom').join(', ')}, or send from and to as YYYY-MM-DD` }, 400);
+  }
+  await next();
+}
+
 export async function customRange(c: Context<AppEnv>, next: Next) {
   const url = new URL(c.req.url);
   if ((url.searchParams.get('from') || url.searchParams.get('to')) && url.searchParams.get('period') !== 'custom') {
