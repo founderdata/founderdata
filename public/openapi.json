@@ -6739,6 +6739,90 @@
         }
       }
     },
+    "/api/v1/experiments": {
+      "get": {
+        "operationId": "getExperiments",
+        "summary": "Experiments, web and app",
+        "description": "Web and app experiments in one list (FounderData Pro). platform picks web, app or all. Fields with revenue in their name are left out for a key without revenue.",
+        "tags": [
+          "App"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/period"
+          },
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/filters"
+          },
+          {
+            "$ref": "#/components/parameters/site"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "description": "web, app or all (the default).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "web",
+                "app"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "dashboard_url": {
+                      "$ref": "#/components/schemas/DashboardUrl"
+                    },
+                    "experiments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "headers": {
+              "X-Dashboard-Url": {
+                "$ref": "#/components/headers/DashboardUrl"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          }
+        }
+      }
+    },
     "/api/v1/app/activation": {
       "get": {
         "operationId": "getAppActivation",
