@@ -14,7 +14,7 @@ import { proHooks, type RecordConfig, type SurveyConfig } from './pro-hooks';
 import { exposureProps, exposureStatements } from './experiments';
 import { surveyStatements } from './surveys';
 import { mapConfig, mapStatement, type MapConfig } from './page-maps';
-import { errorsConfig, errorStatements, recordedActivity } from './errors';
+import { errorsConfig, errorStatements, noUrlQuery, recordedActivity } from './errors';
 
 // Round 7 (plan 5.1): this file is the foundation's. The features live in experiments.ts, surveys.ts, page-maps.ts
 // and errors.ts; this file only calls them.
@@ -121,7 +121,9 @@ export function parseActivity(a: unknown): { path: string | null; props: string 
   const errors: { t: number; m: string; s: string }[] = [];
   for (const e of Array.isArray(x.e) ? x.e.slice(-MAX_ERRORS) : []) {
     const t = ms(e?.t);
-    const m = text(e?.m, 200);
+    // A URL in the message loses its query and hash, as in the errors row (noUrlQuery). The recordings code links the
+    // entry to its issue through cleanMessage, which removes the same query, so the link holds.
+    const m = text(typeof e?.m === 'string' ? noUrlQuery(e.m) : e?.m, 200);
     if (t === null || !m) continue;
     errors.push({ t, m, s: text(e?.s, 200) });
   }

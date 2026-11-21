@@ -2,6 +2,7 @@
 // answer, page activity on the ping, identify() traits, the site settings, and the hooks FounderData Pro fills.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_TRAITS, parseActivity, traitsOf } from '../src/worker/collect';
+import { cleanMessage, pageErrors } from '../src/worker/errors';
 import { forgetSite } from '../src/worker/env';
 import { installPro, proHooks, type Pro, type RecordConfig } from '../src/worker/pro-hooks';
 import { isSkipped, parseSkipList, patchRecording, skipList } from '../src/worker/recording';
@@ -47,6 +48,16 @@ describe('parseActivity', () => {
     ]);
     expect(props.e).toEqual([{ t: 2, m: 'TypeError: boom', s: '' }]);
     expect(a.path).toBeNull();
+  });
+
+  it('drops the query and hash of a URL in an error message, and the entry still matches its errors row', () => {
+    const raw = 'Failed to fetch https://api.shipkit.example.com/v1/users?name=Anna&city=Leeds#top';
+    const a = parseActivity({ p: '/checkout', s: 1_767_225_600_000, e: [{ t: 5, m: raw, s: 'https://shipkit.example.com/app.js?v=3:12' }] })!;
+    const m = JSON.parse(a.props).e[0].m;
+    expect(m).toBe('Failed to fetch https://api.shipkit.example.com/v1/users');
+    // The recordings code links an activity error to its issue by cleanMessage against the errors row's message.
+    const row = pageErrors({ p: '/checkout', s: 1_767_225_600_000, e: [{ t: 5, m: raw }] }, 1_767_225_600_010).errors[0];
+    expect(cleanMessage(m)).toBe(row.message);
   });
 
   it('is null when nothing is left', () => {
