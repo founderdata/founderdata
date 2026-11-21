@@ -69,13 +69,20 @@ alert rules can't watch revenue.
 
 #### Who paid
 
-Whether someone paid is revenue data, so a key without `read:revenue` never learns it. In FounderData Pro:
+Whether someone paid is revenue data, so a key without `read:revenue` never learns it. In FounderData Pro, its
+answers are built as if payments did not exist:
 
 - Experiments leave out each arm's `customers`, `paid_rate`, `mrr`, `mrr_per_visitor` and paying `people`, and the
   experiment's `run_payments`.
 - Error issues leave out `customers`, `mrr`, `customers_recorded` and each person's and recording's `customer` flag.
   The people an issue hit are listed by their events, not customers first. The list sorts by `people` by default.
-- Recordings leave out each visit's `customer` flag.
+- Recordings (`list`, `patterns` and one recording) leave out each visit's `customer` flag, and never answer `outcome:
+  "paid"`. A paid visit reads `signed_up`, `goal` or `none`, whichever is true besides the payment. It has no `Paid`
+  step, and its summary says nothing about paying. Its score, reason and the patterns (`converted_vs_not`, `exit_pages`)
+  are worked out without the payment too, so one visit's score can differ by key.
+- People: `known_by` is never `payment`, and `show=known` lists nobody for a payment alone. A person answer leaves out
+  the `cancel_reason` trait, which a Stripe or Polar cancellation sets.
+- Paths with `seq` leave out `paid` and `paid_rate`, on the answer and on each `next` page.
 - These filters and orders answer `403` naming `read:revenue`: `outcome=paid` and `customer=1` on
   `/api/v1/recordings`, `customer=1` on `/api/v1/recordings/patterns`, `show=customers` on `/api/v1/people`,
   `customers=1` on `/api/v1/web/retention` and `/api/v1/web/lifecycle`, and `sort=customers` on `/api/v1/errors`.
@@ -763,18 +770,26 @@ that came back to the page later counts twice. Without `path`, it answers the mo
 Every rate and share is rounded to 3 decimals. `platform` is `all` (the default), `web` or `app`.
 D1 counts every page view in the range and returns only the totals, so `truncated` is always `false`.
 
+A range with more than 75,000 events (40,000 with `seq`) reads only its newest visits whose events fit, so one answer
+reads under 1 million D1 rows. The answer then says `"sampled": true` and `sessions_read`, the visits it read. Otherwise
+`sampled` is `false` and `sessions_read` is `null`. The dashboard's Paths view says so under its table. Paths reads
+about 20 rows per visit of the range on the demo: 20.8 for the top pages, 10.9 for one path, 25.3 for `seq` of one
+page.
+
 `seq=/,/pricing` (Pro, 1 to 3 paths, comma-separated) follows visits that viewed those pages one right after the other,
 with repeats of a page in a row counted once. `sessions` counts the visits that did, at the first place they did. A visit
 counts wherever in it the pages came, not only when it started on the first one.
 `exits` and `exit_rate` count the ones that left right after the last page, and `paid` and `paid_rate` the ones whose
-visitor paid at the visit's start or later. `next` lists the 10 pages they went to next with `sessions`, `share` (of
-`sessions`), `exit_rate` (left right after that page) and `paid_rate`. `path` is ignored with `seq`. A path in `seq`
+visitor paid at the visit's start or later (a key with `read:revenue` only, see [Who paid](#who-paid)). `next` lists the
+10 pages they went to next with `sessions`, `share` (of `sessions`), `exit_rate` (left right after that page) and
+`paid_rate`. `path` is ignored with `seq`. A path in `seq`
 that does not start with `/` gets `400`, and so do more than 3. The dashboard's Paths view follows the same 3 pages
 and lists the pages after them.
 
 ```json
 { "sequence": ["/", "/pricing"], "platform": "web", "sessions": 120, "exits": 31, "exit_rate": 0.258, "paid": 9, "paid_rate": 0.075,
-  "next": [ { "page": "/signup", "sessions": 58, "share": 0.483, "exit_rate": 0.31, "paid_rate": 0.103 } ] }
+  "next": [ { "page": "/signup", "sessions": 58, "share": 0.483, "exit_rate": 0.31, "paid_rate": 0.103 } ],
+  "truncated": false, "sampled": false, "sessions_read": null }
 ```
 
 #### `GET /api/v1/notes`
@@ -4338,35 +4353,48 @@ in Settings reads `GET /api/sites/<id>/surveys` (dashboard login), per survey: `
 `skipped` (people who only closed the card), `responseRate` (of the people the widget asked who answered or closed it,
 the share that answered; `null` before any), `via`, and `recent`, the 10 newest texts marked `"untrusted": true` (empty
 for a login that hides personal data). A person is the visitor id, or for a webhook's reason with no visitor, the
-subscription. `GET /api/v1/subscriptions` and the Subscriptions tab
+subscription. `answers`, `answered`, `responseRate` and `via` count what people said, never a store's category. For
+`cancel_reason`, `store` counts the App Store's and Google Play's categories apart, one per subscription:
+`{ "count": 42, "reasons": [ { "reason": "unsubscribed", "count": 30 } ] }`. It is `null` for `heard_about`. `GET /api/v1/subscriptions` and the Subscriptions tab
 add `cancel_reasons` ([Subscriptions](#routes-for-agents-and-scripts)):
 
 ```json
 { "total": 15, "mrr_lost": 52300,
   "by_state": { "canceling": { "count": 13, "mrr_lost": 48500 }, "ended": { "count": 2, "mrr_lost": 3800 } },
+  "without_reason": { "canceling": 0, "ended": 1 },
   "reasons": [ { "reason": "too_expensive", "count": 5, "mrr_lost": 19500 } ],
   "by_plan": [ { "plan": "shipkit_pro_monthly", "count": 9, "mrr_lost": 44100, "reasons": [ { "reason": "too_expensive", "count": 3 } ] } ],
   "store_reasons": [ { "reason": "unsubscribed", "count": 4, "mrr_lost": 1200 } ],
-  "via": { "stripe": 15, "app_store": 6 },
-  "unmatched": { "count": 2, "reasons": [ { "reason": "too_expensive", "count": 2 } ] },
-  "comments": [ { "at": 1795000000000, "reason": "unused", "plan": "shipkit_pro_monthly", "text": "Paused the project for now.", "via": "stripe", "untrusted": true } ] }
+  "trials": { "count": 65, "reasons": [ { "reason": "unsubscribed", "count": 40 } ] },
+  "via": { "stripe": 11, "app_store": 4 },
+  "unmatched": { "count": 3, "cancel_page": 2, "turned_back_on": 1, "reasons": [ { "reason": "too_expensive", "count": 2 } ] },
+  "comments": [ { "at": 1795000000000, "reason": "unused", "plan": "shipkit_pro_monthly", "text": "Paused the project for now.", "via": "stripe", "matched": true, "untrusted": true } ] }
 ```
 
 Each answer counts against the subscription the webhook named, else the newest subscription of the visitor who
-answered; `mrr_lost` is its MRR. A subscription counts once: when one cancellation arrives twice (your cancel page,
-then Stripe's or Polar's reason), the provider's reason counts, then the customer's own answer, then a store's
-category, else the newest. Only canceled or ended subscriptions count, so a customer who turned renewal back on drops
-out.
+answered. A subscription counts once: when one cancellation arrives twice (your cancel page, then Stripe's or Polar's
+reason), the provider's reason counts, then the customer's own answer, then a store's category, else the newest.
 
-- `total`, `mrr_lost`, `by_plan` and `via` count those subscriptions only, whatever the source.
+The states follow the tiles above the card, so the two can be matched:
+
+- `canceling` is a subscription that paid, still pays at the end of the range, and canceled: the "won't renew" count
+  under Paying subscriptions. `ended` is one that paid and ended in the range: Churned in the MRR line.
+- `total`, `mrr_lost`, `by_state`, `by_plan` and `via` count those paid subscriptions only. Their reason can come from
+  the range or up to a year before it, since a subscription often cancels long before it ends. `mrr_lost` is their MRR
+  as the tiles count it: at the end of the range for `canceling`, when it ended for `ended`, after Apple's cut in the
+  net view.
+- `without_reason` counts the tiles' won't renew and churned subscriptions with no reason: the tile minus the card.
 - `reasons` counts the customers' own answers (Stripe, Polar, your card or `answer` call). `store_reasons` counts the
   App Store's and Google Play's categories (the table above), which are not the customer's words. Each is empty when
   that source sent nothing.
-- `by_state` splits them: `canceling` still pays until the period ends (the "won't renew" count under Paying
-  subscriptions), `ended` has ended (Churned in the MRR line, when it ended in the range).
-- `unmatched` counts the people whose answer is tied to no canceled subscription, by reason. A card on your cancel page
-  asks before the cancel runs, so someone who answers and then stays lands here, not in `total`.
-- `comments` lists the newest texts of every answer, `unmatched` ones included.
+- `trials` counts subscriptions that never paid and were canceled or ended, with a reason in the range, by reason. They
+  carry no MRR and are not in `total`.
+- `unmatched` counts the people whose answer in the range is tied to no canceled subscription, by reason.
+  `cancel_page` came from your card or `answer` call: a cancel page asks before the cancel runs, so someone who
+  answers and then stays lands here. `turned_back_on` came from Stripe, Polar or a store, and the subscription renews
+  again.
+- `comments` lists the newest texts of every answer. `matched` is `true` when its subscription counts in `total` or
+  `trials`.
 
 The channel, source and campaign filters apply to the subscription. `null` when nobody gave a reason in the range.
 
