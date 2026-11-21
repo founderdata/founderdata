@@ -3217,7 +3217,8 @@ Pick days, weeks or months, and **Customers** to count only people who paid. The
 
 **Who counts.** Retention needs people your site recognizes on another day. **Known people**, the default, are the
 visitors your site named with [`identify()`](#identify-people) or a payment, joined by user id, then email, as on a
-person's page. **Every visitor id** adds everyone else. Use it only when your site keeps visitors in cookies (consent,
+person's page. **Every visitor id** adds everyone else, and counts a visitor id as new in the period the site first
+saw it. Use it only when your site keeps visitors in cookies (consent,
 or [Remember visitors](#cookies-and-consent)): without cookies a visitor gets a new id every day and counts as new each
 time. With nobody known yet, the view says so and offers both ways in. Your iOS app has its own retention in the App
 section.
@@ -3272,8 +3273,9 @@ Each answer is also saved on the person: their page lists `heard_about` or `canc
    the cancellation, and calls `founderdata('survey', 'heard_about')` there, or wires a question your site already
    asks to `founderdata('answer', ...)`. The Stripe step stays yours.
 
-The card shows on those pages to visitors who have not answered yet. Checking that costs one read of the visitor row,
-only on those pages, and no row written. An answer writes 2 rows: the answer and the person's trait.
+The card shows on those pages, and where your code calls it, to visitors who have not answered or closed it yet.
+Checking that costs one read of the visitor row on each page view while a survey is on, and no row written. An answer
+writes 2 rows: the answer and the person's trait.
 
 ### Read the answers
 
@@ -3283,8 +3285,8 @@ only on those pages, and no row written. An answer writes 2 rows: the answer and
 - **Subscriptions, Why they cancel (Pro).** The reasons of the period with the MRR those customers canceled, the reasons
   per plan, and the newest comments in the customer's own words. Without reasons it shows the Stripe switch and the
   prompt for your own cancel page.
-- **Settings, Surveys (Pro).** Answers of the last 30 days per question, and how many of the people who saw the card
-  answered.
+- **Settings, Surveys (Pro).** Answers of the last 30 days per question, and the share of people who answered out of
+  those who answered or closed the card. The card counts no views, so people who left it open are not in that number.
 - **Agents.** `get_breakdown` with `dim: "heard_about"`, and `get_subscriptions`, whose summary has `cancel_reasons`.
   Text people typed comes marked as untrusted. CSV: `survey_answers` in the export.
 

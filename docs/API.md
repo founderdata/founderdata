@@ -2227,8 +2227,12 @@ routes take a read key, the range (`period`, `from`, `to`) and:
 
 `bucket` is the first day of the period. `new`: active for the first time; `returning`: active in this period and the
 one before; `resurrecting`: active, not in the one before, active earlier; `dormant`: active in the one before, not in
-this one. `partial` is true while the last period is still running. `people` counts everyone the scope could include,
-whenever they were active; `hasData: false` means nobody yet.
+this one. `partial` is true while the last period is still running. `people` counts everyone the scope could include:
+with `known`, every known person whenever they were active; with `all`, the people active in the shown periods and the
+one before. `hasData: false` means nobody yet.
+
+With `known` the routes read only the known people's visits. With `all` they read the visits of the shown periods and
+the one before, and take "active earlier" from the date the site first saw each visitor id.
 
 `GET /api/v1/web/retention`:
 
@@ -3690,7 +3694,7 @@ In cookie mode the answer is `{ "cfg": { … } }`.
 | `x` | The experiments this page view entered (Pro), as `{ "<key>": "<variant>" }`. The server stores the same map on the visit as the session properties `exp_<key>`. See "Experiments in the tracker". |
 | `e` | `1`: the site catches JavaScript errors, because Catch JavaScript errors or Record visits is on. The script sends the page's errors with its ping, also when the visit is not recorded. See "Errors". |
 | `m` | Click maps are on (Pro). `s` is the percent of page views that send a click map, as in `{ "s": 100 }`. See "Click maps and scroll". |
-| `sv` | Surveys (Pro). `on` lists the surveys that are on, and `show` names the one to show on this page. See "Survey answers". |
+| `sv` | Surveys (Pro). `on` lists the surveys that are on and that this visitor has not answered or closed, and `show` names the one to show on this page. Absent when there is none. See "Survey answers". |
 
 The list behind `x` is the site setting `record_skip`. `GET /api/sites/<id>` returns it as text with one path per
 line, or `null`. It also returns `record_on_at`, when Record visits was last turned on (ms, `null` before), and
@@ -3788,7 +3792,9 @@ editions and whether or not a survey is switched on.
 pageview's [tracker config](#tracker-config): when `cfg.sv.on` lists the survey, the script loads
 `<script host>/js/survey.js` once and sets `window.founderdata._sv` to `{ k, host, site, a }` (`a` sends an answer).
 `cfg.sv.show` does the same for the survey the site set to show on this page. Without Pro, or with the survey off, it
-does nothing.
+does nothing. `cfg.sv.on` leaves out a survey the visitor already answered or closed (the trait is set), so the call
+does nothing for them on later page views either. Pro checks that with one read of the visitor row on each page view
+of a site with a survey on.
 
 **Cancel reasons from payment webhooks.** No code needed:
 
@@ -3839,7 +3845,7 @@ dismissals, the share that answered; `null` before any), `via`, and `recent`, th
 add `cancel_reasons` ([Subscriptions](#routes-for-agents-and-scripts)):
 
 ```json
-{ "total": 15, "mrr_lost": 52300,
+{ "total": 15, "without_subscription": 0, "mrr_lost": 52300,
   "reasons": [ { "reason": "too_expensive", "count": 5, "mrr_lost": 19500 } ],
   "by_plan": [ { "plan": "shipkit_pro_monthly", "count": 9, "mrr_lost": 44100, "reasons": [ { "reason": "too_expensive", "count": 3 } ] } ],
   "via": { "stripe": 15 },
@@ -3847,8 +3853,12 @@ add `cancel_reasons` ([Subscriptions](#routes-for-agents-and-scripts)):
 ```
 
 Each answer counts against the subscription the webhook named, else the newest subscription of the visitor who
-answered; `mrr_lost` is its MRR. The channel, source and campaign filters apply to that subscription. `null` when no
-customer gave a reason in the range.
+answered; `mrr_lost` is its MRR. A subscription counts once: when one cancellation arrives twice (your cancel page,
+then Stripe's or Polar's reason), the provider's reason counts, else the newest. A subscription counts only while it is
+canceled or ended, so a customer who turned renewal back on drops out. An answer tied to no subscription counts too,
+with no MRR; `without_subscription` says how many of `total` those are. `via` counts the reasons that count, and
+`comments` lists the newest texts of every answer. The channel, source and campaign filters apply to the subscription.
+`null` when no customer gave a reason in the range.
 
 ### Click maps and scroll
 

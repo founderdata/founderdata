@@ -275,6 +275,15 @@ export const surveysPart: CorePart = {
   erase: (db, siteId, ids) => [
     db.prepare(`DELETE FROM survey_answers WHERE site_id = ? AND visitor_id IN (${ids.map(() => '?').join(', ')})`).bind(siteId, ...ids),
   ],
+  // A cancel reason from a webhook whose subscription has no visitor: found through the buyer's customer ids.
+  eraseCustomers: (db, siteId, customers) => [
+    db
+      .prepare(
+        `DELETE FROM survey_answers WHERE site_id = ?1 AND subscription_id IN
+           (SELECT id FROM subscriptions WHERE site_id = ?1 AND customer_id IN (${customers.map((_, i) => `?${i + 2}`).join(', ')}))`,
+      )
+      .bind(siteId, ...customers),
+  ],
   patch: patchSurveys,
   columns: (b, _site, next) => ('surveys' in b ? [['surveys', next.surveys ?? null]] : []),
   exports: {

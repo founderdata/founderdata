@@ -271,6 +271,29 @@ describe('surveys: ingest, webhooks, breakdown', () => {
     expect((await answers("visitor_id = 'svy-anna-0001'")).length).toBeGreaterThan(0);
   });
 
+  it('erases a cancel reason whose subscription has no visitor when the person is erased by email', async () => {
+    // Jane subscribed through a payment link (never a tracked visit) and canceled in Stripe's portal with a comment.
+    const canceled = Math.floor(Date.now() / 1000) - 30;
+    const sub = {
+      id: 'sub_survey_jane', object: 'subscription', customer: 'cus_survey_jane', status: 'active', start_date: canceled - 86400 * 40,
+      cancel_at_period_end: true, canceled_at: canceled, current_period_end: canceled + 86400 * 20, currency: 'usd', metadata: { rt_site_id: site.id },
+      items: { data: [{ price: { unit_amount: 2900, currency: 'usd', recurring: { interval: 'month', interval_count: 1 } }, quantity: 1 }] },
+      cancellation_details: { feedback: 'too_expensive', comment: 'Jane from Acme here, too pricey for our team', reason: 'cancellation_requested' },
+    };
+    expect((await stripe('customer.subscription.updated', sub)).status).toBe(200);
+    await w.db
+      .prepare("INSERT INTO payments (id, site_id, provider, ts, amount, kind, currency, email, customer_id) VALUES ('pay_survey_jane', ?, 'stripe', ?, 2900, 'payment', 'USD', 'jane@acme.example', 'cus_survey_jane')")
+      .bind(site.id, (canceled - 86400 * 40) * 1000)
+      .run();
+    await w.flush();
+    expect(await answers("subscription_id = 'sub_survey_jane'")).toEqual([expect.objectContaining({ visitor_id: null, text: 'Jane from Acme here, too pricey for our team' })]);
+    const r = await w.admin(`/api/sites/${site.id}/erase`, { method: 'POST', json: { email: 'jane@acme.example' } });
+    expect(r.status).toBe(200);
+    expect(await answers("subscription_id = 'sub_survey_jane'")).toHaveLength(0);
+    // Other customers' reasons stay.
+    expect(await answers("subscription_id = 'sub_survey_1'")).toHaveLength(1);
+  });
+
   it('drops answers older than the visits the site keeps', async () => {
     await w.db
       .prepare("INSERT INTO survey_answers (site_id, survey, ts, id, visitor_id, answer, via) VALUES (?, 'heard_about', 1000, 'old', 'svy-old', 'google', 'js')")
