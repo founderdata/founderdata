@@ -116,7 +116,7 @@ export const Sources = memo(function Sources({ sources }: { sources: HomeData['s
 });
 
 /** A payment's amount in the site's currency, as the row shows it. */
-const shownAmount = (p: Payment) => p.converted ?? { amount: p.amount, currency: p.currency, decimals: p.decimals };
+export const shownAmount = (p: Payment) => p.converted ?? { amount: p.amount, currency: p.currency, decimals: p.decimals };
 
 /**
  * The latest payments, with renewals in a row of the same site and currency folded into one muted line ("3 renewals,
@@ -141,7 +141,7 @@ function paymentGroups(list: Payment[]): ({ kind: 'one'; p: Payment } | { kind: 
   return out;
 }
 
-function PaymentMeta({ p }: { p: Payment }) {
+export function PaymentMeta({ p }: { p: Payment }) {
   return (
     <div className="flex items-center gap-1.5 truncate text-xs text-stone-500">
       <span className={p.kind === 'refund' ? 'text-red-600' : p.renewal ? '' : 'text-emerald-700'}>{p.kind === 'refund' ? 'Refund' : p.renewal ? 'Renewal' : 'New'}</span>

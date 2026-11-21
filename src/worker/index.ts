@@ -9,6 +9,7 @@ import { handleEvent } from './collect';
 import { forgetSite, getSite, type AppEnv, type Site } from './env';
 import { convertBefore, convertPayments, reconvertSite } from './fx';
 import { home, homePulse, paymentsConnected, sitesWithPayments } from './home';
+import { homeBucket } from './home-bucket';
 import { liveRoute } from './live';
 import { alertWebhookRefused, rememberEnv, takeLater } from './alerts';
 import { alerts } from './alerts-api';
@@ -641,6 +642,12 @@ app.get('/api/home', async (c) => {
   const q = c.req.query();
   // Pending payments convert inside home's first round trip, not before it (convertBefore).
   return c.json(q.parts === 'pulse' ? await homePulse(c.env.DB, q, Date.now(), { convert: true }) : await home(c.env.DB, q, Date.now(), { convert: true }));
+});
+
+// One bar of Home's revenue chart: its revenue by site and source, and its payments (src/worker/home-bucket.ts).
+app.get('/api/home/bucket', requireAuth, async (c) => {
+  const res = await homeBucket(c.env.DB, c.req.query());
+  return 'error' in res ? c.json(res, 400) : c.json(res);
 });
 
 // Who is on the sites right now, for the globe (src/worker/live.ts, docs/MOBILE-API.md section 9). Reads only.

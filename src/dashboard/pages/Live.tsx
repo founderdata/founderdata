@@ -313,7 +313,8 @@ function Activity({ data, span, hover, setHover }: { data: LiveData | null; span
   }, [data, minutes]);
   // Names for the rows: `data.sites` has only the sites with someone online.
   const sites = useMemo(() => (data && minutes !== null ? windowSites(data) : data?.sites ?? []), [data, minutes]);
-  const rows = usePresence(events.slice(0, 12), (e) => e.key, 260);
+  // Every row of the window; the list scrolls on a desktop, where the page itself does not.
+  const rows = usePresence(events, (e) => e.key, 260);
   // Rows that arrive after the page opened flash once.
   const mounted = useRef(Date.now());
   if (!data) return null;
@@ -335,7 +336,7 @@ function Activity({ data, span, hover, setHover }: { data: LiveData | null; span
         <div className="mt-2 text-[13px] text-stone-400">No payments {span === 'now' ? 'in the last hour' : WINDOW_TEXT[span]}.</div>
       )}
       {rows.length > 0 && (
-        <ul className="-mx-2 mt-3 space-y-0.5 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:[mask-image:linear-gradient(to_bottom,black_80%,transparent)]">
+        <ul className="-mx-2 mt-3 max-h-[420px] space-y-0.5 overflow-y-auto pr-1 [scrollbar-width:thin] lg:max-h-none lg:min-h-0 lg:flex-1">
           {rows.map(({ item: e, key, leaving }) => (
             <EventRow key={key} e={e} sites={sites} now={now} leaving={leaving} fresh={e.ts > mounted.current - 15_000} lit={hover === e.key} setHover={setHover} />
           ))}

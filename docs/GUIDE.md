@@ -3218,6 +3218,12 @@ On a site with an app, `/overview` adds `newInstalls` (installs with consent fir
 adds `totals.platforms.web` and `totals.platforms.app`, each with `current` and `previous`: `visitors` (one device per day on
 the app without consent), `sessions`, `bounceRate`, `avgDuration`, `customers` (new customers whose payment is linked to a visit on that
 platform), `conversionRate` and `newInstalls` (app only).
+Clicking a bar of Home's revenue chart opens it. The dialog reads `GET /api/home/bucket?period=&bucket=&tz=`, with the
+same `period` and `tz` as `/api/home` and `bucket` one of its `series` labels (another label returns 400). `revenue` is
+the bar's height per currency, and `payments` its count with Apple's report units. `sites` and `sources` split that
+revenue the way Home's sources panel does, so each list adds up to `revenue`. `list` holds the bucket's payments, newest
+first, up to 200 (`more` is true when there are others). A payment with `reported: true` is an App Store sale on a day
+Apple's report covers, so the report's amount counts instead of it.
 Each site in `/api/home` has `trend`: `status` (`growing`, `flat`, `declining`, `quiet` or `no_payments`) and
 `revenueChange`, the period's revenue minus the previous period's, in minor units of the site currency. Revenue that moved
 10% or more is growing or declining. Without revenue in either period, visitors decide: 30% or more, from a base of 50

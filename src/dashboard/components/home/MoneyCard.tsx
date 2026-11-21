@@ -5,6 +5,7 @@ import { BasisChip } from '../BasisChip';
 import { APP_VISITORS_NOTE, NEW_INSTALLS_NOTE } from '../OverviewCard';
 import { InfoTip } from '../InfoTip';
 import { chartAnim, chartDefs, chartGrid, chartTooltip, chartXAxis, chartYAxis, ChartTooltip, NumberTicker, Segmented, SERIES, StatStrip, StatTile } from '../ui';
+import { RevenueBucket } from './RevenueBucket';
 import { AreaSpark } from './Spark';
 import {
   currenciesOf,
@@ -102,12 +103,28 @@ function MrrMovementLine({ m, currency }: { m: NonNullable<HomeData['totals']['m
 }
 
 /** Revenue per bucket across all sites, one currency at a time: the chart under the headline. */
-const RevenueChart = memo(function RevenueChart({ series, granularity, currency }: { series: HomeData['series']; granularity: HomeData['range']['granularity']; currency: string | undefined }) {
-  const rows = useMemo(() => series.map((b) => ({ bucket: b.bucket, revenue: currency ? b.revenue[currency] ?? 0 : 0 })), [series, currency]);
+const RevenueChart = memo(function RevenueChart({
+  series,
+  granularity,
+  currency,
+  onPick,
+}: {
+  series: HomeData['series'];
+  granularity: HomeData['range']['granularity'];
+  currency: string | undefined;
+  /** Opens a bar's details; only bars with revenue in some currency open. */
+  onPick: (bucket: string) => void;
+}) {
+  const rows = useMemo(() => series.map((b) => ({ bucket: b.bucket, revenue: currency ? b.revenue[currency] ?? 0 : 0, any: Object.values(b.revenue).some((v) => v !== 0) })), [series, currency]);
   if (!currency) return <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-stone-200 text-[13px] text-stone-400">No payments in this period.</div>;
+  // A click anywhere in a bar's column opens it, so a short bar is as easy to hit as a tall one.
+  const pick = (s: { activeLabel?: string | number } | null) => {
+    const row = s?.activeLabel !== undefined ? rows.find((r) => r.bucket === String(s.activeLabel)) : undefined;
+    if (row?.any) onPick(row.bucket);
+  };
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={rows} margin={{ top: 4, right: 0, left: 0, bottom: 0 }} barCategoryGap="22%">
+      <BarChart data={rows} margin={{ top: 4, right: 0, left: 0, bottom: 0 }} barCategoryGap="22%" onClick={pick} className="cursor-pointer">
         {chartDefs()}
         <CartesianGrid {...chartGrid} />
         <XAxis dataKey="bucket" tickFormatter={(b) => bucketLabel(b, granularity)} {...chartXAxis} />
@@ -116,7 +133,11 @@ const RevenueChart = memo(function RevenueChart({ series, granularity, currency 
           {...chartTooltip}
           content={({ active, payload }) =>
             active && payload?.length ? (
-              <ChartTooltip title={bucketLabel(payload[0].payload.bucket, granularity, true)} rows={[{ label: 'Revenue', value: money(payload[0].payload.revenue, currency), color: SERIES.revenue }]} />
+              <ChartTooltip
+                title={bucketLabel(payload[0].payload.bucket, granularity, true)}
+                rows={[{ label: 'Revenue', value: money(payload[0].payload.revenue, currency), color: SERIES.revenue }]}
+                footer={payload[0].payload.any ? 'Click for sites, sources and payments' : undefined}
+              />
             ) : null
           }
         />
@@ -151,6 +172,8 @@ export function MoneyCard({ data }: { data: HomeData }) {
     return currenciesOf(t).map(([cc]) => cc);
   }, [data.series]);
   const [picked, setPicked] = useState<string | null>(null);
+  // The chart bar opened in the dialog, by bucket label.
+  const [opened, setOpened] = useState<string | null>(null);
   const chartCurrency = picked && chartCurrencies.includes(picked) ? picked : chartCurrencies[0];
 
   const fmtMain = (n: number) => money(Math.round(n), main);
@@ -232,8 +255,9 @@ export function MoneyCard({ data }: { data: HomeData }) {
             {chartCurrencies.length > 1 && <Segmented size="sm" label="Currency" options={chartCurrencies.map((cc) => ({ value: cc, label: cc }))} value={chartCurrency!} onChange={setPicked} />}
           </div>
           <div className="h-[160px] lg:h-auto lg:min-h-0 lg:flex-1">
-            <RevenueChart series={data.series} granularity={data.range.granularity} currency={chartCurrency} />
+            <RevenueChart series={data.series} granularity={data.range.granularity} currency={chartCurrency} onPick={setOpened} />
           </div>
+          <RevenueBucket bucket={opened} granularity={data.range.granularity} period={data.period} tz={data.tz} onClose={() => setOpened(null)} />
         </div>
       </div>
     </section>

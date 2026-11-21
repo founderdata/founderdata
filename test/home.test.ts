@@ -83,6 +83,30 @@ describe('home: every site with totals, sources, payments and alerts', () => {
     expect(body.payments.find((x: any) => x.id === 'apple_home_1').source).toBeNull();
   });
 
+  it('opens one bar of the revenue chart: its total, by site and source, and its payments', async () => {
+    const { body: h } = await w.admin('/api/home?period=7d&tz=Europe/Berlin');
+    const bar = h.series.find((b: any) => Object.keys(b.revenue).length);
+    expect((await w.fetch(`/api/home/bucket?period=7d&bucket=${bar.bucket}`, { headers: { cookie: '' } })).status).toBe(401);
+    const { status, body } = await w.admin(`/api/home/bucket?period=7d&tz=Europe/Berlin&bucket=${bar.bucket}`);
+    expect(status).toBe(200);
+    // The same number as the bar.
+    expect(body.revenue).toEqual(bar.revenue);
+    expect(body.payments).toBe(3);
+    const sites = Object.fromEntries(body.sites.map((s: any) => [s.id, s.revenue]));
+    expect(sites).toEqual({ [shop.id]: { EUR: 5699 }, [blog.id]: { USD: 1500 } });
+    const sources = Object.fromEntries(body.sources.map((s: any) => [s.label, s.revenue]));
+    expect(sources).toEqual({ Google: { EUR: 4900, USD: 1500 }, 'App Store, no source': { EUR: 799 } });
+    expect(body.list.map((p: any) => p.id).sort()).toEqual(['apple_home_1', 'pi_home_1', 'pi_home_2']);
+    expect(body.list.find((p: any) => p.id === 'pi_home_1')).toMatchObject({ source: 'Google', reported: false });
+    expect(body.more).toBe(false);
+  });
+
+  it('refuses a bucket that is not a bar of the period', async () => {
+    const { status } = await w.admin('/api/home/bucket?period=7d&bucket=2001-01-01');
+    expect(status).toBe(400);
+    expect((await w.admin('/api/home/bucket?period=7d&bucket=nope')).status).toBe(400);
+  });
+
   it('flags a site that never got a visit, and first customers', async () => {
     const { body } = await w.admin('/api/home?period=7d');
     expect(body.attention).toContainEqual(expect.objectContaining({ siteId: empty.id, kind: 'no_data' }));

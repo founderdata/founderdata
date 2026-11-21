@@ -38,7 +38,7 @@ const PLATFORM = `(CASE WHEN s.hostname LIKE 'ios:%' THEN 'ios' ELSE 'web' END)`
  * walks the whole index, every visit or payment ever stored, to find the period's rows.
  */
 const IN_SITES = (alias?: string) => `${alias ? `${alias}.` : ''}site_id IN (SELECT id FROM sites)`;
-const HOME_PERIODS = new Set(['today', 'yesterday', '24h', '7d', '30d', '90d', '12m', 'thisquarter', 'lastquarter', 'all']);
+export const HOME_PERIODS = new Set(['today', 'yesterday', '24h', '7d', '30d', '90d', '12m', 'thisquarter', 'lastquarter', 'all']);
 /** Below this many visitors in the previous period a change is shown as a count, not a percentage. */
 export const MIN_BASE = 20;
 /** Next actions Home's "Worth a look" lists at most. */
