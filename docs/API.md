@@ -3780,11 +3780,16 @@ For versions that are logic rather than markup:
 
 | Call | Answers |
 | --- | --- |
-| `founderdata('flag', 'new_checkout')` | The visitor's version on this page, such as `'on'`, or `null` before the answer and outside the experiment. |
-| `founderdata('flags', fn)` | Calls `fn({ key: version, ... })` once, when the answer arrives, or right away if it has. After 2 seconds without an answer it calls `fn` with the versions it knows, usually `{}`. |
+| `founderdata('flag', 'new_checkout')` | The visitor's version, such as `'on'`, or `null` before this page's answer and for an experiment the visitor has not reached. A version picked on an earlier page of the same page load stays. |
+| `founderdata('flags', fn)` | Calls `fn({ key: version, ... })` once, when this page's answer arrives, or right away if it has. After a single-page navigation it waits for the new page's answer. After 2 seconds without an answer it calls `fn` with the versions it knows, often `{}`. |
 
 A flag's versions are `off` and `on`. A call queued before the script loaded (`window.founderdata.q`) runs when it
-loads, so `flags` works from inline code too.
+loads, so `flags` works from inline code too. The script calls `fn` after it has applied the answer, so an error
+thrown in `fn` shows in the console and stops nothing else.
+
+When the script is turned off (`?rt_ignore=true`, a browser driven by automation, localhost without
+`data-allow-localhost`, a missing site id), `flags` calls `fn({})` and `flag` answers `null`, so the page shows the
+control.
 
 **Preview.** `?fd_exp=<key>:<version>` in the page's URL, such as `/pricing?fd_exp=pricing_headline:b`, shows that
 version on this page load before any answer, and the pageview carries `xp: 1`. The server then picks nothing and

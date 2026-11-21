@@ -209,7 +209,7 @@ const part = (exp: string, variant: string, hidden = false): Part => {
   return { attrs, hidden, getAttribute: (n) => attrs[n] ?? null };
 };
 
-function page(o: { href?: string; cfg?: unknown[]; parts?: Part[]; blocked?: boolean; code?: string; queue?: unknown[][] } = {}) {
+function page(o: { href?: string; cfg?: unknown[]; parts?: Part[]; blocked?: boolean; code?: string; queue?: unknown[][]; webdriver?: boolean } = {}) {
   const requests: any[] = [];
   const timers: { fn: () => void; ms: number }[] = [];
   const errors: unknown[] = [];
@@ -233,7 +233,7 @@ function page(o: { href?: string; cfg?: unknown[]; parts?: Part[]; blocked?: boo
   };
   const window: any = {
     location: new URL(o.href ?? 'https://example.com/pricing'),
-    navigator: { webdriver: false },
+    navigator: { webdriver: !!o.webdriver },
     screen: { width: 1440 },
     history: { pushState() {}, replaceState() {} },
     addEventListener() {},
@@ -259,7 +259,8 @@ function page(o: { href?: string; cfg?: unknown[]; parts?: Part[]; blocked?: boo
     Blob,
     Response,
     console: { error: (e: unknown) => errors.push(e) },
-    setTimeout: (fn: () => void, ms: number) => (ms >= 1000 ? timers.push({ fn, ms }) : setTimeout(fn, ms)),
+    setTimeout: (fn: (...a: unknown[]) => void, ms: number, ...a: unknown[]) =>
+      ms >= 1000 ? timers.push({ fn: () => fn(...a), ms }) : setTimeout(fn, ms, ...a),
     setInterval: () => 0,
   });
   vm.runInContext(o.code ?? CODE, ctx);
@@ -267,7 +268,9 @@ function page(o: { href?: string; cfg?: unknown[]; parts?: Part[]; blocked?: boo
   const runTimers = () => timers.splice(0).forEach((t) => t.fn());
   return { fd, requests, parts, runTimers, window, errors };
 }
-const tick = () => new Promise((r) => setTimeout(r, 0));
+const tick = async () => {
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0));
+};
 
 for (const [name, code] of [['source', CODE], ['minified', MINIFIED]] as const) {
   describe(`tracker experiments (${name})`, () => {
@@ -332,6 +335,52 @@ for (const [name, code] of [['source', CODE], ['minified', MINIFIED]] as const) 
       t.runTimers();
       expect(got).toEqual([{}]);
       expect(t.fd('flag', 'new_checkout')).toBeNull();
+    });
+
+    it('after a single-page navigation, flags waits for the new page\'s answer and keeps earlier variants', async () => {
+      // The visitor lands on / (outside the experiment), then a client-side link opens /pricing, which enters it.
+      const t = page({ code, href: 'https://example.com/', cfg: [{ x: { new_checkout: 'on' } }, { x: { pricing_headline: 'b' } }] });
+      await tick();
+      t.window.location.href = 'https://example.com/pricing'; // the same location object, as in a browser
+      t.window.history.pushState({}, '', '/pricing');
+      const got: unknown[] = [];
+      t.fd('flags', (x: unknown) => got.push({ ...(x as object) })); // the component mounts before the pageview
+      expect(got).toEqual([]);
+      expect(t.fd('flag', 'pricing_headline')).toBeNull();
+      await tick();
+      expect(t.requests.filter((r) => r.t === 'pageview')).toHaveLength(2);
+      expect(got).toEqual([{ new_checkout: 'on', pricing_headline: 'b' }]);
+      expect(t.fd('flag', 'pricing_headline')).toBe('b');
+      expect(t.fd('flag', 'new_checkout')).toBe('on');
+    });
+
+    it('a flags callback that throws leaves the rest of the config applied and the other callbacks called', async () => {
+      const t = page({ code, cfg: [{ x: { new_checkout: 'on' } }], parts: [part('new_checkout', 'off'), part('new_checkout', 'on', true)] });
+      const got: string[] = [];
+      const uncaught: unknown[] = [];
+      const onErr = (e: unknown) => uncaught.push(e);
+      process.on('uncaughtException', onErr);
+      try {
+        t.fd('flags', (x: Record<string, string>) => (x as any).missing.toUpperCase());
+        t.fd('flags', (x: Record<string, string>) => got.push(x.new_checkout));
+        await tick();
+      } finally {
+        process.off('uncaughtException', onErr);
+      }
+      expect(got).toEqual(['on']);
+      expect(t.parts.map((p) => p.hidden)).toEqual([true, false]);
+      expect(uncaught).toHaveLength(1); // the site's error still reaches the console
+    });
+
+    it('turned off (a test browser, rt_ignore, localhost): flags calls back with {} and flag answers null', async () => {
+      const got: unknown[] = [];
+      const t = page({ code, webdriver: true, queue: [['flags', (x: unknown) => got.push(x)]] });
+      expect(t.requests).toEqual([]);
+      t.fd('flags', (x: unknown) => got.push(x));
+      expect(t.fd('flag', 'new_checkout')).toBeNull();
+      await tick();
+      expect(got).toEqual([{}, {}]);
+      expect(t.fd.attribution()).toEqual({});
     });
 
     it('runs flags calls queued before the script loaded', async () => {

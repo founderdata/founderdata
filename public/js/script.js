@@ -37,8 +37,9 @@
   try { ignored = localStorage.getItem('rt_ignore') === '1'; } catch (e) {}
   var local = /^(localhost|127\.|0\.0\.0\.0|\[::1\]|.*\.local$)/.test(loc.hostname) || loc.protocol === 'file:';
   if (!siteId || ignored || nav.webdriver || (local && !allowLocal)) {
-    expose(noop);
-    noop.attribution = function () { return {}; };
+    expose(idle); // flags and flag still answer, with no variants (region experiments)
+    idle.attribution = function () { return {}; };
+    queued.forEach(function (c) { idle.apply(null, c); });
     return;
   }
 
@@ -375,13 +376,20 @@
   // The server assigns each visitor a variant at the pageview (cfg.x, {key: variant}). Elements marked
   // data-fd-exp="key" data-fd-variant="v" show only the assigned variant; with none, the page stays as written (the
   // control is the element without hidden). ?fd_exp=key:variant previews a variant: shown here, never stored.
-  var xs = {}, pv = {}, xSeen = 0, xWait = [];
+  // Each pageview's answer adds to xs (a visitor keeps an earlier page's variants); until it arrives, flags waits.
+  var xs = {}, pv = {}, xSeen = 0, xAt, xWait = [];
   function cfgExp(x) {
-    xs = x || {};
-    for (var k in pv) xs[k] = pv[k];
+    for (var k in x) xs[k] = x[k];
+    for (k in pv) xs[k] = pv[k];
     xSeen = 1;
     showExp();
-    while (xWait.length) xWait.shift()(xs);
+    // After config() returns, so a callback that throws stops neither the survey nor the click map.
+    while (xWait.length) setTimeout(xWait.shift(), 0, xs);
+  }
+  // The tracker turned itself off (rt_ignore, a test browser, localhost): flags(fn) still calls fn({}).
+  function idle(c, fn) {
+    if (c == 'flags') setTimeout(fn, 0, {});
+    return null;
   }
   function showExp() {
     var els = d.querySelectorAll('[data-fd-exp]');
@@ -390,7 +398,9 @@
       if (v) els[i].hidden = els[i].getAttribute('data-fd-variant') !== v;
     }
   }
-  function preview() { // 1 on a preview: the server stores no exposure for this page load
+  function preview() { // runs at each pageview; 1 on a preview: the server stores no exposure for this page load
+    xSeen = 0;
+    xAt = loc.pathname;
     var m = /[?&]fd_exp=([a-z0-9_]{1,40})(?::|%3[aA])([\w-]{1,40})/.exec(loc.search);
     if (m) { pv[m[1]] = m[2]; xs[m[1]] = m[2]; showExp(); }
     for (var k in pv) return 1;
@@ -398,7 +408,7 @@
   cmds.flag = function (k) { return xs[k] || null; };
   // flags(fn): fn(variants) once the server answered, or after 2 s with what is known (an ad blocker, an error).
   cmds.flags = function (fn) {
-    if (xSeen) return fn(xs);
+    if (xSeen && xAt == loc.pathname) return fn(xs); // a single-page navigation waits for its own pageview
     xWait.push(fn);
     setTimeout(function () { var i = xWait.indexOf(fn); if (i >= 0) xWait.splice(i, 1)[0](xs); }, 2000);
   };
