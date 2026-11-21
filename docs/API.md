@@ -3714,7 +3714,84 @@ include `activity` rows.
 
 ### Survey answers
 
-<!-- r7 survey: written by lane survey -->
+Two fixed surveys: `heard_about` (how did you hear about us) and `cancel_reason` (why are you canceling). Send an
+answer from your own form or question with:
+
+```js
+founderdata('answer', 'heard_about', 'podcast');
+founderdata('answer', 'heard_about', 'other', 'The Indie Hackers forum');
+founderdata('answer', 'cancel_reason', 'too_expensive');
+```
+
+The script posts a `survey` event: `{ "t": "survey", "n": "<survey>", "p": { "a": "<answer>", "x": "<text>" } }`
+with the usual `w`, `u`, `vid` and `sid`. The widget of FounderData Pro adds `"v": 1` to `p`, so its answers are
+stored with `via: "widget"`; the others get `via: "js"`.
+
+| Survey | Answer keys |
+| --- | --- |
+| `heard_about` | `google`, `ai`, `x`, `reddit`, `youtube`, `linkedin`, `friend`, `podcast`, `newsletter`, `other` |
+| `cancel_reason` | `too_expensive`, `missing_features`, `switched_service`, `unused`, `too_complex`, `low_quality`, `customer_service`, `other` |
+
+The `cancel_reason` keys are Stripe's `cancellation_details.feedback` values. Both surveys also take `skipped`, which
+the widget sends when the visitor closes it.
+
+- Keys are case-insensitive. An answer that is not a key is stored as `other`, with the answer as its text, so a site
+  that asks its own question with its own options loses nothing. Send your own key as the text (the third argument) to
+  keep it as you wrote it.
+- The text is kept only for `other` and for cancel reasons: 200 characters, with emails, phone numbers and runs of 6
+  or more digits replaced by `[removed]`.
+- An event without a visitor id, an unknown survey, or no answer writes nothing and still answers `202`.
+
+Each answer is one `survey_answers` row (migration 0092), and the visitor's trait of the same name
+(`visitors.traits.heard_about` or `.cancel_reason`, as in [`identify()` and traits](#identify-and-traits)): 2 rows, or 1
+when the trait already holds that answer. `skipped` never replaces an answer in the trait. Answers work in both
+editions and whether or not a survey is switched on.
+
+`founderdata('survey', '<survey>')` asks FounderData Pro to show its widget for that survey. It waits for the
+pageview's [tracker config](#tracker-config): when `cfg.sv.on` lists the survey, the script loads
+`<script host>/js/survey.js` once and sets `window.founderdata._sv` to `{ k, host, site, a }` (`a` sends an answer).
+`cfg.sv.show` does the same for the survey the site set to show on this page. Without Pro, or with the survey off, it
+does nothing.
+
+**Cancel reasons from payment webhooks.** No code needed:
+
+- Stripe: turn on Cancellation reasons in the Customer Portal settings. `customer.subscription.updated` (a cancel at
+  the period's end) and `customer.subscription.deleted` carry `cancellation_details.feedback` and `comment`. Either one
+  stores an answer with `via: "stripe"`.
+- Polar: `subscription.canceled`, `.revoked` and `.updated` carry `customer_cancellation_reason` (the same keys) and
+  `customer_cancellation_comment`, stored with `via: "polar"`. A key Stripe's list does not have becomes `other` and keeps
+  the key in the text.
+
+The row's id is the provider, the subscription id and the cancel time, so a retried or repeated event writes nothing. It
+costs 1 row, plus 1 for the trait of the subscription's visitor when it has one.
+
+**The setting.** `GET /api/sites/<id>` returns `surveys`, the two surveys as JSON text, or `null` when both are off.
+`PATCH /api/sites/<id>` (dashboard login) takes an object with either survey:
+
+```json
+{ "surveys": { "heard_about": { "on": 1, "paths": ["/welcome"], "q": "Where did you find us?", "l": { "podcast": "Ein Podcast" } } } }
+```
+
+`on` turns the widget on. `paths` are the pages it shows on by itself, with the rules of `record_skip` above; without
+them it shows only where the page calls `founderdata('survey', ...)`. `q` replaces the question (120 characters), and
+`l` the label of an answer key (40 characters each). A survey you leave out keeps its settings, `null` for one survey
+turns it off and forgets its wording, and `"surveys": null` turns both off. Anything else answers `400` with an
+`error`.
+
+**Reading answers.** `GET /api/v1/stats/breakdown?dim=heard_about` (and the Overview's Heard about tab) groups the
+visitors of the range by their latest `heard_about` answer, `skipped` left out. Filters apply to the visits, so
+`channel = Direct` shows what the direct visitors said. Revenue and `customers` are those visitors' payments in the
+range. Each row adds `tracked`, the top 3 channels those visitors first arrived by:
+
+```json
+{ "value": "podcast", "visitors": 21, "revenue": 58800, "customers": 4,
+  "tracked": [ { "channel": "Direct", "visitors": 15 }, { "channel": "Organic Search", "visitors": 4 } ] }
+```
+
+A podcast answer tracked as Direct is a visit your attribution could not see. Share links do not show this dimension.
+`GET /api/sites/<id>/export/survey_answers.csv` and `GET /api/v1/export/survey_answers` (a key with `read:rows`) give
+the rows of the range: `answered_at`, `survey`, `answer`, `text`, `via`, `visitor_id`, `session_id` and
+`subscription_id`. A key and a viewer login without `VIEWER_PII` get `text` empty, because visitors wrote it.
 
 ### Click maps and scroll
 

@@ -4,6 +4,7 @@ import { verifyStripeSignature } from './lib/crypto';
 import { announce, pusherOf, type Pusher } from './notify';
 import { convertPayments } from './fx';
 import { creditedVisitSql, currencyDecimals, recordPayment } from './payments';
+import { cancelReasonStatements } from './surveys';
 import { recordSubscription, stripeInvoiceEvent, stripeInvoiceProduct, stripeSubscriptionEvent, subscriptionElsewhere } from './subscriptions';
 
 /**
@@ -187,7 +188,17 @@ export async function handleStripeEvent(db: D1Database, site: Site, event: Obj, 
       const ids = visitorIds(o.metadata);
       const owner = await subscriptionOwner(db, site, ev.id, ids, ev.customerId ?? null);
       if (owner !== 'here') return owner;
-      return `subscription ${await recordSubscription(db, site, { ...ev, visitorId: ids.visitorId, sessionId: ids.sessionId })}`;
+      const outcome = await recordSubscription(db, site, { ...ev, visitorId: ids.visitorId, sessionId: ids.sessionId });
+      // The cancellation reason the customer picked in the Customer Portal (cancellation_details.feedback and comment):
+      // a cancel_reason answer (surveys.ts). Stripe sends it on .updated when the cancel is at the period's end and again
+      // on .deleted; both carry the same canceled_at, so the second writes nothing.
+      const why = obj(o.cancellation_details);
+      const canceledAt = Number(o.canceled_at);
+      if (Number.isFinite(canceledAt) && canceledAt > 0) {
+        const answer = cancelReasonStatements(db, site, { provider: 'stripe', subscriptionId: ev.id, canceledAt: canceledAt * 1000, feedback: str(why.feedback), comment: str(why.comment), visitorId: ids.visitorId });
+        if (answer.length) await db.batch(answer);
+      }
+      return `subscription ${outcome}`;
     }
 
     case 'invoice_payment.paid': {

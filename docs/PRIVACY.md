@@ -324,7 +324,22 @@ where your counsel says you may.
 
 ## Surveys
 
-<!-- r7 survey: written by lane survey -->
+Two questions: how a visitor heard about you, and why a customer cancels
+([GUIDE.md](GUIDE.md#surveys)). An answer is stored in `survey_answers` with the visitor and visit ids, and as a trait on
+the visitor row. Once the visitor is identified, the answer is personal data about a named person.
+
+- **What is kept.** The answer key, when it was given, where it came from (`widget`, `js`, `stripe`, `polar`) and, for
+  a cancel reason from a webhook, the subscription id. Free text ("Other", Stripe's and Polar's comment) keeps 200
+  characters. Emails, phone numbers and runs of 6 or more digits in it are replaced by `[removed]` before it is stored.
+- **How long.** As long as visits (`RETENTION_MONTHS`). The nightly job deletes older answers.
+- **Erase.** Erasing a person deletes their answers. Deleting a site deletes all of them.
+- **Who reads the text.** The owner. A viewer login without `VIEWER_PII` and an API key get exports with the text
+  empty, and agents get it marked as untrusted, because a stranger wrote it.
+- **The widget** (FounderData Pro, `/js/survey.js`) sets no cookie and uses no storage. Closing it stores `skipped`,
+  so the same visitor id is not asked again. Without cookies the visitor id changes every day at 00:00 UTC, so a visitor
+  who closed it may see it again on another day.
+- **Cancel reasons** come from Stripe's Customer Portal and Polar's cancel flow, which your customer filled in. They
+  carry no more than the reason and the comment.
 
 ## Click maps and scroll
 

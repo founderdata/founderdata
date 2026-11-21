@@ -17,6 +17,8 @@ import { Num, Row, Table } from './site/primitives';
 import { EmptyIcons, EmptyState } from './ui/EmptyState';
 import { SkeletonRows } from './ui/Skeleton';
 import { TabRow } from './ui/Tabs';
+import { isPro } from '../lib/pro';
+import { DEFAULT_LABELS } from '../../shared/surveys';
 
 /** A breakdown tab: its label, dimension and the session filter a row click adds (src/shared/dashboard-tabs.ts). */
 export type TabDef = BreakdownTab;
@@ -141,9 +143,41 @@ export function renderLabel(dim: string, row: Pick<BreakdownRow, 'label' | 'extr
     case 'keyword':
     case 'utm_content':
       return l ? text(<AsaName kind={ASA_DIMS[dim]} id={l} name={row.name} />) : text(<span className="text-stone-400">(none)</span>);
+    // How did you hear about us: the answer, then the channels those visitors arrived by (src/worker/surveys.ts).
+    case 'heard_about': {
+      const tracked = (row as { tracked?: { channel: string; visitors: number }[] }).tracked ?? [];
+      return (
+        <>
+          {text(DEFAULT_LABELS.heard_about[l ?? ''] ?? l)}
+          {tracked.length > 0 && (
+            <span className="hidden min-w-0 shrink truncate text-xs text-stone-400 sm:inline" title={`Tracked as ${tracked.map((t) => `${t.channel} (${t.visitors})`).join(', ')}`}>
+              Tracked as {tracked.map((t) => t.channel).join(', ')}
+            </span>
+          )}
+        </>
+      );
+    }
     default:
       return text(l ?? <span className="text-stone-400">(none)</span>);
   }
+}
+
+/** The Heard about tab without answers: where to turn the question on (Pro) or how to send answers (core). */
+function NoAnswers({ siteId }: { siteId: string }) {
+  return (
+    <EmptyState compact icon={EmptyIcons.chart} title="No answers yet">
+      Ask new customers where they heard about you.{' '}
+      {isPro ? (
+        <a className="underline underline-offset-2 hover:text-ink" href={`/site/${siteId}/settings#surveys`} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); navigate(`/site/${siteId}/settings#surveys`); }}>
+          Turn on the question
+        </a>
+      ) : (
+        <a className="underline underline-offset-2 hover:text-ink" href="https://github.com/founderdata/founderdata/blob/main/docs/API.md#survey-answers" target="_blank" rel="noreferrer">
+          Send answers with founderdata('answer')
+        </a>
+      )}
+    </EmptyState>
+  );
 }
 
 type Sort = 'visitors' | 'revenue' | 'perVisitor';
@@ -438,7 +472,7 @@ export function Panel({ tabs }: { tabs: TabDef[] }) {
       <div className={`flex-1 transition-opacity duration-base ${loading && data ? 'opacity-60' : ''}`}>
         {error && <p className="p-3 text-sm text-red-600">{error}</p>}
         {!data && !error && <SkeletonRows rows={6} />}
-        {data && data.length === 0 && <EmptyState compact icon={EmptyIcons.chart} title="No visits in this period" />}
+        {data && data.length === 0 && (tab.dim === 'heard_about' ? <NoAnswers siteId={site.id} /> : <EmptyState compact icon={EmptyIcons.chart} title="No visits in this period" />)}
         {data && <Bars key={`${tab.dim}-${model}`} rows={data} dim={tab.dim} tab={filters ? tab : { ...tab, filter: undefined }} sort={sort} cols={cols} limit={10} onPick={pick} earns={earns} />}
       </div>
       {data && data.length > 0 && (
