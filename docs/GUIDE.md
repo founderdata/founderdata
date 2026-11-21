@@ -3270,8 +3270,9 @@ to 40 characters. It never keeps what someone typed, form fields, editable text,
 
 ### What it costs
 
-Each mapped page view writes 1 D1 row, on the ping the tracker sends anyway. Scroll depth writes nothing: it is a
-column of the page speed row. A site with 3,000 page views a day uses 3,000 of the free plan's 100,000 rows. The Click
+Each mapped page view writes 1 D1 row, on the ping the tracker sends anyway. A visitor who leaves the tab and comes
+back to click more updates that row, 1 row more each time. Scroll depth writes nothing: it is a column of the page
+speed row. A site with 3,000 page views a day uses 3,000 of the free plan's 100,000 rows. The Click
 maps card has a share setting (100%, 50%, 25% or 10% of page views) for a busy site. Reading maps writes nothing.
 
 ### For agents

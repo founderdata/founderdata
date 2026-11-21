@@ -1,6 +1,5 @@
 import type { Context } from 'hono';
 import { vitalsReport } from './vitals';
-import { pageClicks } from './page-maps';
 import type { AppEnv, Site } from './env';
 import { addDays, pagePath, queriesForPage, type GscPageQuery } from '../shared/seo-insights';
 import { convertPayments } from './fx';
@@ -1461,8 +1460,9 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
     pageSearch(db, site.id, path, from, o.series.map((s) => s.bucket)),
     Promise.all(notes.map((n) => impactOf(db, site, n, null, now))),
     vitalsReport(db, site, { path, now }),
-    // The click map's 10 most clicked elements over the same 28 days as vitals (page-maps.ts); null without rows.
-    pageClicks(db, { siteId: site.id, path, from: now - 28 * 86_400_000, to: now }),
+    // Pro: the click map's 10 most clicked elements over the same 28 days as vitals (pro/worker/page-maps.ts); null
+    // without rows, and always null in core.
+    proHooks()?.pageClicks?.(db, { siteId: site.id, path, from: now - 28 * 86_400_000, to: now }) ?? null,
   ]);
   const totals = (k: (typeof o)['current']) =>
     showRevenue
@@ -1486,7 +1486,7 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
     search,
     // Core Web Vitals of loads of this page over the last 28 days (vitals.ts), whatever `weeks` is.
     vitals: { days: speed.days, from: speed.from, to: speed.to, min_sample: speed.min_sample, ...speed.overall, devices: speed.devices },
-    // How far visitors scrolled on loads of this page (vitals.scroll), null before any sent one; the click map's elements.
+    // How far visitors scrolled on loads of this page (vitals.scroll), null before any sent one; the click map's elements (Pro).
     scroll: speed.scroll.samples ? speed.scroll : null,
     clicks: clicks ? { days: 28, ...clicks } : null,
     notes: impacts.map((i) => noteWithImpact(i, showRevenue)),

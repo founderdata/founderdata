@@ -12,6 +12,7 @@ import { parseVitals } from '../src/worker/vitals';
 import { pruneOldData } from '../src/worker/retention';
 import { isSkipped } from '../src/worker/recording';
 import { startWorker, type TestWorker } from './helpers/worker';
+import { isPro } from './helpers/edition';
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129 Safari/537.36';
 const PHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1';
@@ -20,20 +21,33 @@ const DAY = 86_400_000;
 describe('click map payload', () => {
   it('keeps what it may and clips the rest', () => {
     const many = Array.from({ length: 70 }, (_, i) => [i * 10, i * 100, 'a.nav', `Link ${i}`]);
-    const m = parseMapPayload({ p: '/pricing/?q=1', w: 1280.4, H: 4200, s: 73.6, c: many }, '/x')!;
+    const m = parseMapPayload({ p: '/pricing/?q=1', w: 1000.4, H: 4200, s: 73.6, c: many, i: 77, a: 1500 }, '/x')!;
     expect(m.path).toBe('/pricing');
-    expect([m.width, m.height, m.scroll]).toEqual([1280, 4200, 74]);
+    expect([m.width, m.height, m.scroll, m.id, m.age]).toEqual([1000, 4200, 74, 77, 1500]);
     expect(m.clicks).toHaveLength(MAX_MAP_CLICKS);
     expect(m.clicks[3]).toEqual([30, 300, 'a.nav', 'Link 3']);
+  });
+
+  it('turns x in px into thousandths of the viewport width, and keeps no click without a width', () => {
+    expect(parseMapPayload({ p: '/', w: 1280, s: 10, c: [[640, 10.4, 'a', 'x'], [1279.6, 0, 'a', 'y']] }, '/')!.clicks).toEqual([
+      [500, 10, 'a', 'x'],
+      [1000, 0, 'a', 'y'],
+    ]);
+    expect(parseMapPayload({ p: '/', s: 10, c: [[640, 10, 'a', 'x']] }, '/')!.clicks).toEqual([]);
+    expect(parseMapPayload({ p: '/', c: [[640, 10, 'a', 'x']] }, '/')).toBeNull();
+    // An id outside 0 to 2^31 - 1 or not whole is none; an age past 7 days or below 0 counts as 0.
+    for (const i of [-1, 2 ** 31, 1.5, '7']) expect(parseMapPayload({ p: '/', s: 10, i }, '/')!.id).toBeNull();
+    expect(parseMapPayload({ p: '/', s: 10, a: 8 * DAY }, '/')!.age).toBe(0);
   });
 
   it('drops clicks out of range, broken hints and long labels', () => {
     const m = parseMapPayload(
       {
         p: '/',
+        w: 1000,
         s: 40,
         c: [
-          [1001, 10, 'a', 'x'], // x past 1000
+          [1001, 10, 'a', 'x'], // x past the viewport width
           [10, 50_001, 'a', 'x'], // y past 50,000
           [-1, 10, 'a', 'x'],
           'nope',
@@ -76,8 +90,12 @@ describe('click map payload', () => {
     const db = { prepare: () => ({ bind: (...a: unknown[]) => a }) } as any;
     const site = { id: 's', maps_on: 1, map_sample: 30, record_skip: '/account' } as any;
     const h = { p: '/pricing', s: 50 };
-    expect(mapStatement(db, site, h, '/pricing', 'Desktop', 1, () => 0.29)).not.toBeNull();
-    expect(mapStatement(db, site, h, '/pricing', 'Desktop', 1, () => 0.31)).toBeNull();
+    // The page view's id decides, so every send of one page view gets the same answer.
+    expect(mapStatement(db, site, { ...h, i: 129 }, '/pricing', 'Desktop', 1, () => 0.99)).not.toBeNull();
+    expect(mapStatement(db, site, { ...h, i: 130 }, '/pricing', 'Desktop', 1, () => 0)).toBeNull();
+    // Without one (an older tracker) the server draws the id: 0.1 * 2^31 ends in 64, kept at 70% and not at 30%.
+    expect(mapStatement(db, site, h, '/pricing', 'Desktop', 1, () => 0.1)).toBeNull();
+    expect(mapStatement(db, { ...site, map_sample: 70 }, h, '/pricing', 'Desktop', 1, () => 0.1)).not.toBeNull();
     expect(mapStatement(db, site, { p: '/account/billing', s: 50 }, '/', 'Desktop', 1, () => 0)).toBeNull();
     expect(mapStatement(db, { ...site, maps_on: 0 }, h, '/pricing', 'Desktop', 1, () => 0)).toBeNull();
   });
@@ -134,7 +152,7 @@ describe('click maps through the Worker', () => {
   });
 
   it('stores one row per page view with device, size, scroll and clicks, and no visitor or session id', async () => {
-    await ping({ h: { p: '/pricing', w: 1280, H: 3000, s: 60, c: [[500, 200, 'a.cta', 'Start']] } });
+    await ping({ h: { p: '/pricing', w: 1280, H: 3000, s: 60, c: [[640, 200, 'a.cta', 'Start']] } });
     await ping({ h: { p: '/', w: 390, H: 5000, s: 20, c: [] } }, PHONE, '/blog');
     await ping({ h: { p: '/account/billing', w: 1280, H: 900, s: 100, c: [[10, 10, 'button', 'Cancel']] } });
     const got = await maps();
@@ -143,6 +161,28 @@ describe('click maps through the Worker', () => {
       ['/', 'Mobile', 390, 5000, 20, null],
     ]);
     expect(Object.keys(got[0]).sort()).toEqual(['clicks', 'device', 'height', 'id', 'path', 'scroll', 'site_id', 'ts', 'width']);
+  });
+
+  it('keeps one row per page view: a later send of it replaces the clicks and keeps the deepest scroll', async () => {
+    const rows = async () =>
+      (await w.db.prepare("SELECT ts, id, scroll, clicks FROM page_maps WHERE site_id = ? AND path = '/upsert'").bind(site.id).all<any>()).results;
+    const before = Date.now();
+    // The page view began 10 minutes before this send: its row starts then.
+    await ping({ h: { p: '/upsert', w: 1000, H: 3000, s: 40, c: [[100, 50, 'a.compare', 'Compare']], i: 4242, a: 600_000 } });
+    const [first] = await rows();
+    expect(first.ts).toBeGreaterThanOrEqual(before - 600_000);
+    expect(first.ts).toBeLessThanOrEqual(Date.now() - 600_000);
+    // The visitor came back to the tab and clicked Buy: the same page view (its age grew by the time between the two
+    // sends, here 3 s off to stand for a send that reached the server late), one row.
+    await ping({
+      h: { p: '/upsert', w: 1000, H: 3100, s: 30, c: [[100, 50, 'a.compare', 'Compare'], [800, 900, 'button.buy', 'Buy Pro']], i: 4242, a: 597_000 },
+    });
+    // A page view with the same id that began 10 minutes after it, outside the 5-minute match: a row of its own.
+    await ping({ h: { p: '/upsert', w: 1000, s: 10, i: 4242, a: 0 } });
+    const got = await rows();
+    expect(got).toHaveLength(2);
+    expect(got[0]).toMatchObject({ ts: first.ts, id: 4242, scroll: 40, clicks: '[[100,50,"a.compare","Compare"],[800,900,"button.buy","Buy Pro"]]' });
+    expect(got[1]).toMatchObject({ id: 4242, scroll: 10, clicks: null });
   });
 
   it('stores the scroll of a page load on its page speed row and reads it per path', async () => {
@@ -159,7 +199,7 @@ describe('click maps through the Worker', () => {
     expect(one.scroll.median).toBe(90);
   });
 
-  it('adds scroll and the 10 most clicked elements to the content page answer', async () => {
+  it('adds scroll to the content page answer, and with Pro the 10 most clicked elements', async () => {
     const now = Date.now();
     const rows: unknown[] = [];
     for (let i = 0; i < 12; i++) rows.push(site.id, '/docs', now - i * 60_000, i + 10, JSON.stringify(i < 9 ? [[500, 300, 'a.cta', 'Start'], [500, 300, 'a.cta', 'Start']] : [[100, 20, 'a.nav', 'Pricing']]));
@@ -171,14 +211,19 @@ describe('click maps through the Worker', () => {
     expect(r.status).toBe(200);
     const body = await r.json<any>();
     expect(body.scroll).toMatchObject({ samples: 12, median: 90 });
-    expect(body.clicks).toEqual({
-      days: 28,
-      views: 12,
-      elements: [
-        { element: 'a.cta', label: 'Start', clicks: 18, views: 9, share: 0.75 },
-        { element: 'a.nav', label: 'Pricing', clicks: 3, views: 3, share: 0.25 },
-      ],
-    });
+    // The click report is Pro's (plan S1, the pageClicks hook): core answers null.
+    expect(body.clicks).toEqual(
+      isPro
+        ? {
+            days: 28,
+            views: 12,
+            elements: [
+              { element: 'a.cta', label: 'Start', clicks: 18, views: 9, share: 0.75 },
+              { element: 'a.nav', label: 'Pricing', clicks: 3, views: 3, share: 0.25 },
+            ],
+          }
+        : null,
+    );
     // A page with neither answers null for both.
     const none = await (await w.fetch('/api/v1/content/page?path=/nothing-here', { headers: { authorization: `Bearer ${key}` } })).json<any>();
     expect([none.scroll, none.clicks]).toEqual([null, null]);
@@ -212,12 +257,15 @@ describe('click maps through the Worker', () => {
 const CODE = fs.readFileSync(path.resolve(__dirname, '../public/js/script.js'), 'utf8');
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
-function fakeEl(tag: string, text: string, cls?: string, masked = false) {
+/** An element whose own text is `text`. `hidden`: it sits in [data-fd-mask] or in an editable part (contenteditable). */
+function fakeEl(tag: string, text: string, cls?: string, hidden = false) {
   const e: any = { nodeType: 1, tagName: tag.toUpperCase(), classList: cls ? [cls] : [], id: '', attributes: [] };
   e.firstChild = { nodeType: 3, data: text, nextSibling: null };
   e.getAttribute = () => null;
   e.matches = () => false;
-  e.closest = (sel: string) => (sel.includes('data-fd-mask') ? (masked ? {} : null) : sel.includes('button') ? e : null);
+  // The label check (form fields, contenteditable, masks) matches the element itself when it is a form field.
+  e.closest = (sel: string) =>
+    sel.includes('contenteditable') ? (hidden || /^(input|textarea|select)$/.test(tag) ? {} : null) : sel.includes('button') ? e : null;
   return e;
 }
 
@@ -308,7 +356,7 @@ describe('tracker: click maps and scroll', () => {
     expect(sent.some((b) => b.h)).toBe(false);
   });
 
-  it('sends the page map once, with masked labels left out, and the next page its own after a single-page move', async () => {
+  it('sends the page map when hidden, again with what came after, and the next page its own after a single-page move', async () => {
     const t = browser({ cfg: { m: { s: 100 } } });
     await tick();
     t.click(fakeEl('button', ' Start  free ', 'cta'), 640, 380);
@@ -316,17 +364,58 @@ describe('tracker: click maps and scroll', () => {
     t.scrollTo(1400); // the screen bottom at 2400 of 4000 px
     t.hide();
     t.show();
-    t.hide(); // a second hide sends no second map
-    const sent = (await Promise.all(t.beacons)).filter((b) => b.h);
+    t.hide(); // nothing new: no second map
+    let sent = (await Promise.all(t.beacons)).filter((b) => b.h);
     expect(sent).toHaveLength(1);
-    expect(sent[0].h).toEqual({ p: '/pricing', w: 1000, H: 4000, s: 60, c: [[640, 380, 'button.cta', 'Start free'], [100, 1200, 'a.email', '']] });
+    const { i, a, ...h } = sent[0].h;
+    expect(h).toEqual({ p: '/pricing', w: 1000, H: 4000, s: 60, c: [[640, 380, 'button.cta', 'Start free'], [100, 1200, 'a.email', '']] });
+    expect(Number.isInteger(i) && i >= 0 && i < 2 ** 31).toBe(true);
+    expect(a).toBeGreaterThanOrEqual(0);
+    // Back on the tab (a link opened in a new tab, an app switch), the buy click still counts: the same page view's
+    // id, every click so far, so the server replaces the row.
+    t.show();
+    t.click(fakeEl('button', 'Buy Pro', 'buy'), 900, 2000);
+    t.hide();
+    sent = (await Promise.all(t.beacons)).filter((b) => b.h);
+    expect(sent).toHaveLength(2);
+    expect(sent[1].h.i).toBe(i);
+    expect(sent[1].h.c.map((c: any[]) => c[3])).toEqual(['Start free', '', 'Buy Pro']);
+    t.show();
 
     await t.navigate('/signup');
     t.click(fakeEl('button', 'Create account'), 500, 100);
     t.hide();
     const all = [...t.requests, ...(await Promise.all(t.beacons))].filter((b) => b.h);
-    expect(all.map((b) => b.h.p)).toEqual(['/pricing', '/signup']);
-    expect(all[1].h.c).toEqual([[500, 100, 'button', 'Create account']]);
+    expect(all.map((b) => b.h.p)).toEqual(['/pricing', '/pricing', '/signup']);
+    expect(all[2].h.c).toEqual([[500, 100, 'button', 'Create account']]);
+    expect(all[2].h.i).not.toBe(i);
+  });
+
+  it('keeps the page view through a query-only change', async () => {
+    const t = browser({ cfg: { m: { s: 100 } } });
+    await tick();
+    t.click(fakeEl('button', 'Pro', 'plan'), 10, 10);
+    await t.navigate('/pricing?plan=pro'); // a filter written to the query
+    t.click(fakeEl('button', 'Buy', 'buy'), 20, 20);
+    t.hide();
+    const all = [...t.requests, ...(await Promise.all(t.beacons))].filter((b) => b.h);
+    expect(new Set(all.map((b) => b.h.i)).size).toBe(1);
+    expect(all.at(-1).h.c.map((c: any[]) => c[3])).toEqual(['Pro', 'Buy']);
+  });
+
+  it('never labels a click with what was typed: form fields and editable parts give no text', async () => {
+    const t = browser({ cfg: { m: { s: 100 } } });
+    await tick();
+    t.click(fakeEl('p', 'My email is jane@x.com, order 4411', '', true), 10, 10); // a contenteditable comment box
+    t.click(fakeEl('textarea', 'Prefilled text'), 20, 20);
+    t.click(fakeEl('select', 'Germany'), 30, 30);
+    t.hide();
+    const h = (await Promise.all(t.beacons)).find((b) => b.h)!.h;
+    expect(h.c.map((c: any[]) => [c[2], c[3]])).toEqual([
+      ['p', ''],
+      ['textarea', ''],
+      ['select', ''],
+    ]);
   });
 
   it('sends no map on a page of the never-record list', async () => {

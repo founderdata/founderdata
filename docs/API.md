@@ -1786,7 +1786,8 @@ collects them:
 - `clicks` comes from the click map of the last 28 days (Settings, Click maps). `views` counts the page views with a
   map. `elements` lists the 10 most clicked elements: `element` is the tag with its first class or id, `label` its text
   (40 characters, empty when masked), `clicks` every click on it, `views` the page views with at least one, and
-  `share` those views over `views`. `clicks` is `null` when the page has no map in the window.
+  `share` those views over `views`. `clicks` is `null` when the page has no map in the window, and always `null` in
+  FounderData core.
 
 The dashboard reads more behind the login:
 
@@ -3778,7 +3779,7 @@ include `activity` rows.
 ### Click maps and scroll
 
 Every page load measures how far down the page the visitor scrolled: the deepest point the bottom of the screen
-reached, as a percent of the page height. The script checks it at most every 250 ms while the visitor scrolls. It goes
+reached, as a percent of the page height. The script reads it on each scroll event. It goes
 out as `s` inside the page speed beacon `v` ("Page speed" in the guide), so it needs no request and no row of its own.
 It belongs to the page that loaded. A page reached by a single-page move gets its scroll depth only from a click map.
 
@@ -3792,26 +3793,34 @@ With click maps on (Pro), the pageview answer carries `cfg.m`:
 are never recorded. It is a regular expression for those paths, and on a matching page the script sends no click map.
 The server drops one from such a page too.
 
-The script then notes every click on the page, up to 50. When the page is hidden or left, including a single-page move,
-the ping carries the page's map in `h`, once per page:
+The script then notes every click of the page view, up to 50. A page view lasts until the path changes: a single-page
+move to another path starts a new one, and a change of the query string alone (`/pricing?plan=pro`) does not. Each time
+the page is hidden or left, the ping carries the page view's map in `h`, if it has new clicks or a deeper scroll since
+the last send:
 
 ```json
-{ "p": "/pricing", "w": 1280, "H": 4200, "s": 74,
-  "c": [[512, 640, "a.cta", "Start free trial"], [880, 92, "a", "Compare plans"]] }
+{ "p": "/pricing", "w": 1280, "H": 4200, "s": 74, "i": 81273364, "a": 48210,
+  "c": [[655.4, 640, "a.cta", "Start free trial"], [1126, 92, "a", "Compare plans"]] }
 ```
 
 `p` is the page's path, `w` the width of the window in px, `H` the height of the page in px and `s` the deepest scroll
-in percent. Each click is `[x, y, hint, label]`. `x` is thousandths of the window's width (0 to 1000), `y` px from the
-top of the page (0 to 50,000), `hint` the element's tag with its first class or else its id (`a.cta`), and `label` its
-text up to 40 characters. The element is the nearest link, button, form field or label around the click target, else
-the target itself. The label follows the rules of "Page activity": no text from inside `data-fd-mask`, `data-fd-block`,
-form fields or editable parts, and an empty label for a click inside a masked part. When the body would pass 8 KB the
-script drops the map's clicks first.
+in percent. `i` is a random id the script picks for the page view, and `a` the page view's age in ms. Each click is
+`[x, y, hint, label]`. `x` is px from the left of the window, `y` px from the top of the page (0 to 50,000), `hint` the
+element's tag with its first class or else its id (`a.cta`), and `label` its text up to 40 characters. The element is
+the nearest link, button, form field or label around the click target, else the target itself. The label holds only
+text a visitor sees, never text they typed. It is empty for a form field (`input`, `textarea`, `select`), for an element
+that is editable or inside one (`contenteditable`), and inside `data-fd-mask` or `data-fd-block`. Text in those parts
+of a larger element is left out, as in "Page activity". When the body would pass 8 KB the script drops the map's
+clicks first.
 
-The server checks each field and drops a click outside the ranges. A hint that is not a tag with an optional class or id
-becomes `""`. It stores one `page_maps` row per page view (migration 0093): the path, the device, `w`, `H`, `s` and
-the clicks as JSON, with no visitor or session id. A page view the sample skips stores nothing. Rows are deleted after
-90 days. The row is 1 D1 row written, on the ping the script sends anyway.
+The server checks each field and drops a click outside the ranges or a map without `w`. It stores `x` as thousandths
+of `w` (0 to 1000). A hint that is not a tag with an optional class or id becomes `""`. It keeps one `page_maps` row
+per page view (migration 0093): the path, the device, `w`, `H`, `s` and the clicks as JSON, with no visitor or session
+id. The row's time is the page view's start, the server's clock less `a`. A later send with the same `i` and a start
+within 5 minutes of it replaces that row's clicks and keeps the deeper scroll. So a visitor who opens a link in a new
+tab, comes back and clicks Buy still counts as one page view with that click. The sample keeps a page view when `i`
+modulo 100 is below the sample percent (`cfg.m.s`), so every send of a page view gets the same answer. Rows are deleted after 90 days. The first
+send writes 1 D1 row and each later one updates it for 1 more, on the ping the script sends anyway.
 
 `PATCH /api/sites/<id>` with `{ "maps_on": true }` turns click maps on, and `{ "map_sample": 25 }` keeps a quarter of
 page views (a whole percent from 1 to 100).

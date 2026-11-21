@@ -3737,7 +3737,7 @@
                         "object",
                         "null"
                       ],
-                      "description": "The click map of the last 28 days (Pro, Settings, Click maps): mapped page views and the 10 most clicked elements. null without a map in the window.",
+                      "description": "The click map of the last 28 days (Pro, Settings, Click maps): mapped page views and the 10 most clicked elements. null without a map in the window, and always null in FounderData core.",
                       "properties": {
                         "days": {
                           "type": "integer"

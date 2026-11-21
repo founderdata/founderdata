@@ -333,10 +333,9 @@
       var c = clicks[clicks.length - 1];
       c.n = (c.n || 1) + 1;
       // A rage click names its element too: tag plus first class, else id ("button.buy"), never text.
-      if (c.n > 2) { c.r = 1; c.s = el.tagName.toLowerCase() + (el.classList && el.classList[0] ? '.' + el.classList[0] : el.id ? '#' + el.id : ''); }
+      if (c.n > 2) { c.r = 1; c.s = hintOf(el); }
     } else {
-      var text = el.closest('[data-fd-mask],[data-fd-block]') || el.tagName === 'INPUT' ? '' : seen(el);
-      text = text.replace(/\s+/g, ' ').trim() || el.getAttribute('aria-label') || el.tagName.toLowerCase();
+      var text = labelOf(el) || el.getAttribute('aria-label') || el.tagName.toLowerCase();
       clicks.push({ t: now - actAt, l: text.slice(0, 40), k: kind });
       if (clicks.length > 30) clicks.shift();
     }
@@ -387,31 +386,37 @@
 
   // ==== region click maps and scroll (cfg.m, #fd-map=)
   // lane pages edits only inside this region
-  // Scroll depth: the deepest point the bottom of the screen reached, in percent of the page height, checked at most
-  // every 250 ms. It rides on the page speed beacon (vitals, the page that loaded) and on the click map.
-  // Click map (cfg.m, docs/API.md "Click maps and scroll"): each click's position and element, once per page, on the
-  // ping that ends it. m.x matches the never-record list: no map there. #fd-map=<token> shows the map (pro/js/map.ts).
-  var mapOn, mapC = [], mapP = loc.pathname, deep = 0, vitS, scrollAt = 0;
+  // Scroll depth: the deepest point the bottom of the screen reached, in percent of the page height, read on each
+  // scroll event. It rides on the page speed beacon (vitals, the page that loaded) and on the click map.
+  // Click map (cfg.m, docs/API.md "Click maps and scroll"): each click's position and element on one page view, sent
+  // each time the page is hidden or left with new clicks or a deeper scroll since the last send. i (random) and a (the
+  // page view's age) let the server update the page view's one row instead of adding another. A query-only change
+  // keeps the page view. m.x matches the never-record list: no map there. #fd-map=<token> shows the map (pro/js/map.ts).
+  var mapOn, mapC, mapP, mapI, mapT, mapK, deep, vitS;
+  mapNew();
+  function mapNew() { mapC = []; mapP = loc.pathname; mapI = Math.random() * 1e9 | 0; mapT = Date.now(); mapK = deep = 0; }
   function maxScroll() {
     var H = d.documentElement.scrollHeight;
     if (H) deep = Math.max(deep, Math.min(100, Math.round((w.pageYOffset + w.innerHeight) * 100 / H)));
     return deep || undefined; // never 0 in a browser: the screen shows the top of the page
   }
-  w.addEventListener('scroll', function () {
-    if (Date.now() - scrollAt > 250) { scrollAt = Date.now(); maxScroll(); }
-  }, { passive: true });
-  d.addEventListener('click', function (e) { // mapC is null once this page's map is sent
+  w.addEventListener('scroll', maxScroll); // scroll events cannot be canceled, so the listener never delays scrolling
+  // The element as tag plus first class, else id ("button.buy"), and its visible text. Nothing typed: form fields,
+  // editable parts (contenteditable) and [data-fd-mask] or [data-fd-block] give ''. noteClick uses both too.
+  function hintOf(el) { return el.tagName.toLowerCase() + (el.classList && el.classList[0] ? '.' + el.classList[0] : el.id ? '#' + el.id : ''); }
+  function labelOf(el) {
+    return el.closest('input,textarea,select,[contenteditable],[data-fd-mask],[data-fd-block]') ? '' : seen(el).replace(/\s+/g, ' ').trim();
+  }
+  d.addEventListener('click', function (e) {
     var t = e.target, el = t.closest && (t.closest('a,button,input,select,textarea,label,[role=button]') || t);
-    if (el && mapOn && mapC && mapC.length < 50) mapC.push([Math.round(e.clientX * 1000 / w.innerWidth), Math.round(e.pageY),
-      el.tagName.toLowerCase() + (el.classList[0] ? '.' + el.classList[0] : el.id ? '#' + el.id : ''),
-      (el.closest('[data-fd-mask],[data-fd-block]') || el.tagName == 'INPUT' ? '' : seen(el)).replace(/\s+/g, ' ').trim().slice(0, 40)]);
+    if (el && mapOn && mapC.length < 50) mapC.push([e.clientX, e.pageY, hintOf(el), labelOf(el).slice(0, 40)]);
   }, true);
   function cfgMap(m) { mapOn = m; }
-  function mapPayload(end) { // once per page, when it is hidden or left; a single-page move starts the next page's
+  function mapPayload(end) { // when the page is hidden or left; a single-page move starts the next page's
     if (!end) return;
-    var s = maxScroll(), r = mapOn && mapC && !(mapOn.x && RegExp(mapOn.x).test(mapP)) ? { p: mapP, w: w.innerWidth, H: d.documentElement.scrollHeight, s: s, c: mapC } : undefined;
-    mapC = null;
-    if (loc.pathname != mapP) { if (vitS == null) vitS = s; mapP = loc.pathname; mapC = []; deep = 0; }
+    var s = maxScroll(), k = mapC.length + ',' + s, r;
+    if (mapOn && k != mapK && !(mapOn.x && RegExp(mapOn.x).test(mapP))) { mapK = k; r = { p: mapP, w: w.innerWidth, H: d.documentElement.scrollHeight, s: s, c: mapC.slice(), i: mapI, a: Date.now() - mapT }; }
+    if (loc.pathname != mapP) { if (vitS == null) vitS = s; mapNew(); }
     return r;
   }
   function mapMode() {
