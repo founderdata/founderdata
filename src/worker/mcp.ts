@@ -271,8 +271,8 @@ const coreTools = (pro: Pro | null): Tool[] => [
       'Chart notes (launches, deploys, price changes, app versions), oldest first, with kind, actor, target, before, after, metric and ' +
       'window_days. limit keeps the newest (truncated: older ones left out); compact true gives short rows, one per group. due true: ' +
       'unreviewed notes whose window closed, each with impact (verdict, reason) and group_notes; act on each, then review_change. ' +
-      'Without site, an all-sites key gets every site\'s due notes, without impact. view actors: per actor, changes and their ' +
-      'verdicts and reviews.',
+      'Without site, an all-sites key gets every site\'s due notes, without impact. view actors: changes, verdicts and ' +
+      'reviews per actor.',
     inputSchema: schema({
       view: { type: 'string', enum: NOTE_VIEWS, description: 'Default list.' },
       due: { type: 'boolean', description: 'list: only notes ready for review.' },
@@ -327,7 +327,7 @@ const coreTools = (pro: Pro | null): Tool[] => [
     name: 'add_note',
     title: 'Add a chart note',
     description:
-      'Puts a note on the chart right after you change something (a price, a headline, a paywall, a deploy), so get_note_impact can ' +
+      'Puts a note on the chart right after you change something (a price, a headline, a deploy), so get_note_impact can ' +
       'measure it. kind and target pick the verdict metric: seo on a page judges its Search Console clicks over 28 days, seo or aso with ' +
       'keyword:<term> the rank, ai the mention rate over 28 days, ads with meta:campaign|adset|ad:<id> or asa:campaign:<id> the CPA, ' +
       'pricing or release on an app the paywall conversion, anything else revenue per visitor over 7 days. One change on several pages ' +
@@ -365,9 +365,10 @@ const coreTools = (pro: Pro | null): Tool[] => [
     name: 'get_web_vitals',
     title: 'Page speed from real visitors',
     description:
-      'Core Web Vitals from visitors\' browsers over the last days days: lcp, inp, cls, ttfb and fcp, each with p75 (ms; cls is a score), ' +
-      'samples, the shares rated good, needs_improvement and poor, and the p75\'s rating. overall, devices and pages (most loaded first); ' +
-      'with path, one page. Below min_sample samples the numbers are null: report the count. inp is null without an interaction.',
+      'Core Web Vitals from real browsers over the last days days: lcp, inp, cls, ttfb and fcp, each with p75 (ms; cls is a score), ' +
+      'samples, good, needs_improvement and poor shares and the p75\'s rating. overall, devices and pages (most loaded first); ' +
+      'with path, one page. Below min_sample samples the numbers are null: report the count. inp is null without an interaction. ' +
+      'scroll: how far down they read.',
     inputSchema: schema({
       days: { type: 'integer', minimum: 1, maximum: 90, description: 'Days ending now. Default 28.' },
       path: { type: 'string', description: 'One page path, such as /pricing.' },

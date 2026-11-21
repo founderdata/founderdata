@@ -31,13 +31,20 @@ function targetOf(route: string, q: URLSearchParams): Target | null {
   if (route.startsWith('app/')) return { path: '/app' };
   if (/^notes\/[^/]+\/impact$/.test(route)) return overview('changes');
   // Recordings (FounderData Pro): the list, the patterns, and one recording's player.
-  if (route === 'recordings' || route === 'recordings/patterns') return { path: '/recordings' };
+  // The list keeps the filters the Recordings page reads from its URL, round 7's included (issue, exp, channel, customer,
+  // funnel and step), so an agent's link opens the same visits.
+  if (route === 'recordings') {
+    return { path: '/recordings', params: pick(q, ['page', 'exit', 'signal', 'outcome', 'device', 'sort', 'issue', 'exp', 'channel', 'customer', 'funnel', 'step']) };
+  }
+  if (route === 'recordings/patterns') return { path: '/recordings', params: pick(q, ['page', 'device']) };
   if (/^recordings\/[\w-]+$/.test(route)) return { path: `/recordings/${route.slice('recordings/'.length)}` };
   // Round 7 (FounderData Pro): error issues, experiments, web retention and lifecycle, paths.
-  if (route === 'errors') return { path: '/errors', params: pick(q, ['status']) };
+  if (route === 'errors') return { path: '/errors', params: pick(q, ['status', 'page', 'device']) };
   if (/^errors\/[\w-]+$/.test(route)) return { path: `/errors/${route.slice('errors/'.length)}` };
   if (route === 'experiments') return { path: '/experiments' };
-  if (/^experiments\/[\w-]+$/.test(route)) return { path: `/experiments/${route.slice('experiments/'.length)}` };
+  if (/^experiments\/[\w-]+$/.test(route)) {
+    return { path: `/experiments/${route.slice('experiments/'.length)}`, params: q.get('platform') === 'app' ? { platform: 'app' } : undefined };
+  }
   if (route === 'web/retention' || route === 'web/lifecycle') return { path: '/people/retention', params: pick(q, ['scope', 'split']) };
   if (route === 'paths') return { path: '/content/paths', params: pick(q, ['seq']) };
   switch (route) {

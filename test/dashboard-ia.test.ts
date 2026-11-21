@@ -438,6 +438,11 @@ describe('dashboard_url', () => {
     expect(u('errors/a1b2c3d4e5f6')).toBe(`${o}/site/SITE/errors/a1b2c3d4e5f6`);
     expect(u('experiments?platform=web')).toBe(`${o}/site/SITE/experiments`);
     expect(u('experiments/pricing_headline')).toBe(`${o}/site/SITE/experiments/pricing_headline`);
+    expect(u('experiments/exp_paywall?platform=app')).toBe(`${o}/site/SITE/experiments/exp_paywall?platform=app`);
+    expect(u('errors?page=/checkout&device=mobile')).toBe(`${o}/site/SITE/errors?page=%2Fcheckout&device=mobile`);
+    // The Recordings links keep round 7's filters, so an agent's link opens the same visits.
+    expect(u('recordings?exp=pricing_headline:b&issue=a1b2c3d4e5f6&limit=5')).toBe(`${o}/site/SITE/recordings?issue=a1b2c3d4e5f6&exp=pricing_headline%3Ab`);
+    expect(u('recordings?funnel=f1&step=2&customer=1')).toBe(`${o}/site/SITE/recordings?customer=1&funnel=f1&step=2`);
     expect(u('web/retention?scope=known&split=channel')).toBe(`${o}/site/SITE/people/retention?scope=known&split=channel`);
     expect(u('web/lifecycle?period=90d')).toBe(`${o}/site/SITE/people/retention?period=90d`);
     expect(u('paths?seq=/,/pricing')).toBe(`${o}/site/SITE/content/paths?seq=%2F%2C%2Fpricing`);
