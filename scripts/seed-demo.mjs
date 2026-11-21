@@ -1451,7 +1451,72 @@ const seoParts = (() => {
 // ---------- Round 7: experiments (lane exp)
 // A lane deletes its own table's demo rows here first (out.push of a DELETE ... WHERE site_id IN (ids)): the table
 // does not exist before its lane's migration, so the list at the top cannot name it.
+// ShipKit runs pricing_headline on /pricing for the last 21 days: every visit that saw /pricing since then carries
+// exp_pricing_headline (sessions.props), the version the Worker would have stored. Extra pricing visitors bring each
+// version to about 900; version b sells the bigger licenses, so it leads on revenue per visitor (likely) while signups
+// stay level (not_yet). A flag, new_checkout, ran 50 to 30 days ago and stopped with on as the winner; hero_video is a
+// draft. sites.exp_live holds the running one (late). Habitly's exp_paywall (above) is the app experiment beside them.
 {
+  out.push(`DELETE FROM experiments WHERE site_id IN (${ids});`);
+  let s = 91;
+  const r = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+  const hex = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, () => Math.floor(r() * 16).toString(16));
+  const at = (list) => list[Math.floor(r() * list.length)];
+  const start = now - 21 * DAY;
+  const flagFrom = now - 50 * DAY, flagTo = now - 30 * DAY;
+  const row = (key, kind, name, variants, paths, status, started, stopped, winner, created) =>
+    insert('experiments', {
+      site_id: shipkit, key, kind, name, variants: JSON.stringify(variants), paths, goal: null, status,
+      started_at: started, stopped_at: stopped, winner, created_at: created, updated_at: stopped ?? started ?? created,
+    });
+  row('pricing_headline', 'experiment', 'Pricing headline', [{ key: 'control', weight: 50 }, { key: 'b', weight: 50 }], '/pricing', 'running', start, null, null, start - DAY);
+  row('new_checkout', 'flag', 'New checkout', [{ key: 'off', weight: 50 }, { key: 'on', weight: 50 }], '/pricing', 'stopped', flagFrom, flagTo, 'on', flagFrom - DAY);
+  row('hero_video', 'experiment', 'Video on the home page', [{ key: 'control', weight: 50 }, { key: 'video', weight: 50 }], '/', 'draft', null, null, null, now - 2 * DAY);
+
+  // Extra visitors on /pricing in the window, alternating versions. b's buyers pick bigger licenses.
+  const PRICE = { control: [4900, 9900, 9900, 9900], b: [9900, 16900, 16900, 29900] };
+  for (let i = 0; i < 620; i++) {
+    const arm = i % 2 ? 'b' : 'control';
+    const vid = hex(), sid = hex();
+    const t0 = start + Math.floor(r() * (now - start - 3600_000));
+    // Own random sequence (r), so the blocks after this one see the same rand() as before.
+    const src = at(SOURCES)[0];
+    const [country, region, city] = at(COUNTRIES);
+    const [browser, os, device] = at(DEVICES)[0];
+    const signs = r() < 0.12;
+    const buys = r() < 0.06;
+    const nm = `${at(FIRST)} ${at(LAST)}`;
+    const who = signs || buys ? { name: nm, email: `${nm.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com` } : null;
+    const events = [
+      { ts: t0, type: 'pageview', path: '/pricing' },
+      { ts: t0 + 500, type: 'goal', name: 'paywall_view', path: '/pricing', props: { source: 'pricing' } },
+    ];
+    if (signs) events.push({ ts: t0 + 40_000, type: 'goal', name: 'signup', path: '/pricing' });
+    if (buys) events.push({ ts: t0 + 50_000, type: 'goal', name: 'checkout_click', path: '/pricing' });
+    insert('visitors', { site_id: shipkit, id: vid, first_seen: t0, user_id: who ? `usr_${vid.slice(0, 8)}` : null, name: who?.name ?? null, email: who?.email ?? null });
+    insert('sessions', {
+      site_id: shipkit, id: sid, visitor_id: vid, started_at: t0, last_seen_at: t0 + 60_000, duration: 60_000, pageviews: 1, goals: events.length - 1,
+      hostname: 'shipkit.example.com', entry_page: '/pricing', exit_page: '/pricing', referrer: src.referrer, referrer_domain: src.domain,
+      source: src.source, channel: src.channel, country, region, city, browser, os, device, props: JSON.stringify({ exp_pricing_headline: arm }),
+    });
+    insertEvents(shipkit, sid, vid, events);
+    if (buys) {
+      insert('payments', {
+        id: `pay_demo_exp_${i}`, site_id: shipkit, provider: 'dodo', ts: Math.min(now - 1000, t0 + 120_000), amount: at(PRICE[arm]), kind: 'payment',
+        currency: 'USD', visitor_id: vid, session_id: sid, customer_id: `cus_exp_${i}`, email: who.email, name: who.name, matched_by: 'metadata',
+      });
+    }
+  }
+  // Every other visit that saw /pricing in a run gets its version by the first character of its visitor id, as a hash
+  // would split them: the arms then add up to the visitors of /pricing in the window.
+  const tag = (key, from, to, variants, chars) =>
+    late.push(`UPDATE sessions SET props = json_set(COALESCE(props, '{}'), '$.exp_${key}',
+      CASE WHEN instr('${chars}', substr(visitor_id, 1, 1)) > 0 THEN '${variants[0]}' ELSE '${variants[1]}' END)
+      WHERE site_id = ${q(shipkit)} AND datacenter = 0 AND json_extract(COALESCE(props, '{}'), '$.exp_${key}') IS NULL
+        AND id IN (SELECT session_id FROM events WHERE site_id = ${q(shipkit)} AND type = 'pageview' AND (path = '/pricing' OR path LIKE '/pricing/%') AND ts >= ${from} AND ts < ${to});`);
+  tag('pricing_headline', start, now + DAY, ['control', 'b'], '01234567');
+  tag('new_checkout', flagFrom, flagTo, ['off', 'on'], '02468ace');
+  late.push(`UPDATE sites SET exp_live = ${q(JSON.stringify([{ k: 'pricing_headline', v: [['control', 50], ['b', 50]], p: ['/pricing'] }]))} WHERE id = ${q(shipkit)};`);
 }
 
 // ---------- Round 7: surveys, retention and lifecycle (lane survey)
