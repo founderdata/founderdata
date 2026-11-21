@@ -251,9 +251,32 @@ describe('POST /api/webhooks/revenuecat/:siteId', () => {
   });
 
   it('other stores get their own payment ids', async () => {
+    const e = rcEvent('NON_RENEWING_PURCHASE', { store: 'STRIPE', transaction_id: 'sub_rc_1', original_transaction_id: 'sub_rc_1', original_app_user_id: 'user_43' });
+    expect((await deliver(e)).body.result).toBe('recorded');
+    expect(await payment('rc_stripe_sub_rc_1')).toMatchObject({ provider: 'revenuecat', customer_id: 'rc:user_43', amount: 999 });
+  });
+
+  it('Google Play events use the gplay_ ids the Play check uses (docs/APP-API.md section 9)', async () => {
     const e = rcEvent('NON_RENEWING_PURCHASE', { store: 'PLAY_STORE', transaction_id: 'GPA.1234-5678', original_transaction_id: 'GPA.1234-5678', original_app_user_id: 'user_42' });
     expect((await deliver(e)).body.result).toBe('recorded');
-    expect(await payment('rc_play_store_GPA.1234-5678')).toMatchObject({ provider: 'revenuecat', customer_id: 'rc:user_42', amount: 999 });
+    expect(await payment('gplay_GPA.1234-5678')).toMatchObject({ provider: 'revenuecat', customer_id: 'rc:user_42', amount: 999 });
+    expect(await payment('rc_play_store_GPA.1234-5678')).toBeNull();
+    // A refund takes back gplay_<transaction_id> as gplay_refund_<transaction_id>.
+    expect((await deliver(rcEvent('REFUND', { store: 'PLAY_STORE', transaction_id: 'GPA.1234-5678', original_transaction_id: 'GPA.1234-5678', price_in_purchased_currency: -9.99 }))).body.result).toBe('refund');
+    expect(await payment('gplay_refund_GPA.1234-5678')).toMatchObject({ kind: 'refund', amount: -999 });
+  });
+
+  it('a Play payment stored under the old rc_play_store_ id is not stored again, and its refund keeps the old id', async () => {
+    await w.db
+      .prepare(`INSERT INTO payments (id, site_id, provider, ts, amount, kind, currency, customer_id) VALUES ('rc_play_store_GPA.9999-0001', ?, 'revenuecat', ?, 999, 'payment', 'EUR', 'rc:user_old')`)
+      .bind(site.id, Date.now() - 86_400_000)
+      .run();
+    const e = rcEvent('NON_RENEWING_PURCHASE', { store: 'PLAY_STORE', transaction_id: 'GPA.9999-0001', original_transaction_id: 'GPA.9999-0001', original_app_user_id: 'user_old' });
+    expect((await deliver(e)).body.result).toBe('duplicate');
+    expect(await payment('gplay_GPA.9999-0001')).toBeNull();
+    expect((await deliver(rcEvent('REFUND', { store: 'PLAY_STORE', transaction_id: 'GPA.9999-0001', original_transaction_id: 'GPA.9999-0001', price_in_purchased_currency: -9.99 }))).body.result).toBe('refund');
+    expect(await payment('rc_refund_play_store_GPA.9999-0001')).toMatchObject({ kind: 'refund', amount: -999 });
+    expect(await payment('gplay_refund_GPA.9999-0001')).toBeNull();
   });
 
   itPro('the App paywall panel counts a RevenueCat first purchase', async () => {

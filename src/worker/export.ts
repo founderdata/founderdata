@@ -8,6 +8,7 @@ import { currencyDecimals } from './payments';
 import { LAPSE_MS } from './subscriptions';
 import { breakdown, filterSql, hasFilters, makeCtx, type Ctx } from './stats';
 import { dayInTz, resolveRange, tzOffset } from './lib/time';
+import { PLATFORM_LABEL, platformOf } from '../shared/platform';
 
 /** Rows per D1 query. */
 const CHUNK = 1000;
@@ -81,7 +82,7 @@ const TABLES: Record<string, Table> = {
     },
     cells: (s) => [
       s.id, s.visitor_id, iso(s.started_at), iso(s.last_seen_at), Math.round((s.duration ?? 0) / 1000), s.pageviews, s.goals,
-      String(s.hostname ?? '').startsWith('ios:') ? 'iOS' : 'Web', s.hostname, s.entry_page, s.exit_page, s.referrer,
+      PLATFORM_LABEL[platformOf(s.hostname)], s.hostname, s.entry_page, s.exit_page, s.referrer,
       s.referrer_domain, s.source, s.channel, s.utm_source, s.utm_medium, s.utm_campaign, s.utm_term, s.utm_content, s.ref,
       s.country, s.region, s.city, s.browser, s.os, s.device, s.app_version, s.language, s.click_network, s.datacenter ?? 0,
     ],

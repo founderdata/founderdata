@@ -123,6 +123,11 @@ export interface Env {
   VIEWER_PII?: string;
   /** "0": phones signed in to the iPhone app see no names, emails or user ids. Default: they see them. */
   PHONE_PII?: string;
+  /**
+   * Google Play (docs/APP-API.md section 9): the service account's JSON key, for purchase checks against the Android
+   * Publisher API (src/worker/lib/google-auth.ts). Unset: Google Play purchases and notifications are skipped.
+   */
+  GOOGLE_SERVICE_ACCOUNT_JSON?: string;
   /** Optional key for the daily visitor id salt; without it the salt derives from SESSION_SECRET (src/worker/identity.ts). */
   VISITOR_SALT_SECRET?: string;
   /** Months of visit data to keep, default 24 (src/worker/retention.ts). */
@@ -180,6 +185,10 @@ export interface Site {
   created_at: number;
   /** App Store bundle id of the site's iOS app (migration 0004). */
   app_bundle_id: string | null;
+  /** Google Play package name (application id) of the site's Android app (migration 0080, docs/APP-API.md section 9). */
+  android_package?: string | null;
+  /** The service account email Pub/Sub signs Google Play notifications with (migration 0080). */
+  google_push_email?: string | null;
   /** 1 = record App Store sandbox purchases, apart from revenue (migration 0004). */
   accept_sandbox: number;
   /** Stripe webhook signing secret, whsec_... (migration 0005). */

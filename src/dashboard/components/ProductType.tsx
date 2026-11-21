@@ -3,6 +3,7 @@ import { api, type Site } from '../lib/api';
 import { Code } from './Code';
 import { SettingsCard } from './setup/kit';
 import { Note, toast } from './ui';
+import { hasApp } from '../../shared/platform';
 
 /**
  * Product types (src/worker/product-type.ts, docs/GUIDE.md "Product types"): the type picker in Settings, the type
@@ -33,9 +34,9 @@ export const METRIC_NOTE: Record<MetricKey, string> = {
 };
 
 /** The site's type: the one picked in Settings, else app with a bundle id, else website (productType in the Worker). */
-export function typeOf(site: Pick<Site, 'app_bundle_id'> & { product_type?: string | null }): ProductType {
+export function typeOf(site: Pick<Site, 'app_bundle_id' | 'android_package'> & { product_type?: string | null }): ProductType {
   const t = site.product_type;
-  return t === 'website' || t === 'app' || t === 'extension' || t === 'newsletter' ? t : site.app_bundle_id ? 'app' : 'website';
+  return t === 'website' || t === 'app' || t === 'extension' || t === 'newsletter' ? t : hasApp(site) ? 'app' : 'website';
 }
 
 export const headlineOf = (p: ProductNumbers) => p.metrics.find((m) => m.key === p.headline)!;
@@ -227,8 +228,8 @@ export function ProductTypeSection({ site, onSaved }: { site: Site & { product_t
               type="button"
               className="whitespace-nowrap"
               aria-pressed={type === o}
-              disabled={state.busy || (o === 'app' && !site.app_bundle_id)}
-              title={o === 'app' && !site.app_bundle_id ? "Add the app's bundle id under General first" : undefined}
+              disabled={state.busy || (o === 'app' && !hasApp(site))}
+              title={o === 'app' && !hasApp(site) ? "Add the app's bundle id or package name under General first" : undefined}
               onClick={() => pick(o)}
             >
               {TYPE_LABEL[o]}

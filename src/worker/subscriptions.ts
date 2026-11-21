@@ -1,7 +1,7 @@
 import { alertSubscription, later } from './alerts';
 import type { Site } from './env';
 import { convert, ratesFor } from './fx';
-import { creditedSession, currencyDecimals, SANDBOX_PROVIDER } from './payments';
+import { creditedSession, currencyDecimals, isTestProvider } from './payments';
 import { stripeToMinor } from './stripe';
 
 /**
@@ -368,7 +368,7 @@ export function subscriptionAlert(prev: SubRow | null, next: SubRow, ev: SubEven
 export async function recordSubscription(db: D1Database, site: Site, ev: SubEvent): Promise<SubOutcome> {
   if (!ev.id) return 'unchanged';
   ev = { ...ev, id: ev.id.slice(0, 120) };
-  const sandbox = ev.provider === SANDBOX_PROVIDER;
+  const sandbox = isTestProvider(ev.provider);
   const mrr = ev.price ? await siteMonthly(db, site, ev.price, ev.at) : undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     const prev = await db.prepare('SELECT * FROM subscriptions WHERE site_id = ? AND id = ?').bind(site.id, ev.id).first<SubRow>();

@@ -269,7 +269,8 @@ export async function usageOf(db: D1Database, site: Site, now: number): Promise<
 /**
  * Today's cap times and refused app batches, for the site list: one read of site_usage. `cappedAt(site)` is when the
  * site's cap (its own, or the pool for an automatic site) was reached today, else null. `appRejectedAt` holds the last
- * time in the past 24 hours an app batch was refused because the site had no bundle id. `pool` is what all sites
+ * time in the past 24 hours an app batch was refused because the site had no bundle id, keyed by site id (iOS) or
+ * `<site id>:android` (an Android batch refused because the site has no package name). `pool` is what all sites
  * wrote today against the pool's size, for the line under the home page's cards.
  */
 export async function usageSummary(db: D1Database, now: number) {
@@ -302,18 +303,20 @@ export async function usageSummary(db: D1Database, now: number) {
 }
 
 /**
- * Remember that an app batch for a site without a bundle id was refused, so the dashboard can say so. At most one
- * row written per site every 10 minutes per Worker instance, whatever the number of batches.
+ * Remember that an app batch for a site without a bundle id (or, for Android, without a package name) was refused, so
+ * the dashboard can say so. At most one row written per site and platform every 10 minutes per Worker instance,
+ * whatever the number of batches.
  */
-export async function noteAppRejected(db: D1Database, siteId: string, now: number): Promise<void> {
-  if (now - (rejectedNoted.get(siteId) ?? 0) < 600_000) return;
-  rejectedNoted.set(siteId, now);
+export async function noteAppRejected(db: D1Database, siteId: string, now: number, platform: 'ios' | 'android' = 'ios'): Promise<void> {
+  const key = platform === 'android' ? `${siteId}:android` : siteId;
+  if (now - (rejectedNoted.get(key) ?? 0) < 600_000) return;
+  rejectedNoted.set(key, now);
   await db
     .prepare(
       `INSERT INTO site_usage (site_id, day, rows, capped_at) VALUES (?1, ?2, 1, ?3)
        ON CONFLICT (site_id) DO UPDATE SET rows = rows + 1, day = excluded.day, capped_at = excluded.capped_at`,
     )
-    .bind(REJECTED_PREFIX + siteId, utcDay(now), now)
+    .bind(REJECTED_PREFIX + key, utcDay(now), now)
     .run()
     .catch(() => undefined);
 }
@@ -324,8 +327,8 @@ export async function noteAppRejected(db: D1Database, siteId: string, now: numbe
  */
 export function forgetAppRejected(db: D1Database, siteId: string): D1PreparedStatement {
   return db
-    .prepare('DELETE FROM site_usage WHERE site_id = ?1 OR (site_id >= ?2 AND site_id < ?3)')
-    .bind(REJECTED_PREFIX + siteId, `${HOOK_PREFIX}${siteId}:`, `${HOOK_PREFIX}${siteId}:~`);
+    .prepare('DELETE FROM site_usage WHERE site_id = ?1 OR site_id = ?4 OR (site_id >= ?2 AND site_id < ?3)')
+    .bind(REJECTED_PREFIX + siteId, `${HOOK_PREFIX}${siteId}:`, `${HOOK_PREFIX}${siteId}:~`, `${REJECTED_PREFIX}${siteId}:android`);
 }
 
 // ---------- webhook deliveries refused for a bad signature

@@ -6,6 +6,7 @@ import { useApi } from '../lib/useApi';
 import { ErrorLine, useSiteApi } from './site/primitives';
 import { CardHeader } from './ui/CardHeader';
 import { Skeleton, SkeletonRows } from './ui/Skeleton';
+import { isTestProvider } from '../../shared/test-providers';
 
 /** GET /api/sites/:id/income: other revenue rows in the period (src/worker/payments.ts listIncome). */
 interface IncomeRow {
@@ -91,6 +92,8 @@ export const PROVIDER_NAMES: Record<string, string> = {
   stripe: 'Stripe',
   app_store: 'App Store',
   app_store_sandbox: 'App Store sandbox',
+  google_play: 'Google Play',
+  google_play_test: 'Google Play test',
   revenuecat: 'RevenueCat',
   dodo: 'Dodo Payments',
   api: 'Payments API',
@@ -102,7 +105,8 @@ export const PROVIDER_NAMES: Record<string, string> = {
 };
 
 /** App Store amounts are the customer price with tax, before Apple's commission. */
-export const isGross = (provider: string) => provider === 'app_store' || provider === 'app_store_sandbox' || provider === 'revenuecat';
+export const isGross = (provider: string) =>
+  provider === 'app_store' || provider === 'app_store_sandbox' || provider === 'revenuecat' || provider === 'google_play' || provider === 'google_play_test';
 export const GROSS_HINT = "What the customer paid, tax included, before the store's commission";
 
 /** Revenue per payment provider, in the site's currency. Payments in other currencies count converted. */
@@ -114,7 +118,7 @@ export function RevenuePanel() {
   const shown = (r: ProviderRevenue) => (r.currency === site.currency ? r.net : (r.netConverted ?? r.net));
   const max = Math.max(1, ...(data ?? []).filter((r) => r.counted).map(shown));
   const converted = (data ?? []).some((r) => r.currency !== site.currency && r.netConverted !== null);
-  const outside = (data ?? []).some((r) => !r.counted && r.provider !== 'app_store_sandbox');
+  const outside = (data ?? []).some((r) => !r.counted && !isTestProvider(r.provider));
   // The counted lines add up to the Revenue tile above: each line's share of that total.
   const total = (data ?? []).filter((r) => r.counted).reduce((t, r) => t + shown(r), 0);
   const share = (r: ProviderRevenue) => (r.counted && total > 0 ? Math.round((shown(r) / total) * 100) : null);
@@ -193,7 +197,7 @@ export function RevenuePanel() {
                         <path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     )}
-                    {r.provider === 'app_store_sandbox' ? (
+                    {isTestProvider(r.provider) ? (
                       <span className="truncate text-xs text-stone-400">test purchases, not revenue</span>
                     ) : r.currency !== site.currency ? (
                       <span className="truncate text-xs text-stone-400">

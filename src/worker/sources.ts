@@ -18,11 +18,12 @@
 // night, about 1 a week for a site whose other platform never sends, and none once both are known (pro/test/cost.test.ts).
 import type { Env, Site } from './env';
 import { proHooks } from './pro-hooks';
-import { SANDBOX_PROVIDER } from './payments';
+import { TEST_PROVIDERS_SQL } from './payments';
 import { refusedWebhooks } from './budget';
 import { stoppedProviders } from './silence';
 import { dayInTz, midnight } from './lib/time';
 import { TREND_RULES } from '../shared/trend-rules';
+import { appHostSql, hasApp, isAppHost, webHostSql } from '../shared/platform';
 
 export const HOUR = 3_600_000;
 export const DAY = 24 * HOUR;
@@ -121,7 +122,7 @@ interface SinceRecord {
 
 const iso = (ms: number | null | undefined) => (typeof ms === 'number' && Number.isFinite(ms) ? new Date(ms).toISOString() : null);
 export const dayMs = (day: string | null | undefined) => (day ? Date.parse(`${day}T00:00:00Z`) : null);
-const isApp = (host: string | null | undefined) => typeof host === 'string' && host.startsWith('ios:');
+const isApp = isAppHost;
 const minOf = (...v: (number | null | undefined)[]) => {
   const xs = v.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
   return xs.length ? Math.min(...xs) : null;
@@ -158,20 +159,20 @@ function parseRecord(json: string | null | undefined): SinceRecord | null {
 export async function refreshTrackingSince(db: D1Database, now = Date.now()) {
   const { results: sites } = await db
     .prepare(
-      `SELECT st.id, st.app_bundle_id, c.value AS since FROM sites st LEFT JOIN cron_state c ON c.key = 'since:' || st.id ORDER BY st.created_at`,
+      `SELECT st.id, st.app_bundle_id, st.android_package, c.value AS since FROM sites st LEFT JOIN cron_state c ON c.key = 'since:' || st.id ORDER BY st.created_at`,
     )
-    .all<{ id: string; app_bundle_id: string | null; since: string | null }>();
+    .all<{ id: string; app_bundle_id: string | null; android_package: string | null; since: string | null }>();
   const todo = sites
     .map((s) => ({ ...s, rec: parseRecord(s.since) }))
     // Done: both platforms found, or the web found on a site without an app.
-    .filter((s) => !(s.rec && s.rec.web !== null && (s.rec.app !== null || !s.app_bundle_id)));
+    .filter((s) => !(s.rec && s.rec.web !== null && (s.rec.app !== null || !hasApp(s))));
   if (!todo.length) return { scanned: 0, written: 0 };
   const scans = await db.batch<{ web: number | null; app: number | null; web_last: number | null; app_last: number | null; last: number | null; n: number }>(
     todo.map((s) =>
       db
         .prepare(
-          `SELECT MIN(CASE WHEN hostname LIKE 'ios:%' THEN NULL ELSE started_at END) AS web, MIN(CASE WHEN hostname LIKE 'ios:%' THEN started_at END) AS app,
-                  MAX(CASE WHEN hostname LIKE 'ios:%' THEN NULL ELSE started_at END) AS web_last, MAX(CASE WHEN hostname LIKE 'ios:%' THEN started_at END) AS app_last,
+          `SELECT MIN(CASE WHEN ${appHostSql('hostname')} THEN NULL ELSE started_at END) AS web, MIN(CASE WHEN ${appHostSql('hostname')} THEN started_at END) AS app,
+                  MAX(CASE WHEN ${appHostSql('hostname')} THEN NULL ELSE started_at END) AS web_last, MAX(CASE WHEN ${appHostSql('hostname')} THEN started_at END) AS app_last,
                   MAX(started_at) AS last, COUNT(*) AS n
            FROM (SELECT started_at, hostname FROM sessions WHERE site_id = ?1 AND started_at > ?2 ORDER BY started_at LIMIT ${SCAN_LIMIT})`,
         )
@@ -289,11 +290,11 @@ export async function siteTrust(env: Env, sites: Site[], now = Date.now()): Prom
         `SELECT st.id,
                 (SELECT started_at FROM sessions WHERE site_id = st.id ORDER BY started_at LIMIT 1) AS first_at,
                 (SELECT hostname FROM sessions WHERE site_id = st.id ORDER BY started_at LIMIT 1) AS first_host,
-                (SELECT json_array(MAX(CASE WHEN hostname LIKE 'ios:%' THEN started_at END), MAX(CASE WHEN hostname IS NULL OR hostname NOT LIKE 'ios:%' THEN started_at END), MIN(started_at), COUNT(*))
+                (SELECT json_array(MAX(CASE WHEN ${appHostSql('hostname')} THEN started_at END), MAX(CASE WHEN ${webHostSql('hostname')} THEN started_at END), MIN(started_at), COUNT(*))
                  FROM (SELECT started_at, hostname FROM sessions WHERE site_id = st.id ORDER BY started_at DESC LIMIT ${RECENT_SESSIONS})) AS recent,
                 (SELECT MIN(from_day) FROM imports WHERE site_id = st.id) AS imported_from,
-                (SELECT p.ts FROM payments p WHERE p.site_id = st.id AND p.provider != '${SANDBOX_PROVIDER}' ORDER BY p.ts LIMIT 1) AS first_pay,
-                (SELECT p.ts FROM payments p WHERE p.site_id = st.id AND p.provider != '${SANDBOX_PROVIDER}' ORDER BY p.ts DESC LIMIT 1) AS last_pay,
+                (SELECT p.ts FROM payments p WHERE p.site_id = st.id AND p.provider NOT IN ${TEST_PROVIDERS_SQL} ORDER BY p.ts LIMIT 1) AS first_pay,
+                (SELECT p.ts FROM payments p WHERE p.site_id = st.id AND p.provider NOT IN ${TEST_PROVIDERS_SQL} ORDER BY p.ts DESC LIMIT 1) AS last_pay,
                 (SELECT MIN(report_date) FROM asc_sales WHERE site_id = st.id) AS asc_first,
                 (SELECT MAX(report_date) FROM asc_sales WHERE site_id = st.id) AS asc_last,
                 (SELECT value FROM cron_state WHERE key = 'since:' || st.id) AS since,
@@ -373,14 +374,14 @@ export async function siteTrust(env: Env, sites: Site[], now = Date.now()): Prom
     if (!blind) continue;
     const rec = parseRecord(e.since);
     const firstApp = isApp(e.first_host);
-    const wantsApp = app === null && !!(site.app_bundle_id || rec?.app != null || firstApp);
+    const wantsApp = app === null && !!(hasApp(site) || rec?.app != null || firstApp);
     const wantsWeb = web === null && (rec?.web != null || (e.first_at !== null && !firstApp));
     for (const [want, isAppProbe] of [
       [wantsApp, true],
       [wantsWeb, false],
     ] as const) {
       if (!want) continue;
-      const host = isAppProbe ? `hostname LIKE 'ios:%'` : `(hostname IS NULL OR hostname NOT LIKE 'ios:%')`;
+      const host = isAppProbe ? `${appHostSql('hostname')}` : `${webHostSql('hostname')}`;
       probes.push({
         site: site.id,
         app: isAppProbe,
@@ -457,9 +458,9 @@ export async function siteTrust(env: Env, sites: Site[], now = Date.now()): Prom
     };
     src.web = sessionSource(lastWeb, webSince, 'web visits', 'No web visit received yet. The tracking script is not installed, or nobody visited.');
     src.app =
-      site.app_bundle_id || appSince !== null || lastApp !== null
+      hasApp(site) || appSince !== null || lastApp !== null
         ? sessionSource(lastApp, appSince, 'app sessions', 'No app session received yet. The app needs a released build with FounderDataKit.')
-        : off('No iOS app is set for this site.');
+        : off('No app is set for this site.');
 
     // Payments: the webhooks, and the providers that went quiet.
     const secretProviders = (
@@ -573,7 +574,7 @@ export async function dataStarts(db: D1Database, sites: Site[]): Promise<Map<str
       `SELECT st.id,
               (SELECT started_at FROM sessions WHERE site_id = st.id ORDER BY started_at LIMIT 1) AS first_at,
               (SELECT MIN(from_day) FROM imports WHERE site_id = st.id) AS imported_from,
-              (SELECT p.ts FROM payments p WHERE p.site_id = st.id AND p.provider != '${SANDBOX_PROVIDER}' ORDER BY p.ts LIMIT 1) AS first_pay,
+              (SELECT p.ts FROM payments p WHERE p.site_id = st.id AND p.provider NOT IN ${TEST_PROVIDERS_SQL} ORDER BY p.ts LIMIT 1) AS first_pay,
               (SELECT MIN(report_date) FROM asc_sales WHERE site_id = st.id) AS asc_first
        FROM sites st WHERE st.id IN (SELECT value FROM json_each(?1))`,
     )

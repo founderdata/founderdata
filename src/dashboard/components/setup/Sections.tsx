@@ -10,7 +10,7 @@ import { CopyField, InlineError, SettingRow, SettingsCard, Switch } from './kit'
 import { useCardStatus, useSetup } from './status';
 import type { Save } from './Payments';
 
-/** Name, domain, timezone, currency and bundle id, saved together. */
+/** Name, domain, timezone, currency, bundle id and Android package name, saved together. */
 export function GeneralCard({ site, save }: { site: Site; save: Save }) {
   const appOnly = isAppOnly(site);
   const [form, setForm] = useState({
@@ -20,12 +20,14 @@ export function GeneralCard({ site, save }: { site: Site; save: Save }) {
     currency: site.currency,
     bundle: site.app_bundle_id ?? '',
     appStoreId: site.app_store_id ?? '',
+    androidPackage: site.android_package ?? '',
+    pushEmail: site.google_push_email ?? '',
   });
   const [addDomain, setAddDomain] = useState(false);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
   const showDomain = !appOnly || addDomain;
-  const ids = { name: useId(), domain: useId(), tz: useId(), cur: useId(), bundle: useId(), store: useId() };
+  const ids = { name: useId(), domain: useId(), tz: useId(), cur: useId(), bundle: useId(), store: useId(), pkg: useId(), push: useId() };
   return (
     <SettingsCard id="general" title="General" desc="Name, domain, timezone and currency. The timezone sets where each day starts on this site's pages.">
       <form
@@ -38,6 +40,8 @@ export function GeneralCard({ site, save }: { site: Site; save: Save }) {
             currency: form.currency,
             app_bundle_id: form.bundle.trim() || null,
             ...(form.bundle.trim() ? { app_store_id: form.appStoreId.trim() || null } : {}),
+            android_package: form.androidPackage.trim() || null,
+            ...(form.androidPackage.trim() ? { google_push_email: form.pushEmail.trim() || null } : {}),
             ...(showDomain && form.domain.trim() ? { domain: form.domain } : {}),
           });
           setBusy(false);
@@ -84,6 +88,31 @@ export function GeneralCard({ site, save }: { site: Site; save: Save }) {
             <input id={ids.bundle} className="input font-mono" placeholder="com.example.app" value={form.bundle} onChange={set('bundle')} spellCheck={false} />
             <p className="mt-1.5 text-xs text-stone-500">The only bundle id the server accepts app events and Apple notifications from.</p>
           </div>
+          <div className="sm:col-span-2">
+            <label className="label" htmlFor={ids.pkg}>
+              Android package name
+            </label>
+            <input id={ids.pkg} className="input font-mono" placeholder="com.example.app" value={form.androidPackage} onChange={set('androidPackage')} spellCheck={false} />
+            <p className="mt-1.5 text-xs text-stone-500">The only package name the server accepts Android app events and Google Play notifications from.</p>
+          </div>
+          {(site.android_package || form.androidPackage.trim()) && (
+            <div className="sm:col-span-2">
+              <label className="label" htmlFor={ids.push}>
+                Google Play notifications: push service account
+              </label>
+              <input
+                id={ids.push}
+                className="input font-mono"
+                placeholder="pubsub-push@project.iam.gserviceaccount.com"
+                value={form.pushEmail}
+                onChange={set('pushEmail')}
+                spellCheck={false}
+              />
+              <p className="mt-1.5 text-xs text-stone-500">
+                The service account of the Pub/Sub push subscription. Its URL is <code>/api/webhooks/google/{site.id}</code> on this host.
+              </p>
+            </div>
+          )}
           {(site.app_bundle_id || form.bundle.trim()) && (
             <div className="sm:col-span-2">
               <label className="label" htmlFor={ids.store}>

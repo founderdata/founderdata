@@ -2,11 +2,12 @@ import type { Site } from './env';
 import { countedAllSql } from './datacenter';
 import { narrowRates, PAY_AMOUNT, payCurrency, rateLookup } from './fx';
 import { startOfDay, tzOffset } from './lib/time';
-import { currencyDecimals, SANDBOX_PROVIDER } from './payments';
+import { currencyDecimals, TEST_PROVIDERS_SQL } from './payments';
 import { proHooks } from './pro-hooks';
 import { reportingTimezone } from './reporting';
 import { APPLE_PAYMENT, appStoreLayer, ascPrefetch, appleNet, KEPT_CHANNEL_SQL, KEPT_SOURCE_SQL } from './revenue';
 import { asaPrefetch, sinceYesterday } from './since-yesterday';
+import { hasApp, webHostSql } from '../shared/platform';
 
 /**
  * GET /api/mobile/summary (docs/MOBILE-API.md section 4): everything the iOS home screen and widgets draw, in one
@@ -20,7 +21,7 @@ import { asaPrefetch, sinceYesterday } from './since-yesterday';
  */
 
 const DAY = 86_400_000;
-const REAL = `p.provider != '${SANDBOX_PROVIDER}'`;
+const REAL = `p.provider NOT IN ${TEST_PROVIDERS_SQL}`;
 /** The days the answer shows (`last30`, the 30 day window). */
 const DAYS = 30;
 /** The days it reads: twice DAYS, for the window before each one (`periods.*.previous`). */
@@ -76,14 +77,14 @@ export async function mobileSummary(db: D1Database, tzParam: string | undefined,
   const [siteRes, zone, pre, asa, paidCurrencies] = await Promise.all([
     db
       .prepare(
-        `SELECT st.id, st.name, st.currency, st.app_bundle_id, st.asc_app_id, st.app_store_id,
-                (CASE WHEN st.app_bundle_id IS NULL THEN 1 ELSE EXISTS (
-                   SELECT 1 FROM sessions w WHERE w.site_id = st.id AND w.started_at > ? AND (w.hostname IS NULL OR w.hostname NOT LIKE 'ios:%')
+        `SELECT st.id, st.name, st.currency, st.app_bundle_id, st.android_package, st.asc_app_id, st.app_store_id,
+                (CASE WHEN st.app_bundle_id IS NULL AND st.android_package IS NULL THEN 1 ELSE EXISTS (
+                   SELECT 1 FROM sessions w WHERE w.site_id = st.id AND w.started_at > ? AND ${webHostSql('w.hostname')}
                  ) END) AS has_web
          FROM sites st ORDER BY st.created_at`,
       )
       .bind(now - 90 * DAY)
-      .all<Pick<Site, 'id' | 'name' | 'currency' | 'app_bundle_id' | 'asc_app_id' | 'app_store_id'> & { has_web: number }>(),
+      .all<Pick<Site, 'id' | 'name' | 'currency' | 'app_bundle_id' | 'android_package' | 'asc_app_id' | 'app_store_id'> & { has_web: number }>(),
     tzParam ? null : reportingTimezone(db),
     ascPrefetch(db, new Date(now - (SPAN + 2) * DAY).toISOString().slice(0, 10), new Date(now + 2 * DAY).toISOString().slice(0, 10)),
     asaPrefetch(db, now),
@@ -160,7 +161,7 @@ export async function mobileSummary(db: D1Database, tzParam: string | undefined,
       `SELECT p.site_id, p.ts, p.amount, p.currency, p.product, p.provider, ${KEPT_SOURCE_SQL} AS source, ${KEPT_CHANNEL_SQL} AS channel
        FROM sites st
        JOIN payments p ON p.id = (SELECT p2.id FROM payments p2 WHERE p2.site_id = st.id AND p2.kind = 'payment'
-                                   AND p2.provider != '${SANDBOX_PROVIDER}' ORDER BY p2.ts DESC LIMIT 1)
+                                   AND p2.provider NOT IN ${TEST_PROVIDERS_SQL} ORDER BY p2.ts DESC LIMIT 1)
        LEFT JOIN sessions s ON s.site_id = p.site_id AND s.id = p.session_id`,
     ),
     db.prepare(
@@ -360,7 +361,7 @@ export async function mobileSummary(db: D1Database, tzParam: string | undefined,
       return {
         id: s.id,
         name: s.name,
-        kind: s.app_bundle_id && !s.has_web ? ('app' as const) : ('web' as const),
+        kind: hasApp(s) && !s.has_web ? ('app' as const) : ('web' as const),
         currency: s.currency,
         today: { visitors: v[T], purchases: purchases.get(s.id) ?? 0, revenue: rev(T) },
         last7: labels.slice(SPAN - 7).map((date, i) => ({ date, visitors: v[SPAN - 7 + i], revenue: rev(SPAN - 7 + i) })),

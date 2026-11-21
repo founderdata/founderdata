@@ -21,6 +21,7 @@ import { headlineOf, type ProductNumbers, type ProductType } from './product-typ
 import { reportingTimezone } from './reporting';
 // Last, so every module this file needs has loaded before Pro's tree (which imports them back) does.
 import { proHooks } from './pro-hooks';
+import { appHostSql, hasApp, webHostSql } from '../shared/platform';
 
 /**
  * The scheduled alerts (docs/GUIDE.md, "Alerts and weekly report"): "worth a look" every day when there is
@@ -74,7 +75,7 @@ export async function dailyItems(db: D1Database, now: number): Promise<Attention
       .prepare(
         `SELECT st.id AS site_id, (SELECT MAX(started_at) FROM sessions WHERE site_id = st.id) AS last,
                 EXISTS (SELECT 1 FROM sessions w WHERE w.site_id = st.id AND w.started_at > ?
-                          AND (w.hostname IS NULL OR w.hostname NOT LIKE 'ios:%')) AS web
+                          AND ${webHostSql('w.hostname')}) AS web
          FROM sites st`,
       )
       .bind(now - 90 * DAY),
@@ -86,7 +87,7 @@ export async function dailyItems(db: D1Database, now: number): Promise<Attention
     name: s.name,
     domain: s.domain,
     createdAt: s.created_at,
-    kind: s.app_bundle_id ? (seen.get(s.id)?.web ? 'both' : 'app') : 'web',
+    kind: hasApp(s) ? (seen.get(s.id)?.web ? 'both' : 'app') : 'web',
     lastSeen: seen.get(s.id)?.last ?? null,
     current: kpis(count.get(s.id)?.cur ?? 0),
     previous: kpis(count.get(s.id)?.prev ?? 0),
@@ -202,8 +203,8 @@ export const weekStart = (now: number) => {
   return d - ((new Date(d).getUTCDay() + 6) % 7) * DAY;
 };
 
-/** Sessions of the iPhone app: their hostname is `ios:<bundle id>`. */
-const APP_SESSION = `(s.hostname LIKE 'ios:%')`;
+/** Sessions of the app: their hostname is `ios:<bundle id>` or `android:<package>`. */
+const APP_SESSION = appHostSql('s.hostname');
 
 /**
  * The last full week, Monday to Sunday in `tz` (default: the reporting timezone, src/worker/reporting.ts), against the

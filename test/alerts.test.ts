@@ -525,6 +525,6 @@ describePro('payment pushes', () => {
 describe('module load order', () => {
   it('keeps sandbox purchases out of revenue after the alert modules load', async () => {
     const { REAL } = await import('../src/worker/stats');
-    expect(REAL).toBe("p.provider != 'app_store_sandbox'");
+    expect(REAL).toBe("p.provider NOT IN ('app_store_sandbox', 'google_play_test')");
   });
 });

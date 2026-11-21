@@ -3,7 +3,7 @@ import { getSite, type AppEnv, type Site } from './env';
 import { appVisitorId } from './identity';
 import { JwsError, verifyAppleJws } from './lib/apple-jws';
 import { announce, pusherOf, type Pusher } from './notify';
-import { creditedSession, currencyDecimals, recordPayment, recordSignal, SANDBOX_PROVIDER } from './payments';
+import { creditedSession, currencyDecimals, recordPayment, isTestProvider, recordSignal, SANDBOX_PROVIDER } from './payments';
 import { appleSubscriptionEvent, recordSubscription, type AppleNotice } from './subscriptions';
 
 /** The fields of a StoreKit 2 / App Store Server API JWSTransactionDecodedPayload that we use. */
@@ -190,7 +190,7 @@ export async function recordAppleRefund(db: D1Database, site: Site, tx: AppleTra
     event: 'refund',
     id: `apple_refund_${tx.transactionId}`,
     provider: original.provider,
-    sandbox: original.provider === SANDBOX_PROVIDER,
+    sandbox: isTestProvider(original.provider),
     amount: original.amount,
     currency: original.currency,
     product: original.product,

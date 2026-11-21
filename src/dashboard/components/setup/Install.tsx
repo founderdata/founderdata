@@ -121,7 +121,7 @@ export function SdkSteps({ site, origin, start = 1 }: { site: Site; origin: stri
       </Step>
       <Step n={start + 1} title="Start it when the app launches">
         Call <code>configure</code> in <code>App.init()</code>. App sessions arrive under <code>ios:{site.app_bundle_id ?? 'your.bundle.id'}</code>, so the Platform
-        tab can split web and iOS.
+        tab can split web, iOS and Android.
         <div className="mt-2">
           <Code>{swiftSetup(site.id, origin)}</Code>
         </div>

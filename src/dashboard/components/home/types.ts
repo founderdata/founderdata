@@ -126,7 +126,7 @@ export interface HomeData {
     source: string | null;
     sourceDomain: string | null;
     country: string | null;
-    platform: 'web' | 'ios' | null;
+    platform: 'web' | 'ios' | 'android' | null;
   }[];
   /** The changes of the last 7 days, whatever the period (pro/worker/changes-summary.ts). */
   changes?: ChangesSummary | null;

@@ -36,7 +36,7 @@ export const PERIOD_PHRASE: Record<string, string> = {
   lastquarter: 'Last quarter',
   '12m': 'The last 12 months',
 };
-export const PROVIDERS: Record<string, string> = { stripe: 'Stripe', app_store: 'App Store', revenuecat: 'RevenueCat', dodo: 'Dodo', api: 'API', lemonsqueezy: 'Lemon Squeezy', polar: 'Polar', paddle: 'Paddle', gumroad: 'Gumroad', income: 'Other revenue' };
+export const PROVIDERS: Record<string, string> = { stripe: 'Stripe', app_store: 'App Store', google_play: 'Google Play', revenuecat: 'RevenueCat', dodo: 'Dodo', api: 'API', lemonsqueezy: 'Lemon Squeezy', polar: 'Polar', paddle: 'Paddle', gumroad: 'Gumroad', income: 'Other revenue' };
 
 export const money = (minor: number, currency: string, compact = false) => fmtMoney(minor, currency, currencyDecimals(currency), compact);
 /** Currencies by amount, largest first. */

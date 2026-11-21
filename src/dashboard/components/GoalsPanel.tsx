@@ -18,6 +18,7 @@ import { SetupRow } from './ui/SetupRow';
 import { TabRow } from './ui/Tabs';
 import { Spinner } from './ui/Spinner';
 import { Skeleton } from './ui/Skeleton';
+import { isTestProvider } from '../../shared/test-providers';
 
 type Tab = CustomerTab;
 const TABS: { key: Tab; label: string }[] = [
@@ -401,7 +402,7 @@ export function PaymentSource({ provider, currency, amount, amountConv }: { prov
   const notes = [PROVIDER_NAMES[provider] ?? provider];
   if (isGross(provider)) notes.push('gross');
   if (currency !== site.currency && amountConv != null && amount !== undefined) notes.push(`paid ${moneyIn(amount, currency)}`);
-  if (provider === 'app_store_sandbox') notes.push('test, not revenue');
+  if (isTestProvider(provider)) notes.push('test, not revenue');
   else if (currency !== site.currency && amountConv == null) notes.push('not converted yet, not in totals');
   return (
     <div className="text-xs font-normal text-stone-400" title={isGross(provider) ? GROSS_HINT : undefined}>

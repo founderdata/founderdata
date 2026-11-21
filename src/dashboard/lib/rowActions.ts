@@ -3,6 +3,7 @@ import type { Site } from './api';
 import { contentPageUrl } from './paths';
 import { carriedSearch, sectionUrl, type View } from './sections';
 import { hasWebsite } from './siteKind';
+import { hasApp } from '../../shared/platform';
 
 /** A breakdown row's way into a deeper screen: the page detail, SEO, AI visibility or an ads section. */
 export interface RowAction {
@@ -32,7 +33,7 @@ export function rowActions(site: Site, dim: string, row: { label: string | null;
   const l = row.label;
   if (!l) return [];
   const web = hasWebsite(site);
-  const app = !!site.app_bundle_id;
+  const app = hasApp(site);
   const out: RowAction[] = [];
   const open = (v: View, label: string, extra = '') => {
     const href = sectionUrl(site.id, v, search);

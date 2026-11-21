@@ -138,16 +138,16 @@ export function BrowserIcon({ name, size = 18 }: { name: string | null; size?: n
   return <Favicon domain={name ? BROWSER_DOMAINS[name] : null} size={size} fallback={glyphFor(name === 'App' ? 'phone' : 'globe', size)} />;
 }
 export function OSIcon({ name, size = 18 }: { name: string | null; size?: number }) {
-  // App sessions report "iOS 26.1".
-  const key = name?.startsWith('iOS ') ? 'iOS' : name;
+  // App sessions report "iOS 26.1" or "Android 16".
+  const key = name?.startsWith('iOS ') ? 'iOS' : name?.startsWith('Android ') ? 'Android' : name;
   return <Favicon domain={key ? OS_DOMAINS[key] : null} size={size} fallback={glyphFor('laptop', size)} />;
 }
 export function DeviceIcon({ name, size = 18 }: { name: string | null; size?: number }) {
   return <Favicon size={size} fallback={glyphFor(name === 'Mobile' ? 'phone' : name === 'Tablet' ? 'tablet' : 'desktop', size)} />;
 }
-/** The platform of a visit: the app (iOS) or the website. */
+/** The platform of a visit: the app (iOS or Android) or the website. */
 export function PlatformIcon({ name, size = 18 }: { name: string | null; size?: number }) {
-  return <Favicon size={size} fallback={glyphFor(name === 'iOS' ? 'phone' : 'desktop', size)} />;
+  return <Favicon size={size} fallback={glyphFor(name === 'iOS' || name === 'Android' ? 'phone' : 'desktop', size)} />;
 }
 /** A country's flag, or the globe glyph when the country is unknown. Flags are the one emoji-font character left: they name data. */
 export function Flag({ cc, size = 18 }: { cc: string | null; size?: number }) {

@@ -18,7 +18,8 @@
 import { countedAllSql } from './datacenter';
 import type { Context } from 'hono';
 import type { AppEnv } from './env';
-import { SANDBOX_PROVIDER } from './payments';
+import { TEST_PROVIDERS_SQL } from './payments';
+import { isAppHost } from '../shared/platform';
 
 /** "Online" means seen in this many minutes, as on the home page. */
 export const LIVE_WINDOW_MINUTES = 5;
@@ -132,9 +133,9 @@ const VISIT = `s.site_id, s.visitor_id, s.id AS sid, MAX(s.last_seen_at) AS last
                s.exit_page, s.source, s.device`;
 /** "Has paid before" for a visitor row `r`: a real payment, refunds and sandbox purchases left out. */
 const CUSTOMER = `EXISTS (SELECT 1 FROM payments p WHERE p.site_id = r.site_id AND p.visitor_id = r.visitor_id AND p.kind = 'payment'
-                    AND p.provider != '${SANDBOX_PROVIDER}') AS customer`;
+                    AND p.provider NOT IN ${TEST_PROVIDERS_SQL}) AS customer`;
 
-const REAL_PAYMENT = `p.kind = 'payment' AND p.provider != '${SANDBOX_PROVIDER}'`;
+const REAL_PAYMENT = `p.kind = 'payment' AND p.provider NOT IN ${TEST_PROVIDERS_SQL}`;
 
 /** Payments, trials, sign-ups and primary goals from `since` to `now`, newest first, each with its visit's location. */
 function eventsStatement(db: D1Database, since: number, now: number): D1PreparedStatement {
@@ -245,7 +246,7 @@ async function visitorsOf(secret: string, rows: Record<string, unknown>[]): Prom
   return rows.map((r, i) => ({
     id: ids[i],
     siteId: String(r.site_id),
-    platform: String(r.hostname ?? '').startsWith('ios:') ? 'app' : 'web',
+    platform: isAppHost(text(r.hostname)) ? 'app' : 'web',
     country: text(r.country),
     region: text(r.region),
     city: text(r.city),

@@ -450,7 +450,7 @@ export async function broadcast(
 
 // ---------- payments
 
-const PROVIDERS: Record<string, string> = { dodo: 'Dodo Payments', stripe: 'Stripe', app_store: 'App Store', revenuecat: 'RevenueCat', api: 'Payments API', lemonsqueezy: 'Lemon Squeezy', polar: 'Polar', paddle: 'Paddle', gumroad: 'Gumroad' };
+const PROVIDERS: Record<string, string> = { dodo: 'Dodo Payments', stripe: 'Stripe', app_store: 'App Store', google_play: 'Google Play', revenuecat: 'RevenueCat', api: 'Payments API', lemonsqueezy: 'Lemon Squeezy', polar: 'Polar', paddle: 'Paddle', gumroad: 'Gumroad' };
 
 export function paymentMessage(site: Site, n: PaymentPush, src: { source: string; channel: string } | null): AlertMessage {
   const money = n.amount !== undefined && n.currency ? formatMoney(Math.abs(n.amount), n.currency) : null;

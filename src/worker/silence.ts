@@ -46,6 +46,7 @@ const NAMES: Record<string, string> = {
   stripe: 'Stripe',
   dodo: 'Dodo Payments',
   app_store: 'The App Store',
+  google_play: 'Google Play',
   revenuecat: 'RevenueCat',
   api: 'The payments API',
   income: 'The payments API (income)',
@@ -58,6 +59,7 @@ const NAMES: Record<string, string> = {
 const HINTS: Record<string, string> = {
   stripe: "Check the webhook endpoint in Stripe and the signing secret in the site's Settings.",
   app_store: 'Check the App Store Server Notifications URL in App Store Connect.',
+  google_play: "Check the Pub/Sub push subscription for the Play topic and the site's push service account in Settings.",
   revenuecat: "Check the webhook in RevenueCat and its authorization header in the site's Settings.",
   api: 'Check the script or service that calls /api/v1/payments.',
   income: 'Check the script or service that calls /api/v1/payments.',

@@ -7,6 +7,7 @@ import { Skeleton, StatusChip, Stagger } from '../ui';
 import { SetupIcons } from './icons';
 import { SettingsCard, type CardStatus } from './kit';
 import { statusFor, useSetup, type SetupData } from './status';
+import { hasApp } from '../../../shared/platform';
 
 const PROVIDERS: [string, string][] = [
   ['stripe', 'Stripe'],
@@ -41,7 +42,7 @@ function paymentsTile(site: Site, d: SetupData): Tile {
 
 function tilesFor(site: Site, d: SetupData): { label: string; tiles: Tile[] }[] {
   const web = hasWebsite(site);
-  const app = !!site.app_bundle_id;
+  const app = hasApp(site);
   const t = (id: string, title: string, icon: ReactNode): Tile => ({ id, title, icon, status: statusFor(id, site, d) });
   return [
     {

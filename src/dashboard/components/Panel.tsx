@@ -17,6 +17,7 @@ import { Num, Row, Table } from './site/primitives';
 import { EmptyIcons, EmptyState } from './ui/EmptyState';
 import { SkeletonRows } from './ui/Skeleton';
 import { TabRow } from './ui/Tabs';
+import { isAppHost, PLATFORM_LABEL, platformOf } from '../../shared/platform';
 
 /** A breakdown tab: its label, dimension and the session filter a row click adds (src/shared/dashboard-tabs.ts). */
 export type TabDef = BreakdownTab;
@@ -113,7 +114,7 @@ export function renderLabel(dim: string, row: Pick<BreakdownRow, 'label' | 'extr
     case 'hostname':
       return (
         <>
-          {l?.startsWith('ios:') ? <PlatformIcon name="iOS" /> : <Favicon domain={l} />}
+          {isAppHost(l) ? <PlatformIcon name={PLATFORM_LABEL[platformOf(l)]} /> : <Favicon domain={l} />}
           {text(l)}
         </>
       );

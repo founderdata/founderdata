@@ -3,6 +3,7 @@ import { forgetSite, type AppEnv, type Site } from './env';
 import { makeCtx } from './stats';
 import { previousRange } from './lib/time';
 import { TREND_RULES } from '../shared/trend-rules';
+import { hasApp } from '../shared/platform';
 
 /** Below this headline number in the period before, a change is no verdict (home.ts MIN_BASE). */
 const MIN_BASE_COUNT = 20;
@@ -34,8 +35,8 @@ export const COUNTED_SITES = "SELECT id FROM sites WHERE product_type IN ('exten
 export const isProductType = (v: unknown): v is ProductType => typeof v === 'string' && (PRODUCT_TYPES as readonly string[]).includes(v);
 
 /** The site's type: the one picked in Settings, else app for a site with a bundle id, else website. */
-export function productType(s: Pick<Site, 'product_type' | 'app_bundle_id'>): ProductType {
-  return isProductType(s.product_type) ? s.product_type : s.app_bundle_id ? 'app' : 'website';
+export function productType(s: Pick<Site, 'product_type' | 'app_bundle_id' | 'android_package'>): ProductType {
+  return isProductType(s.product_type) ? s.product_type : hasApp(s) ? 'app' : 'website';
 }
 
 export type MetricKey = 'installs' | 'weekly_active' | 'uninstalls' | 'subscribers' | 'new_subscribers' | 'unsubscribes' | 'opens';
@@ -92,7 +93,7 @@ const pctOf = (value: number, previous: number) => (previous > 0 ? Math.round(((
  */
 export async function productNumbers(
   db: D1Database,
-  sites: Pick<Site, 'id' | 'product_type' | 'app_bundle_id'>[],
+  sites: Pick<Site, 'id' | 'product_type' | 'app_bundle_id' | 'android_package'>[],
   range: { from: number; to: number },
   before: { from: number; to: number },
   now = Date.now(),
@@ -205,7 +206,7 @@ async function putType(c: Context<AppEnv>) {
   const b = await c.req.json<{ type?: unknown }>().catch(() => null);
   if (!b || !('type' in b)) return c.json({ error: 'Send { "type": "extension" }, or { "type": null } for automatic' }, 400);
   if (b.type !== null && !isProductType(b.type)) return c.json({ error: `type is one of ${PRODUCT_TYPES.join(', ')}, or null` }, 400);
-  if (b.type === 'app' && !site.app_bundle_id) return c.json({ error: "Add the app's bundle id under General first" }, 400);
+  if (b.type === 'app' && !hasApp(site)) return c.json({ error: "Add the app's bundle id or package name under General first" }, 400);
   await c.env.DB.prepare('UPDATE sites SET product_type = ? WHERE id = ?').bind(b.type, site.id).run();
   forgetSite(site.id);
   return c.json({ type: productType({ ...site, product_type: b.type as ProductType | null }), product_type: b.type });

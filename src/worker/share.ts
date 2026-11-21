@@ -16,6 +16,7 @@ import { dataStarts, noPrevious } from './sources';
 import { ATTRIBUTION_DIMS, attributionCoverage, breakdown, coverageOut, FIRST_TOUCH_DIM_NAMES, hasFilters, modelOf, overview, parseFilters, type BreakdownRow, type Ctx, type Filters } from './stats';
 import { overviewOutages } from './notes';
 import { proHooks } from './pro-hooks';
+import { hasApp } from '../shared/platform';
 
 export interface ShareToken {
   token: string;
@@ -317,7 +318,7 @@ async function shareInfo(c: Context<AppEnv>) {
   const site = c.get('site');
   return c.json(
     {
-      site: { name: site.name, domain: site.domain, timezone: site.timezone, currency: site.currency, app: !!site.app_bundle_id },
+      site: { name: site.name, domain: site.domain, timezone: site.timezone, currency: site.currency, app: hasApp(site) },
       label: tok.label,
       showRevenue: !!tok.show_revenue,
       decimals: currencyDecimals(site.currency),

@@ -5,6 +5,7 @@ import { randomId } from './lib/crypto';
 import { dayInTz } from './lib/time';
 import { IMPORT_KINDS, MAX_LABELS, MAX_LABEL_LENGTH, PLAUSIBLE_TABLES, validDay, type ImportKind } from '../shared/plausible-import';
 import type { BreakdownRow } from './stats';
+import { webHostSql } from '../shared/platform';
 
 /**
  * History imported from another tool (docs/GUIDE.md, "Import from Plausible"). The dashboard reads the CSV files in the
@@ -91,7 +92,7 @@ export function importRowStatement(db: D1Database, siteId: string): D1PreparedSt
   return db
     .prepare(
       `SELECT EXISTS (SELECT 1 FROM imports WHERE site_id = ?1 AND status = 'done') AS has,
-              (SELECT MIN(started_at) FROM sessions WHERE site_id = ?1 AND (hostname IS NULL OR hostname NOT LIKE 'ios:%')
+              (SELECT MIN(started_at) FROM sessions WHERE site_id = ?1 AND ${webHostSql('hostname')}
                AND EXISTS (SELECT 1 FROM imports WHERE site_id = ?1 AND status = 'done')) AS first,
               (SELECT MIN(ts) FROM payments WHERE site_id = ?1 AND EXISTS (SELECT 1 FROM imports WHERE site_id = ?1 AND status = 'done')) AS paid`,
     )
@@ -392,7 +393,7 @@ export function registerImportRoutes(app: Hono<AppEnv>) {
     const now = Date.now();
     const [list, first, used] = await Promise.all([
       c.env.DB.prepare('SELECT * FROM imports WHERE site_id = ? ORDER BY from_day').bind(site.id).all<ImportRow>(),
-      c.env.DB.prepare(`SELECT MIN(started_at) AS t FROM sessions WHERE site_id = ? AND (hostname IS NULL OR hostname NOT LIKE 'ios:%')`).bind(site.id).first<{ t: number | null }>(),
+      c.env.DB.prepare(`SELECT MIN(started_at) AS t FROM sessions WHERE site_id = ? AND ${webHostSql('hostname')}`).bind(site.id).first<{ t: number | null }>(),
       usedToday(c.env.DB, now),
     ]);
     const limit = allowance(c.env);
