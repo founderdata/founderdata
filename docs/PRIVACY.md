@@ -356,7 +356,28 @@ the visitor row. Once the visitor is identified, the answer is personal data abo
 
 ## Click maps and scroll
 
-<!-- r7 pages: written by lane pages -->
+**Scroll depth** is one number on the page speed row each page load already writes: how far down the page the visitor
+scrolled, in percent. The row has no visitor or session id, and it is deleted after 90 days.
+
+**Click maps** (Pro) are off by default. Turn them on per site in Settings, Click maps. Each page view then stores one
+row with:
+
+- the page's path and the device type (desktop, mobile or tablet)
+- the width of the window and the height of the page, in px
+- the deepest scroll, in percent
+- up to 50 clicks: where on the page, the element's tag with its first class or id (`button.buy`), and its text up to
+  40 characters
+
+A row has no visitor id, no session id, no IP address and no time finer than the page view. Click text follows the
+masking rules of recordings: nothing a visitor typed, nothing from form fields or editable parts, and nothing inside an
+element marked `data-fd-mask` or `data-fd-block`. Mark any element whose text names a person. Pages on the never-record
+list (Settings, Record visits) send no click map. Rows are deleted after 90 days and when the site is deleted.
+
+Because a row cannot be tied to a person, erasing a person has nothing to remove here. A share of page views (Settings,
+Click maps) keeps fewer rows.
+
+The overlay that shows the map runs on your own page. The dashboard opens it with a token that is valid for 15 minutes
+and reads only the counts of that one page.
 
 ## Errors
 

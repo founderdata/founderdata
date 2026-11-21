@@ -1456,10 +1456,13 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
   const range = resolveRange({ period: 'custom', from, to: today, granularity: 'week' }, site.timezone, site.created_at, now);
   const ctx: Ctx = { db, site, range, filters: { entry_page: path }, offset: tzOffset(site.timezone, range.to), period: 'custom', skipImported: true };
   const [o, notes] = await Promise.all([overview(ctx), pageNotes(db, site.id, path, now)]);
-  const [search, impacts, speed] = await Promise.all([
+  const [search, impacts, speed, clicks] = await Promise.all([
     pageSearch(db, site.id, path, from, o.series.map((s) => s.bucket)),
     Promise.all(notes.map((n) => impactOf(db, site, n, null, now))),
     vitalsReport(db, site, { path, now }),
+    // Pro: the click map's 10 most clicked elements over the same 28 days as vitals (pro/worker/page-maps.ts); null
+    // without rows, and always null in core.
+    proHooks()?.pageClicks?.(db, { siteId: site.id, path, from: now - 28 * 86_400_000, to: now }) ?? null,
   ]);
   const totals = (k: (typeof o)['current']) =>
     showRevenue
@@ -1483,6 +1486,9 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
     search,
     // Core Web Vitals of loads of this page over the last 28 days (vitals.ts), whatever `weeks` is.
     vitals: { days: speed.days, from: speed.from, to: speed.to, min_sample: speed.min_sample, ...speed.overall, devices: speed.devices },
+    // How far visitors scrolled on loads of this page (vitals.scroll), null before any sent one; the click map's elements (Pro).
+    scroll: speed.scroll.samples ? speed.scroll : null,
+    clicks: clicks ? { days: 28, ...clicks } : null,
     notes: impacts.map((i) => noteWithImpact(i, showRevenue)),
   });
 }

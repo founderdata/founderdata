@@ -60,7 +60,9 @@ function el(tag: string, text = '', more: Partial<FakeEl> = {}) {
   e.getAttribute = (n: string) => e.attrs?.[n] ?? null;
   e.matches = (sel: string) => (sel.includes('data-fd-mask') && e.masked) || (sel.includes('[hidden]') && e.attrs?.hidden !== undefined);
   e.closest = (sel: string) => {
-    if (sel.includes('data-fd-mask')) return e.masked ? {} : null;
+    // The label check: masked, a form field or an editable part (itself or a parent with contenteditable).
+    if (sel.includes('data-fd-mask'))
+      return e.masked || (sel.includes('textarea') && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName) || e.isContentEditable || e.attrs?.contenteditable !== undefined)) ? {} : null;
     if (sel.includes('button')) return /^(A|BUTTON|INPUT)$/.test(e.tagName) || e.attrs?.role === 'button' ? e : null;
     if (sel === 'a[href]') return e.tagName === 'A' ? e : null;
     return null;
@@ -491,6 +493,16 @@ describe('tracker: config from the server', () => {
     t.show();
     t.hide();
     expect((await Promise.all(t.beacons)).slice(1).every((b) => b.a === undefined)).toBe(true);
+  });
+
+  it('labels no click of a recorded visit with what was typed in an editable control', async () => {
+    const t = load({ cfg: { rec: REC } });
+    await tick();
+    t.press(el('div', 'My email is jane@x.com', { attrs: { role: 'button', contenteditable: '' } }));
+    t.press(el('button', 'Draft text', { isContentEditable: true }));
+    t.hide();
+    const [ping] = await Promise.all(t.beacons);
+    expect(ping.a.c.map((c: any) => c.l)).toEqual(['div', 'button']);
   });
 
   it('sends a page\'s activity when a single-page app moves on, with that page\'s path', async () => {

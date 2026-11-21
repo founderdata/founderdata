@@ -2888,7 +2888,19 @@ are deleted after 90 days.
 
 ### Paths
 
-<!-- r7 pages: written by lane pages -->
+Content has two views, **Pages** and **Paths**. Paths follows visits through the site one page at a time. It starts
+with the pages where visits begin. Click one, and it follows every visit that viewed that page, wherever the visit
+started. It shows the pages people went to next, with how many visits did, how many left right there and how many of
+those visitors paid later. Click a next page to add it as a step, up to 4
+steps: `/` > `/pricing` > `/signup`. A page that repeats in a row counts once.
+
+Each step has **Watch visits**, which opens the recorded visits that viewed that page, and a link to the page's
+Content detail. The URL keeps the steps (`/content/paths?seq=/,/pricing`), so you can share it with a teammate.
+
+The page detail has a smaller version, **Before and after this page**: the 5 pages visits came from and went to next.
+
+Agents read the same numbers with `get_app_funnel`, `report: "paths"` and `sequence: ["/", "/pricing"]`
+([API.md](API.md#funnels-and-paths)). Paths writes no rows. It reads the page views of the period.
 
 ## Email (Resend) (Pro)
 
@@ -3338,7 +3350,58 @@ writes 2 rows: the answer and the person's trait.
 
 ## Click maps and scroll depth (Pro)
 
-<!-- r7 pages: written by lane pages -->
+A page's Content detail has a **Clicks and scroll** card. It answers two questions: what do people click on this page,
+and how far down do they read it.
+
+**Scroll depth** works for every site with page speed on. The tracker notes how far down the page the bottom of the
+screen got, in percent, and sends it with the page speed numbers. The card shows bars for the share of page loads that
+reached 25%, 50%, 75% and the end, and Content's page list has a **Scroll** column with the median. A page loaded by a
+single-page move inside your app gets a scroll depth only from click maps.
+
+**Click maps** are off by default. Turn them on in Settings, Errors, maps and surveys, **Click maps**, or with the switch
+on the empty card. From the next visit on, the tracker sends each page view's clicks: where on the page, which element
+and its text. The card then lists the most clicked elements, with the share of page views that clicked each one and
+the rage clicks of recorded visits. Pages with a map get a map icon in Content's list.
+
+**Open click map** shows the clicks on your real page. The dashboard opens your page in a frame, 1,280 px wide for
+desktop or 390 px for mobile, and draws the clicks over it:
+
+- blue spots where people clicked, brighter where more did
+- amber rings on elements people clicked 3 times in a row
+- the click count on each of the 10 most clicked elements
+- lines at 25%, 50% and 75% of the page with the share of visitors that scrolled that far
+
+Many sites forbid other sites to frame them (`X-Frame-Options` or `frame-ancestors` in their Content-Security-Policy).
+Then the card says so and offers **Open on your site**, which opens the same view in a new tab. To see it inside the
+dashboard, allow your FounderData host to frame your pages:
+
+```
+Content-Security-Policy: frame-ancestors 'self' https://founderdata.example.com
+```
+
+The **Copy AI prompt** button on the Click maps card asks your coding agent to add that line and to mark text that
+names a person with `data-fd-mask`.
+
+### What a click map stores
+
+One row per page view: the path, the device type, the window width, the page height, the deepest scroll and up to 50
+clicks. A click keeps its position, the element's tag with its first class or id (`button.buy`), and its visible text up
+to 40 characters. It never keeps what someone typed, form fields, editable text, or text inside `data-fd-mask` or
+`data-fd-block`. A row has no visitor or session id, so a click map cannot follow a person. Pages on the never-record list
+(Settings, Record visits) get no click map. Rows are deleted after 90 days ([PRIVACY.md](PRIVACY.md#click-maps-and-scroll)).
+
+### What it costs
+
+Each mapped page view writes 1 D1 row, on the ping the tracker sends anyway. A visitor who leaves the tab and comes
+back to click more updates that row, 1 row more each time. Scroll depth writes nothing: it is a column of the page
+speed row. A site with 3,000 page views a day uses 3,000 of the free plan's 100,000 rows. The Click
+maps card has a share setting (100%, 50%, 25% or 10% of page views) for a busy site. Reading maps writes nothing.
+
+### For agents
+
+`get_content` with a `path` answers `scroll` and `clicks`, the 10 most clicked elements ([API.md](API.md#clicks-and-scroll-pro)).
+`get_web_vitals` answers `scroll` per page. The setup checklist has a row **Click maps arrive**: `off` while no site
+maps clicks, `ok` when every site with the switch on got a map in the last 7 days, `warn` otherwise.
 
 ## Mail (Pro)
 

@@ -25,6 +25,7 @@ import type { BreakdownRow, Ctx } from './stats';
 import type { NetShares } from './commission';
 import type { SourceHealth, SourceProbe } from './sources';
 import type { Row as SetupRow } from './setup-checklist';
+import type { MapWhere, PageClicks } from './page-maps';
 
 type App = Hono<AppEnv>;
 export type Bindings = AppEnv['Bindings'];
@@ -281,6 +282,12 @@ export interface Pro {
    * Asked in the same round trip as recordDecision. Null = no survey. A rejection counts as null.
    */
   surveyDecision?(env: Bindings, site: Site, vid: string, path: string, now: number): Promise<SurveyConfig | null>;
+  /**
+   * `clicks` of the content page answer (notes.ts contentPage, get_content with a path): the page's mapped page views
+   * and its 10 most clicked elements in the window, from page_maps (plan S1: the report is Pro's, the rows are core's).
+   * Without it, or with no rows, `clicks` is null.
+   */
+  pageClicks?(db: D1Database, w: MapWhere): Promise<PageClicks | null>;
 }
 
 /** `cfg.sv` of the pageview answer: the surveys that are on, and the one to show on this page. */
