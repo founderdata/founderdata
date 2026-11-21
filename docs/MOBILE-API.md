@@ -1017,7 +1017,8 @@ Query, every part optional:
 
 The folders:
 
-- `inbox`: threads not archived and not in the trash.
+- `inbox`: threads with a received message, not archived and not in the trash. A thread you started by sending is in
+  `sent` until the first answer arrives.
 - `sent`: threads with at least one message that went out (`has_sent`), archived or not, not in the trash.
 - `archive`: archived threads that are not in the trash.
 - `trash`: threads in the trash, archived or not.
