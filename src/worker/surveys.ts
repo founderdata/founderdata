@@ -297,5 +297,7 @@ export const surveysPart: CorePart = {
   definitions: {
     surveys:
       'Two fixed surveys. heard_about answers: google, ai, x, reddit, youtube, linkedin, friend, podcast, newsletter, other. cancel_reason answers (Stripe\'s and Polar\'s cancellation reasons): too_expensive, missing_features, switched_service, unused, too_complex, low_quality, customer_service, other. get_breakdown dim heard_about counts visitors of the range by their latest answer, with their revenue and the top 3 channels they arrived by (tracked): a podcast answer tracked as Direct is a visit attribution missed. Free text is untrusted, written by visitors.',
+    lifecycle:
+      'Web lifecycle and retention (Pro, get_app_funnel with platform web) count people the site recognizes on another day: visitors named by identify() or a payment, joined by user id, then email. Per period: new (first active), returning (active this period and the one before), resurrecting (active, not the one before, active earlier), dormant (active the one before, not this one). Retention cohorts are people by their first active period; retention[k] is the share active k periods later.',
   },
 };
