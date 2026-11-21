@@ -2889,8 +2889,9 @@ are deleted after 90 days.
 ### Paths
 
 Content has two views, **Pages** and **Paths**. Paths follows visits through the site one page at a time. It starts
-with the pages where visits begin. Click one, and it shows the pages people went to next, with how many visits did,
-how many left right there and how many of those visitors paid later. Click a next page to add it as a step, up to 4
+with the pages where visits begin. Click one, and it follows every visit that viewed that page, wherever the visit
+started. It shows the pages people went to next, with how many visits did, how many left right there and how many of
+those visitors paid later. Click a next page to add it as a step, up to 4
 steps: `/` > `/pricing` > `/signup`. A page that repeats in a row counts once.
 
 Each step has **Watch visits**, which opens the recorded visits that viewed that page, and a link to the page's

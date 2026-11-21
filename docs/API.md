@@ -748,7 +748,8 @@ With neither, the answer lists the saved funnels with their ids.
 D1 counts every page view in the range and returns only the totals, so `truncated` is always `false`.
 
 `seq=/,/pricing` (Pro, 1 to 3 paths, comma-separated) follows visits that viewed those pages one right after the other,
-with repeats of a page in a row counted once. `sessions` counts the visits that did, at the first place they did.
+with repeats of a page in a row counted once. `sessions` counts the visits that did, at the first place they did. A visit
+counts wherever in it the pages came, not only when it started on the first one.
 `exits` and `exit_rate` count the ones that left right after the last page, and `paid` and `paid_rate` the ones whose
 visitor paid at the visit's start or later. `next` lists the 10 pages they went to next with `sessions`, `share` (of
 `sessions`), `exit_rate` (left right after that page) and `paid_rate`. `path` is ignored with `seq`. A path in `seq`
