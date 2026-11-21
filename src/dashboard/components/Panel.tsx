@@ -143,15 +143,18 @@ export function renderLabel(dim: string, row: Pick<BreakdownRow, 'label' | 'extr
     case 'keyword':
     case 'utm_content':
       return l ? text(<AsaName kind={ASA_DIMS[dim]} id={l} name={row.name} />) : text(<span className="text-stone-400">(none)</span>);
-    // How did you hear about us: the answer, then the channels those visitors arrived by (src/worker/surveys.ts).
+    // How did you hear about us: the answer as the site words it, then the channels those people arrived by, with how
+    // many came by each (src/worker/surveys.ts heardAboutAnswer).
     case 'heard_about': {
       const tracked = (row as { tracked?: { channel: string; visitors: number }[] }).tracked ?? [];
+      const by = tracked.map((t) => `${t.channel === 'Other' ? 'other channels' : t.channel} ${fmtNumber(t.visitors)}`).join(', ');
       return (
         <>
-          {text(DEFAULT_LABELS.heard_about[l ?? ''] ?? l)}
+          {/* The answer keeps its width; the channels truncate first. */}
+          <span className="min-w-0 truncate sm:max-w-[60%] sm:shrink-0">{row.name ?? DEFAULT_LABELS.heard_about[l ?? ''] ?? l}</span>
           {tracked.length > 0 && (
-            <span className="hidden min-w-0 shrink truncate text-xs text-stone-400 sm:inline" title={`Tracked as ${tracked.map((t) => `${t.channel} (${t.visitors})`).join(', ')}`}>
-              Tracked as {tracked.map((t) => t.channel).join(', ')}
+            <span className="hidden min-w-0 shrink truncate text-xs text-stone-400 sm:inline" title={`The channel each of them first arrived by: ${by}`}>
+              Tracked as {by}
             </span>
           )}
         </>
@@ -180,10 +183,34 @@ function NoAnswers({ siteId }: { siteId: string }) {
   );
 }
 
+/**
+ * The Heard about tab's head: how many people answered in the period (the rows' sum, each person once) and what a dot
+ * means. Settings > Surveys counts the same people.
+ */
+function AnswersLine({ rows }: { rows: BreakdownRow[] }) {
+  const n = rows.reduce((sum, r) => sum + r.visitors, 0);
+  const few = rows.some((r) => r.visitors < FEW_ANSWERS);
+  return (
+    <p className="px-2.5 pb-1.5 text-xs text-stone-500">
+      {fmtNumber(n)} {n === 1 ? 'answer' : 'answers'} in this period, one per person.
+      {few && (
+        <span className="ml-1 inline-flex items-center gap-1 text-stone-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden="true" />
+          Fewer than {FEW_ANSWERS} answers.
+        </span>
+      )}
+    </p>
+  );
+}
+
 type Sort = 'visitors' | 'revenue' | 'perVisitor';
 
 /** The number columns of a panel: their header and each row use the same widths, so the numbers line up. */
 const COL = { visitors: 'w-[64px]', revenue: 'w-[76px]', perVisitor: 'w-[84px]' } as const;
+/** The Heard about tab counts people who answered, under a wider header. Rows keep COL: both align on the right. */
+const colW = (c: Sort, dim: string) => (c === 'visitors' && dim === 'heard_about' ? 'w-[136px]' : COL[c]);
+/** Under this many answers a row's share moves a lot with one more answer (the dot beside its count). */
+const FEW_ANSWERS = 20;
 
 /** What the Revenue column counts on each tab. A page view isn't a session, so pages count customers who viewed them. */
 function revenueHint(dim: string): string {
@@ -198,12 +225,15 @@ const perVisitor = (r: BreakdownRow) => (r.visitors ? r.revenue / r.visitors : 0
 function Columns({ cols, sort, onSort, dim, earns }: { cols: Sort[]; sort: Sort; onSort?: (s: Sort) => void; dim: string; earns: boolean }) {
   // The swatches look like the marks in the rows: a soft blue block for visitors, a thin coral line for revenue.
   const meta: Record<Sort, { label: string; swatch?: string; title: string }> = {
-    visitors: { label: 'Visitors', swatch: 'h-2 w-2 rounded-[3px] bg-visitors', title: 'Unique visitors. The blue bar behind each row is its visitors against the top row.' },
+    visitors:
+      dim === 'heard_about'
+        ? { label: 'People who answered', swatch: 'h-2 w-2 rounded-[3px] bg-visitors', title: 'People who answered in this period and visited in it. Each person counts once, by their latest answer.' }
+        : { label: 'Visitors', swatch: 'h-2 w-2 rounded-[3px] bg-visitors', title: 'Unique visitors. The blue bar behind each row is its visitors against the top row.' },
     revenue: { label: 'Revenue', swatch: 'h-2 w-2 rounded-[3px] bg-revenue', title: revenueHint(dim) },
     perVisitor: { label: 'Per visitor', title: 'Revenue divided by visitors. The page that brings the most money per visit.' },
   };
   return (
-    <div className="flex shrink-0 items-center self-end pr-2.5 text-xs font-medium text-stone-400 sm:self-auto lg:self-end xl:self-auto">
+    <div className={`flex shrink-0 items-center self-end pr-2.5 text-xs font-medium text-stone-400 ${dim === 'heard_about' ? '' : 'sm:self-auto lg:self-end xl:self-auto'}`}>
       {cols.map((c) => {
         const m = meta[c];
         // Nothing earned in this view: the money columns dim, and keep their sort button.
@@ -216,11 +246,11 @@ function Columns({ cols, sort, onSort, dim, earns }: { cols: Sort[]; sort: Sort;
           </>
         );
         return onSort ? (
-          <button key={c} className={`${COL[c]} flex items-center justify-end gap-1 whitespace-nowrap hover:text-ink`} onClick={() => onSort(c)} title={`${m.title} Click to sort.`} aria-pressed={sort === c}>
+          <button key={c} className={`${colW(c, dim)} flex items-center justify-end gap-1 whitespace-nowrap hover:text-ink`} onClick={() => onSort(c)} title={`${m.title} Click to sort.`} aria-pressed={sort === c}>
             {body}
           </button>
         ) : (
-          <span key={c} className={`${COL[c]} flex items-center justify-end gap-1 whitespace-nowrap`} title={m.title}>
+          <span key={c} className={`${colW(c, dim)} flex items-center justify-end gap-1 whitespace-nowrap`} title={m.title}>
             {body}
           </span>
         );
@@ -296,25 +326,37 @@ function Bars({ rows, dim, tab, sort, cols, limit, onPick, earns }: { rows: Brea
               )}
               {cols.map((c) => (
                 <span key={c} className={`${COL[c]} text-right ${c === 'visitors' ? 'font-medium' : 'text-stone-500'}`}>
-                  {c === 'visitors'
-                    ? special
-                      ? dash
-                      : fmtNumber(r.visitors)
-                    : !earns
-                      ? null
-                      : c === 'revenue'
-                        ? r.revenue
-                          ? money(r.revenue, true)
-                          : dash
-                        : r.visitors && r.revenue
-                          ? money(perVisitor(r))
-                          : dash}
+                  {c === 'visitors' ? (
+                    special ? (
+                      dash
+                    ) : dim === 'heard_about' && r.visitors < FEW_ANSWERS ? (
+                      <span className="inline-flex items-center gap-1.5" title={`${fmtNumber(r.visitors)} answers, fewer than ${FEW_ANSWERS}: one more answer moves this row a lot. Compare the counts.`}>
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden="true" />
+                        <span className="sr-only">Small sample, </span>
+                        {fmtNumber(r.visitors)}
+                      </span>
+                    ) : (
+                      fmtNumber(r.visitors)
+                    )
+                  ) : !earns ? null : c === 'revenue' ? (
+                    r.revenue ? (
+                      money(r.revenue, true)
+                    ) : dim === 'heard_about' ? (
+                      <span title="No payments from these people in this period">{dash}</span>
+                    ) : (
+                      dash
+                    )
+                  ) : r.visitors && r.revenue ? (
+                    money(perVisitor(r))
+                  ) : (
+                    dash
+                  )}
                 </span>
               ))}
             </div>
             <div className={`pop pointer-events-none invisible absolute left-1/2 top-full z-30 mt-1 w-60 -translate-x-1/2 translate-y-[-2px] space-y-0.5 px-3 py-2.5 text-xs text-stone-700 opacity-0 transition-[opacity,transform,visibility] duration-fast ${menuFor === i ? '' : 'group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-hover:delay-150'}`}>
               <div className="mb-1 truncate font-medium">{r.name ? `${r.name} (${r.label})` : (r.label ?? '(none)')}</div>
-              <div className="flex justify-between"><span className="text-stone-400">Visitors</span>{fmtNumber(r.visitors)}</div>
+              <div className="flex justify-between"><span className="text-stone-400">{dim === 'heard_about' ? 'People who answered' : 'Visitors'}</span>{fmtNumber(r.visitors)}</div>
               {r.pageviews !== undefined && dim === 'page' && <div className="flex justify-between"><span className="text-stone-400">Pageviews</span>{fmtNumber(r.pageviews)}</div>}
               {!noPay && (
                 <>
@@ -459,7 +501,8 @@ export function Panel({ tabs }: { tabs: TabDef[] }) {
   return (
     <div className="card flex min-h-[220px] min-w-0 flex-col p-3">
       {/* Narrow screens: the column headers on a line of their own under the tabs. */}
-      <div className="flex flex-col gap-2 pb-2 sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-stretch xl:flex-row xl:items-center">
+      {/* The Heard about tab's wider column header sits under the tabs at every width. */}
+      <div className={`flex flex-col gap-2 pb-2 ${tab.dim === 'heard_about' ? '' : 'sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-stretch xl:flex-row xl:items-center'}`}>
         <TabRow className="min-w-0 overflow-x-auto [scrollbar-width:none]" activeKey={tab.dim} label="Breakdown">
           {tabs.map((t) => (
             <button key={t.dim} role="tab" aria-selected={t.dim === tab.dim} className={`tab whitespace-nowrap ${t.dim === tab.dim ? 'tab-active' : ''}`} onClick={() => setActive(t.dim)}>
@@ -473,6 +516,7 @@ export function Panel({ tabs }: { tabs: TabDef[] }) {
         {error && <p className="p-3 text-sm text-red-600">{error}</p>}
         {!data && !error && <SkeletonRows rows={6} />}
         {data && data.length === 0 && (tab.dim === 'heard_about' ? <NoAnswers siteId={site.id} /> : <EmptyState compact icon={EmptyIcons.chart} title="No visits in this period" />)}
+        {data && data.length > 0 && tab.dim === 'heard_about' && <AnswersLine rows={data} />}
         {data && <Bars key={`${tab.dim}-${model}`} rows={data} dim={tab.dim} tab={filters ? tab : { ...tab, filter: undefined }} sort={sort} cols={cols} limit={10} onPick={pick} earns={earns} />}
       </div>
       {data && data.length > 0 && (
@@ -491,7 +535,7 @@ export function Panel({ tabs }: { tabs: TabDef[] }) {
       )}
       <Modal open={details} onClose={() => setDetails(false)} title={tab.label} width="max-w-3xl">
         <input className="input mb-4" placeholder="Search" aria-label={`Search ${tab.label.toLowerCase()}`} value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
-        <Table head={[tab.label, 'Visitors', ...(noPay ? [] : ['Revenue', 'Conv.', 'Rev/visitor'])]}>
+        <Table head={[tab.label, tab.dim === 'heard_about' ? 'People who answered' : 'Visitors', ...(noPay ? [] : ['Revenue', 'Conv.', 'Rev/visitor'])]}>
           {filtered.map((r, i) => (
             <Row
               key={i}

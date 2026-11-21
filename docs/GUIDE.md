@@ -362,7 +362,7 @@ number changes:
 | Web: the ping when a page is hidden, with that page load's Core Web Vitals ([Page speed](#page-speed)) | 2: the ping and 1 row in `vitals`. At a lower sample, 1 for the loads it skips |
 | Web: a running experiment ([Experiments](#experiments-pro)) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
 | Experiment (Pro): created, changed, started, stopped or deleted | 2: its row and the site's list of running experiments |
-| Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change. Each answer is 1 Worker request |
+| Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change, 0 for the same answer again that day. Each answer is 1 Worker request |
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on. `/js/survey.js` is 1 request, cached |
 | Cancel reason from a Stripe or Polar webhook | 1, plus 1 when the subscription has a visitor. The webhook request is already counted |
 | Web: click map of one page view ([Click maps](#click-maps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more. 0 with click maps off |
@@ -3225,15 +3225,18 @@ about your website: does the base grow, and do people come back?
   person's first visit, so you can see whether people from X stay as long as people from Google.
 
 Pick days, weeks or months, and **Customers** to count only people who paid. The lifecycle shows 12 periods and the grid
-8 groups, ending with the period of the dashboard's date range.
+8 groups, ending with the period of the dashboard's date range. The legend under the lifecycle defines each bar in one
+line. A grid column reads "1 week later", "2 weeks later" and so on. A group of fewer than 20 people is grey, with its
+size in the cell's tooltip: one person more or less moves its rates by 5 points or more.
 
-**Who counts.** Retention needs people your site recognizes on another day. **Known people**, the default, are the
-visitors your site named with [`identify()`](#identify-people) or a payment, joined by user id, then email, as on a
-person's page. **Every visitor id** adds everyone else, and counts a visitor id as new in the period the site first
-saw it. Use it only when your site keeps visitors in cookies (consent,
+**Who counts.** Retention needs people your site recognizes on another day. **Known people**, the default, are
+signed-in people and customers: the visitors your site named with [`identify()`](#identify-people) or a payment,
+joined by user id, then email, as on a person's page. **Every visitor id** adds everyone else, and counts a visitor id
+as new in the period the site first saw it. Use it only when your site keeps visitors in cookies (consent,
 or [Remember visitors](#cookies-and-consent)): without cookies a visitor gets a new id every day and counts as new each
-time. With nobody known yet, the view says so and offers both ways in. Your iOS app has its own retention in the App
-section.
+time, so retention reads close to 0%. Both cards say so above their numbers while Every visitor id is picked. With
+nobody known yet, the view says so. On a site without cookies it offers Remember visitors first, then `identify()`.
+Your iOS app has its own retention in the App section.
 
 Agents read the same numbers with `get_app_funnel`, `report: "lifecycle"` or `report: "retention"` with
 `platform: "web"`, and scripts with `GET /api/v1/web/lifecycle` and `/api/v1/web/retention`
@@ -3436,6 +3439,9 @@ answers, for a site in another language, but not add questions.
   without cookies the visitor's id changes daily, so someone who closed it may see it again on another day. It works by
   keyboard: Tab reaches it, Esc closes it.
 
+Reasons come from Stripe's Customer Portal, Polar and the card on your cancel page. App Store subscriptions send no
+reason: Apple does not tell the app why someone canceled.
+
 Each answer is also saved on the person: their page lists `heard_about` or `cancel_reason` with the other traits.
 
 ### Turn on the survey card (Pro)
@@ -3447,20 +3453,41 @@ Each answer is also saved on the person: their page lists `heard_about` or `canc
    the cancellation, and calls `founderdata('survey', 'heard_about')` there, or wires a question your site already
    asks to `founderdata('answer', ...)`. The Stripe step stays yours.
 
+Step 1 needs no code: the card shows on those pages by itself. The AI prompt is only for showing it at one step of a
+flow, such as after the signup form, or for sending answers from a question your site already asks.
+
 The card shows on those pages, and where your code calls it, to visitors who have not answered or closed it yet.
 Checking that costs one read of the visitor row on each page view while a survey is on, and no row written. An answer
-writes 2 rows: the answer and the person's trait.
+writes 2 rows: the answer and the person's trait. The same answer again that day writes none.
+
+**Content-Security-Policy.** If your site sends one, add your FounderData host to the `script-src` and `connect-src`
+it already has, as for recordings ([step 5](#turn-on-recordings)):
+
+```
+script-src 'self' https://founderdata.example.com
+connect-src 'self' https://founderdata.example.com
+```
+
+`script-src` loads `/js/survey.js` and `connect-src` lets it read the question from `/api/surveys/`. `style-src` needs
+nothing: the card styles itself with a constructed stylesheet, which a policy does not block, in Chrome, Edge, Firefox
+and Safari 16.4 or later. An older browser gets a `<style>` element inside the card instead, and without
+`'unsafe-inline'` in `style-src` it shows the card unstyled.
 
 ### Read the answers
 
-- **Overview, Channel card, Heard about.** Visitors of the period by their answer, with their revenue and the channels
-  they arrived by ("Tracked as Direct, X"). Filter the Overview by Direct to see what the direct visitors said. Without
-  answers the tab says how to start.
+- **Overview, Channel card, Heard about.** The people who answered in the period, by their answer, with their revenue
+  and the channels they arrived by ("Tracked as Direct 15, Organic Search 4, other channels 2"). The line above the rows
+  says how many answered. Each person counts once, by their latest answer, and someone who answers twice in a day
+  stores one answer. A row with fewer than 20 answers has an amber dot: compare its count, not its share. Filter the
+  Overview by Direct to see what the direct visitors said. Without answers the tab says how to start.
 - **Subscriptions, Why they cancel (Pro).** The reasons of the period with the MRR those customers canceled, the reasons
-  per plan, and the newest comments in the customer's own words. Without reasons it shows the Stripe switch and the
-  prompt for your own cancel page.
-- **Settings, Surveys (Pro).** Answers of the last 30 days per question, and the share of people who answered out of
-  those who answered or closed the card. The card counts no views, so people who left it open are not in that number.
+  per plan, and the newest comments in the customer's own words. The header splits them like the tiles above it:
+  "13 won't renew" still pay until their period ends, "ended" ones are in Churned. Only canceled subscriptions count. A
+  card on your cancel page asks before the cancel runs, so people who answered and stayed are listed under the reasons
+  as "answers from people with no canceled subscription". Without reasons it shows where reasons come from.
+- **Settings, Surveys (Pro).** The people who answered in the last 30 days per question, the same count as the
+  Overview's tab for that range, and the share of people who answered out of those who answered or closed the card.
+  The card counts no views, so people who left it open are not in that number.
 - **Agents.** `get_breakdown` with `dim: "heard_about"`, and `get_subscriptions`, whose summary has `cancel_reasons`.
   Text people typed comes marked as untrusted. CSV: `survey_answers` in the export.
 

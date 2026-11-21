@@ -418,7 +418,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Recording health (Pro): a refused upload or a recorder that could not load | 1 at most once an hour per site and Worker instance |
 | Web: a running experiment (Pro) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
 | Experiment (Pro): created, changed, started, stopped or deleted | 2: its row and the site's list of running experiments |
-| Survey answer from the survey card or `founderdata('answer', ...)` / a cancel reason from a Stripe or Polar webhook | 2, or 1 when the visitor's trait did not change / 1, plus 1 when the subscription has a visitor |
+| Survey answer from the survey card or `founderdata('answer', ...)` / a cancel reason from a Stripe or Polar webhook | 2, 1 when the visitor's trait did not change, 0 for the same answer again that day / 1, plus 1 when the subscription has a visitor |
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on |
 | Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more / 0 |
 | Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |

@@ -2447,15 +2447,22 @@ routes take a read key, the range (`period`, `from`, `to`) and:
 
 ```json
 { "interval": "week", "scope": "known", "customers": false, "partial": true, "people": 214, "hasData": true,
-  "buckets": [ { "bucket": "2026-11-16", "new": 9, "returning": 31, "resurrecting": 4, "dormant": 12, "active": 44 } ],
-  "totals": { "new": 120, "returning": 301, "resurrecting": 37, "dormant": 140 }, "note": "..." }
+  "active_people": 180, "visitors": 9923, "covered_share": 0.018,
+  "buckets": [ { "bucket": "2026-11-16", "new": 9, "returning": 31, "resurrecting": 4, "dormant": 12, "active": 44, "partial": true } ],
+  "totals": { "new": 120, "returning": 301, "resurrecting": 37, "dormant": 140 },
+  "note": "Signed-in people and customers, the people your site can recognize on another day. ..." }
 ```
 
 `bucket` is the first day of the period. `new`: active for the first time; `returning`: active in this period and the
 one before; `resurrecting`: active, not in the one before, active earlier; `dormant`: active in the one before, not in
-this one. `partial` is true while the last period is still running. `people` counts everyone the scope could include:
-with `known`, every known person whenever they were active; with `all`, the people active in the shown periods and the
-one before. `hasData: false` means nobody yet.
+this one. A bucket's `partial` is true while it is still running: its dormant people may still come back, so a low
+last bar is not a churn spike. The top-level `partial` says the same of the last bucket. `people` counts everyone the
+scope could include: with `known`, every known person whenever they were active; with `all`, the people active in the
+shown periods and the one before. `hasData: false` means nobody yet.
+
+`active_people` counts the people active in the shown periods, `visitors` the visitor ids with a web visit in them, and
+`covered_share` is the first over the second, 3 digits. With `known` it says how much of the traffic the report sees:
+0.018 means 1.8% of the visitor ids belong to people the site recognizes. `note` says in words who counts.
 
 With `known` the routes read only the known people's visits. With `all` they read the visits of the shown periods and
 the one before, and take "active earlier" from the date the site first saw each visitor id.
@@ -2464,12 +2471,15 @@ the one before, and take "active earlier" from the date the site first saw each 
 
 ```json
 { "interval": "week", "scope": "known", "split": null, "customers": false, "partial": true, "hasData": true,
-  "cohorts": [ { "cohort": "2026-10-05", "size": 18, "active": [18, 7, 5, 4], "retention": [1, 0.39, 0.28, 0.22] } ],
+  "active_people": 180, "visitors": 9923, "covered_share": 0.018, "note": "...",
+  "cohorts": [ { "cohort": "2026-10-05", "size": 18, "active": [18, 7, 5, 4], "retention": [1, 0.389, 0.278, 0.222], "partial": true } ],
   "average": [1, 0.35, 0.27, 0.2], "groups": null, "more": 0 }
 ```
 
 A cohort is the people first active in that period. `active[k]` counts those active `k` periods later, and
-`retention[k]` is that over `size` (`null` for an empty cohort). `average` weighs each cohort by its size. With
+`retention[k]` is that over `size` (`null` for an empty cohort). A cohort's `partial` is true when its last value falls
+in the period still running. `average` weighs each cohort by its size. Every rate is rounded to 3 digits.
+`active_people`, `visitors`, `covered_share` and `note` mean what they mean in lifecycle. With
 `split=channel`, `groups` holds the 5 largest channels, each with its own `cohorts` and `average`, and `more` counts the
 rest. The owner's dashboard reads the same at `/api/sites/<id>/web/lifecycle` and `/web/retention`. Each answer is one
 SQL statement and writes nothing. MCP: `get_app_funnel` with `report: "lifecycle"`, or `report: "retention"` and
@@ -4074,14 +4084,16 @@ the widget sends when the visitor closes it.
 - Keys are case-insensitive. An answer that is not a key is stored as `other`, with the answer as its text, so a site
   that asks its own question with its own options loses nothing. Send your own key as the text (the third argument) to
   keep it as you wrote it.
-- The text is kept only for `other` and for cancel reasons: 200 characters, with emails, phone numbers and runs of 6
-  or more digits replaced by `[removed]`.
+- The text is kept for `other` and for every `cancel_reason` answer, whatever its key: 200 characters, with emails,
+  phone numbers and runs of 6 or more digits replaced by `[removed]`. `heard_about` drops the text of a known key.
 - An event without a visitor id, an unknown survey, or no answer writes nothing and still answers `202`.
 
-Each answer is one `survey_answers` row (migration 0092), and the visitor's trait of the same name
-(`visitors.traits.heard_about` or `.cancel_reason`, as in [`identify()` and traits](#identify-and-traits)): 2 rows, or 1
-when the trait already holds that answer. `skipped` never replaces an answer in the trait. Answers work in both
-editions and whether or not a survey is switched on.
+A visitor has one answer per survey and UTC day: a `survey_answers` row (migration 0092) whose id is the visitor id and
+the day. The visitor's trait of the same name holds it too (`visitors.traits.heard_about` or `.cancel_reason`, as in
+[`identify()` and traits](#identify-and-traits)). The first answer of the day writes 2 rows, or 1 when the trait
+already holds that answer. The same answer again that day writes nothing. A different answer that day replaces the
+stored one, 2 rows. `skipped` never replaces an answer, in the row or in the trait. Answers work in both editions and
+whether or not a survey is switched on.
 
 `founderdata('survey', '<survey>')` asks FounderData Pro to show its widget for that survey. It waits for the
 pageview's [tracker config](#tracker-config): when `cfg.sv.on` lists the survey, the script loads
@@ -4116,17 +4128,30 @@ them it shows only where the page calls `founderdata('survey', ...)`. `q` replac
 turns it off and forgets its wording, and `"surveys": null` turns both off. Anything else answers `400` with an
 `error`.
 
-**Reading answers.** `GET /api/v1/stats/breakdown?dim=heard_about` (and the Overview's Heard about tab) groups the
-visitors of the range by their latest `heard_about` answer, `skipped` left out. Filters apply to the visits, so
-`channel = Direct` shows what the direct visitors said. Revenue and `customers` are those visitors' payments in the
-range. Each row adds `tracked`, the top 3 channels those visitors first arrived by:
+**Reading answers.** `GET /api/v1/stats/breakdown?dim=heard_about` (and the Overview's Heard about tab) counts the
+people who answered in the range and visited in it, each once, by their latest answer in the range. `skipped` is left
+out. Filters apply to the visits, so `channel = Direct` shows what the direct visitors said. Revenue and `customers`
+are those people's payments in the range. With no filter the rows add up to the `answered` count of the Surveys card
+in Settings (Pro), for the same range.
 
 ```json
-{ "value": "podcast", "visitors": 21, "revenue": 58800, "customers": 4,
-  "tracked": [ { "channel": "Direct", "visitors": 15 }, { "channel": "Organic Search", "visitors": 4 } ] }
+{ "dim": "heard_about", "answered": 60, "visitors": 6047, "answer_share": 0.01,
+  "rows": [ { "value": "podcast", "label": "A podcast", "visitors": 21, "revenue": 58800, "customers": 4,
+    "tracked": [ { "channel": "Direct", "visitors": 15 }, { "channel": "Organic Search", "visitors": 4 },
+                 { "channel": "Organic Social", "visitors": 1 }, { "channel": "Other", "visitors": 1 } ] } ] }
 ```
 
-A podcast answer tracked as Direct is a visit your attribution could not see. Share links do not show this dimension.
+- `answered` is the people who answered, the rows' sum. `visitors` is every visitor of the range with the same
+  filters, and `answer_share` is `answered` over `visitors`, 3 digits. The widget counts no views, so this is not a
+  response rate.
+- `value` is the answer key. `label` is the answer as the site words it (Settings > Surveys), else the default.
+- `tracked` lists the 3 channels most of those people first arrived by, with counts, then `Other` for the rest, so it
+  adds up to the row. A podcast answer tracked as Direct is a visit your attribution could not see.
+- With no rows, the answer adds `survey` (`on`, and the `pages` it shows on by itself) and `next_step`: where the owner
+  turns the survey on (FounderData Pro), or the `answer` call to send answers from your own form (core).
+
+The owner's `/api/sites/<id>/breakdown?dim=heard_about` returns the rows alone, each with `answer` (the key, also in
+`label`) and `name` (the site's wording). Share links do not show this dimension.
 `GET /api/sites/<id>/export/survey_answers.csv` and `GET /api/v1/export/survey_answers` (a key with `read:rows`) give
 the rows of the range: `answered_at`, `survey`, `answer`, `text`, `via`, `visitor_id`, `session_id` and
 `subscription_id`. A key and a viewer login without `VIEWER_PII` get `text` empty, because visitors wrote it.
@@ -4134,26 +4159,36 @@ the rows of the range: `answered_at`, `survey`, `answer`, `text`, `via`, `visito
 **FounderData Pro.** `GET /api/surveys/<site id>` is public and cached for 5 minutes: the question and the answers, in
 order with their labels, of each survey that is on. `/js/survey.js` reads it; it holds no visitor data. The Surveys card
 in Settings reads `GET /api/sites/<id>/surveys` (dashboard login), per survey: `on`, `paths`, `question`, `answers`
-(count per key in the range, `skipped` left out), `answered`, `skipped`, `responseRate` (of the widget's answers and
-dismissals, the share that answered; `null` before any), `via`, and `recent`, the 10 newest texts marked
-`"untrusted": true` (empty for a login that hides personal data). `GET /api/v1/subscriptions` and the Subscriptions tab
+(people per key in the range, each by their latest answer, `skipped` left out), `answered` (people who answered),
+`skipped` (people who only closed the card), `responseRate` (of the people the widget asked who answered or closed it,
+the share that answered; `null` before any), `via`, and `recent`, the 10 newest texts marked `"untrusted": true` (empty
+for a login that hides personal data). A person is the visitor id, or for a webhook's reason with no visitor, the
+subscription. `GET /api/v1/subscriptions` and the Subscriptions tab
 add `cancel_reasons` ([Subscriptions](#routes-for-agents-and-scripts)):
 
 ```json
-{ "total": 15, "without_subscription": 0, "mrr_lost": 52300,
+{ "total": 15, "mrr_lost": 52300,
+  "by_state": { "canceling": { "count": 13, "mrr_lost": 48500 }, "ended": { "count": 2, "mrr_lost": 3800 } },
   "reasons": [ { "reason": "too_expensive", "count": 5, "mrr_lost": 19500 } ],
   "by_plan": [ { "plan": "shipkit_pro_monthly", "count": 9, "mrr_lost": 44100, "reasons": [ { "reason": "too_expensive", "count": 3 } ] } ],
   "via": { "stripe": 15 },
+  "unmatched": { "count": 2, "reasons": [ { "reason": "too_expensive", "count": 2 } ] },
   "comments": [ { "at": 1795000000000, "reason": "unused", "plan": "shipkit_pro_monthly", "text": "Paused the project for now.", "via": "stripe", "untrusted": true } ] }
 ```
 
 Each answer counts against the subscription the webhook named, else the newest subscription of the visitor who
 answered; `mrr_lost` is its MRR. A subscription counts once: when one cancellation arrives twice (your cancel page,
-then Stripe's or Polar's reason), the provider's reason counts, else the newest. A subscription counts only while it is
-canceled or ended, so a customer who turned renewal back on drops out. An answer tied to no subscription counts too,
-with no MRR; `without_subscription` says how many of `total` those are. `via` counts the reasons that count, and
-`comments` lists the newest texts of every answer. The channel, source and campaign filters apply to the subscription.
-`null` when no customer gave a reason in the range.
+then Stripe's or Polar's reason), the provider's reason counts, else the newest. Only canceled or ended subscriptions
+count, so a customer who turned renewal back on drops out.
+
+- `total`, `mrr_lost`, `reasons`, `by_plan` and `via` count those subscriptions only.
+- `by_state` splits them: `canceling` still pays until the period ends (the "won't renew" count under Paying
+  subscriptions), `ended` has ended (Churned in the MRR line, when it ended in the range).
+- `unmatched` counts the people whose answer is tied to no canceled subscription, by reason. A card on your cancel page
+  asks before the cancel runs, so someone who answers and then stays lands here, not in `total`.
+- `comments` lists the newest texts of every answer, `unmatched` ones included.
+
+The channel, source and campaign filters apply to the subscription. `null` when nobody gave a reason in the range.
 
 ### Click maps and scroll
 

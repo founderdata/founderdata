@@ -540,11 +540,14 @@ describe('round 7: survey', () => {
   });
   afterAll(() => w.dispose());
 
-  it('survey answer: 2 rows, 1 when the trait did not change', async () => {
+  it('survey answer: 2 rows; 0 for a repeat the same day; 2 when the visitor changes the day\'s answer', async () => {
     await ev({ t: 'pageview', vid: 'cost-svy-0001', sid: 'cost-svy-0001-s' });
-    const answer = () => ev({ t: 'survey', vid: 'cost-svy-0001', sid: 'cost-svy-0001-s', n: 'heard_about', p: { a: 'podcast' } });
-    expect(await count(answer)).toBe(2);
-    expect(await count(answer)).toBe(1);
+    const answer = (a = 'podcast') => ev({ t: 'survey', vid: 'cost-svy-0001', sid: 'cost-svy-0001-s', n: 'heard_about', p: { a } });
+    expect(await count(() => answer())).toBe(2);
+    expect(await count(() => answer())).toBe(0);
+    expect(await count(() => answer('friend'))).toBe(2);
+    // A dismissal after an answer: nothing.
+    expect(await count(() => answer('skipped'))).toBe(0);
   });
 
   it('cancel reason from a webhook: 2 rows with a visitor, 1 without, 0 for a retry', async () => {
