@@ -1793,10 +1793,15 @@ The dashboard reads more behind the login:
 - `GET /api/sites/<id>/page-map?path=/pricing&device=Desktop&days=28` answers the Content page's "Clicks and scroll"
   card. `device` is `Desktop`, `Mobile` or `Tablet` and is optional. `days` is 1 to 90, 28 by default. The answer has
   `on` and `sample` (the site's switch and share), `views`, `devices` (views and the usual window width per device), 20
-  `elements` with `rage` (rage clicks on the element in recorded visits, from the `activity` rows), `points` (with
+  `elements` with `rage` (rage clicks on the element in recorded visits, from the `activity` rows) and `x` and `y` (where
+  its clicks landed on average, `x` in thousandths of the width), `points` (with
   `device` only: `[x, y, clicks]`, at most 500 spots of nearby clicks), `height` (the usual page height in px), and
   `scroll`. `scroll.source` says where its numbers come from: `maps` (the click map rows, which include single-page
   moves), `speed` (the page speed rows, when there is no map) or `null`.
+- `GET /api/sites/<id>/page-map/pages` answers `{ "days": 28, "pages": [{ "path": "/pricing", "views": 412 }] }`: the
+  pages with a click map in the last 28 days, 500 at most, for the map icon in Content's list.
+- `GET /api/sites/<id>/paths` answers the dashboard's Paths view and "Before and after this page": the same answer as
+  `GET /api/v1/paths` with `path`, `limit` or `seq`, for web visits, in the dashboard's period and filters.
 - `GET /api/sites/<id>/page-map/token?path=/pricing` answers `{ "token": "...", "expires_at": 1767226500000 }`: a token
   for one page that the overlay on your own page uses for 15 minutes. It is a GET, so a viewer login can open the overlay
   too.
