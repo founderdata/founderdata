@@ -9,7 +9,7 @@ import { app } from '../src/worker/index';
 import { resetBudgetForTests } from '../src/worker/budget';
 import { forgetSite } from '../src/worker/env';
 import { installPro, proHooks, type Pro } from '../src/worker/pro-hooks';
-import { assign, decide, experimentsPart, fnv1a, parseExpLive, pathMatches } from '../src/worker/experiments';
+import { assign, decide, experimentsPart, exposureProps, fixedOf, fnv1a, parseExpLive, pathMatches, pathsOverlap } from '../src/worker/experiments';
 import { CORE_PARTS } from '../src/worker/core-parts';
 import { startWorker, type TestWorker } from './helpers/worker';
 
@@ -62,7 +62,51 @@ describe('experiments: assignment', () => {
     expect(pathMatches('/blog/a', ['/pricing', '/blog'])).toBe(true);
     expect(pathMatches('/anything', null)).toBe(true);
     expect(pathMatches('/anything', [])).toBe(true);
-    expect(pathMatches('/anything', ['/'])).toBe(true);
+  });
+
+  it('reads / as the home page only, with any query or hash', () => {
+    expect(pathMatches('/', ['/'])).toBe(true);
+    expect(pathMatches('/?ref=x', ['/'])).toBe(true);
+    expect(pathMatches('/#top', ['/'])).toBe(true);
+    for (const p of ['/pricing', '/blog/post-1', '/signup']) expect(pathMatches(p, ['/'])).toBe(false);
+    expect(pathMatches('/pricing', ['/', '/pricing'])).toBe(true);
+    const live = parseExpLive('[{"k":"hero_headline","v":[["control",50],["b",50]],"p":["/"]}]');
+    expect(decide(live, 'v1', '/pricing')).toBeNull();
+    expect(Object.keys(decide(live, 'v1', '/')!)).toEqual(['hero_headline']);
+    expect(Object.keys(decide(live, 'v1', '/?ref=x')!)).toEqual(['hero_headline']);
+  });
+
+  it('says when two experiments share pages', () => {
+    expect(pathsOverlap(['/pricing'], ['/pricing/annual'])).toBe(true);
+    expect(pathsOverlap(['/pricing/annual'], ['/pricing'])).toBe(true);
+    expect(pathsOverlap(['/pricing'], ['/blog'])).toBe(false);
+    expect(pathsOverlap(['/'], ['/pricing'])).toBe(false);
+    expect(pathsOverlap(null, ['/pricing'])).toBe(true);
+    expect(pathsOverlap(['/a', '/b'], ['/c', '/b/x'])).toBe(true);
+  });
+
+  it('serves a stopped winner to everyone and stores no exposure for it', () => {
+    const live = parseExpLive(
+      '[{"k":"pricing_headline","v":[["control",50],["b",50]],"p":["/pricing"]},{"k":"new_checkout","v":[["on",100]],"f":1}]',
+    );
+    expect(live[1]).toEqual({ k: 'new_checkout', v: [['on', 100]], f: 1 });
+    for (const vid of ['a', 'b', 'c', 'd']) expect(decide(live, vid, '/checkout')).toEqual({ new_checkout: 'on' });
+    const x = decide(live, 'v1', '/pricing')!;
+    expect(Object.keys(x).sort()).toEqual(['new_checkout', 'pricing_headline']);
+    expect([...fixedOf(x)]).toEqual(['new_checkout']);
+    expect(JSON.parse(exposureProps(x)!)).toEqual({ exp_pricing_headline: x.pricing_headline });
+    expect(exposureProps(decide(live, 'v1', '/checkout'))).toBeNull();
+    // The tracker gets the plain map: the mark is not part of it.
+    expect(JSON.parse(JSON.stringify(x))).toEqual(x);
+    // A fixed entry has one variant, a running one 2 to 4; 10 of each at most.
+    expect(parseExpLive('[{"k":"a","v":[["on",100],["off",0]],"f":1},{"k":"b","v":[["on",100]]}]')).toEqual([]);
+    const many = JSON.stringify([
+      ...Array.from({ length: 12 }, (_, i) => ({ k: `r${i}`, v: [['a', 1], ['b', 1]] })),
+      ...Array.from({ length: 12 }, (_, i) => ({ k: `f${i}`, v: [['a', 1]], f: 1 })),
+    ]);
+    const parsed = parseExpLive(many);
+    expect(parsed.filter((e) => e.f)).toHaveLength(10);
+    expect(parsed.filter((e) => !e.f)).toHaveLength(10);
   });
 
   it('reads sites.exp_live and leaves out entries that would break a pageview', () => {
@@ -154,6 +198,24 @@ describe('experiments: exposure on the visit', () => {
     expect(later).toBe(again);
     expect(plain).toBeGreaterThan(again);
     expect(Object.keys(await props('expsession0003'))).toEqual(['exp_pricing_headline']);
+  });
+
+  it('shows a stopped winner without storing an exposure, on a new visit or a running one', async () => {
+    const was = LIVE.replace(',{"k":"new_nav","v":[["off",90],["on",10]]}', '');
+    await w.db.prepare('UPDATE sites SET exp_live = ? WHERE id = ?').bind(was.replace(/]$/, ',{"k":"done_nav","v":[["on",100]],"f":1}]'), site.id).run();
+    forgetSite(site.id);
+    try {
+      const fresh = await event({ vid: 'expvisitor0010', sid: 'expsession0010' }, '/about');
+      expect(await fresh.json()).toEqual({ cfg: { x: { done_nav: 'on' } } });
+      expect(await props('expsession0010')).toBeNull();
+      const again = await rows(() => event({ vid: 'expvisitor0010', sid: 'expsession0010' }, '/features'));
+      const priced = await rows(() => event({ vid: 'expvisitor0010', sid: 'expsession0010' }, '/pricing'));
+      expect(priced).toBe(again + 1);
+      expect(Object.keys(await props('expsession0010'))).toEqual(['exp_pricing_headline']);
+    } finally {
+      await w.db.prepare('UPDATE sites SET exp_live = ? WHERE id = ?').bind(was, site.id).run();
+      forgetSite(site.id);
+    }
   });
 
   it('stores nothing for a preview (xp: 1)', async () => {

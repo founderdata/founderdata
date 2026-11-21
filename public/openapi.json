@@ -7921,7 +7921,7 @@
       "get": {
         "operationId": "getExperiments",
         "summary": "Experiments, web and app",
-        "description": "Web and app experiments in one list (FounderData Pro): web experiments and flags that ran in the period plus every draft, then the app experiments FounderDataKit sent. A web experiment's arms cover its own run, from start to stop, and count people (visitors, or user ids where identify() set one); app arms count sessions in the period. Each arm against the control: the goal by a two-proportion test (verdict), revenue per visitor by a Welch test (revenue_verdict, small_sample until 30 customers per arm). platform picks web, app or all. Fields with revenue in their name, and mrr, are left out for a key without revenue.",
+        "description": "Web and app experiments in one list (FounderData Pro): every web experiment and flag of the site (in_period false when its run lies outside the period), then the app experiments FounderDataKit sent. A web experiment's arms cover its own run, from start to stop, and count people (visitors, or user ids where identify() set one); app arms count sessions in the period. Each arm against the control: the goal by a two-proportion test (verdict; app arms need 30 purchases each), revenue per visitor by a Welch test (revenue_verdict, small_sample until 30 customers per arm, with revenue_uplift and revenue_interval). split_check compares a web experiment's visitors with its weights; ok false means the result is not to be trusted. Times are ISO strings. With no experiment, next_step says where to create one; a draft carries setup (markup and preview links). platform picks web, app or all. Fields with revenue in their name, mrr and mrr_per_visitor are left out for a key without revenue.",
         "tags": [
           "App"
         ],
@@ -8005,7 +8005,7 @@
       "get": {
         "operationId": "getExperiment",
         "summary": "One experiment",
-        "description": "One experiment (FounderData Pro): the web experiment or flag with this key, its arms and each arm's paying people (visitor_id and revenue; name and email are null for an API key), else the app experiment of that name. Fields with revenue in their name, and mrr, are left out for a key without revenue.",
+        "description": "One experiment (FounderData Pro): the web experiment or flag with this key, its arms and each arm's paying people (visitor_id and revenue; name and email are null for an API key), else the app experiment of that name. Fields with revenue in their name, mrr and mrr_per_visitor are left out for a key without revenue.",
         "tags": [
           "App"
         ],
