@@ -1,7 +1,9 @@
 // Web experiments and flags, core part (round 7, lane exp; docs/API.md "Experiments in the tracker"). Core stores the
 // variant a visit saw as the session property exp_<key> (sessions.props, migration 0006); FounderData Pro's
-// experimentDecision hook picks it (pro-hooks.ts). The foundation wrote exposureStatements; lane exp fills the rest.
+// experimentDecision hook picks it (pro-hooks.ts) with the pure functions here: parseExpLive reads sites.exp_live,
+// pathMatches says whether a page is in an experiment, assign picks the variant from a hash of the key and visitor id.
 import type { CorePart } from './core-parts';
+import type { ExportTable } from './export';
 
 /** The session property that holds an experiment's variant: exp_<key>. App experiments use the same name. */
 export const EXPERIMENT_PROP = (key: string) => 'exp_' + key;
@@ -50,7 +52,126 @@ export function exposureStatements(db: D1Database, siteId: string, sid: string, 
   return out;
 }
 
-/** Lane exp fills this part: the experiments table, its export and the definition. */
+/** Most experiments that run at once on one site (sites.exp_live). */
+export const MAX_RUNNING = 10;
+
+/** One running experiment as sites.exp_live keeps it: key, [variant, weight] pairs (control first), page prefixes. */
+export interface ExpLive {
+  k: string;
+  v: [string, number][];
+  /** Path prefixes; absent = every page. */
+  p?: string[];
+}
+
+// The cached site row keeps the same exp_live text for 60 s, so each isolate parses it once.
+let lastText: string | null = null;
+let lastLive: ExpLive[] = [];
+
+/**
+ * The running experiments of sites.exp_live, checked: a valid key, 2 to 4 variants with whole weights that are not all
+ * 0, string prefixes. Entries that fail are left out, so a bad row never breaks a pageview. At most MAX_RUNNING.
+ */
+export function parseExpLive(text: string | null | undefined): ExpLive[] {
+  if (!text) return [];
+  if (text === lastText) return lastLive;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    raw = null;
+  }
+  const out: ExpLive[] = [];
+  for (const e of Array.isArray(raw) ? raw : []) {
+    if (out.length >= MAX_RUNNING) break;
+    if (!e || typeof e !== 'object' || typeof e.k !== 'string' || !EXPERIMENT_KEY.test(e.k) || !Array.isArray(e.v)) continue;
+    const v = (e.v as unknown[]).filter(
+      (x): x is [string, number] => Array.isArray(x) && typeof x[0] === 'string' && !!x[0] && Number.isInteger(x[1]) && (x[1] as number) >= 0,
+    );
+    if (v.length < 2 || v.length > 4 || v.length !== e.v.length || !v.some((x) => x[1] > 0)) continue;
+    const p = Array.isArray(e.p) ? (e.p as unknown[]).filter((x): x is string => typeof x === 'string' && x[0] === '/') : undefined;
+    out.push(p && p.length ? { k: e.k, v, p } : { k: e.k, v });
+  }
+  lastText = text;
+  lastLive = out;
+  return out;
+}
+
+/** FNV-1a, 32 bits, over the string's UTF-16 code units. */
+export function fnv1a(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * The variant a visitor gets: FNV-1a of `key:vid` modulo 10,000, placed against the cumulative weights. The same key
+ * and visitor id always give the same variant; another key splits the same visitors independently.
+ */
+export function assign(key: string, vid: string, variants: [string, number][]): string {
+  const total = variants.reduce((n, [, w]) => n + Math.max(0, w), 0);
+  if (!variants.length || total <= 0) return variants[0]?.[0] ?? '';
+  const bucket = (fnv1a(`${key}:${vid}`) % 10_000) / 10_000;
+  let cum = 0;
+  for (const [name, w] of variants) {
+    cum += Math.max(0, w) / total;
+    if (bucket < cum) return name;
+  }
+  return variants[variants.length - 1][0];
+}
+
+/**
+ * Whether a path is in an experiment: no prefixes means every page, else the path is a prefix or under one followed
+ * by / (recording.ts isSkipped: /pricing matches /pricing and /pricing/annual, not /pricing-old).
+ */
+export function pathMatches(path: string, prefixes: string[] | null | undefined): boolean {
+  if (!prefixes || !prefixes.length) return true;
+  const p = path.split(/[?#]/)[0] || '/';
+  return prefixes.some((x) => x === '/' || p === x || p.startsWith(x.endsWith('/') ? x : `${x}/`));
+}
+
+/** The running experiments a pageview of `path` enters, {key: variant}; null for none. Pro's hook answers this. */
+export function decide(live: ExpLive[], vid: string, path: string): Record<string, string> | null {
+  let out: Record<string, string> | null = null;
+  for (const e of live) {
+    if (!pathMatches(path, e.p)) continue;
+    (out ??= {})[e.k] = assign(e.k, vid, e.v);
+  }
+  return out;
+}
+
+const iso = (ms: number | null | undefined) => (typeof ms === 'number' ? new Date(ms).toISOString() : null);
+
+/** CSV export: every experiment and flag of the site, whatever the period. */
+const experimentsExport: ExportTable = {
+  allTime: true,
+  columns: ['key', 'kind', 'name', 'status', 'variants', 'pages', 'goal', 'created_at', 'started_at', 'stopped_at', 'winner'],
+  chunk: (ctx, cur, n) =>
+    ctx.db
+      .prepare(
+        `SELECT * FROM experiments WHERE site_id = ?${cur ? ' AND (created_at > ? OR (created_at = ? AND key > ?))' : ''}
+         ORDER BY created_at, key LIMIT ${n}`,
+      )
+      .bind(ctx.site.id, ...(cur ? [cur.ts, cur.ts, cur.id] : [])),
+  cells: (r) => {
+    let variants = r.variants;
+    try {
+      variants = (JSON.parse(r.variants) as { key: string; weight: number }[]).map((v) => `${v.key}:${v.weight}`).join(' ');
+    } catch {}
+    return [r.key, r.kind, r.name, r.status, variants, (r.paths ?? '').split('\n').filter(Boolean).join(' '), r.goal, iso(r.created_at), iso(r.started_at), iso(r.stopped_at), r.winner];
+  },
+  cursor: (r) => ({ ts: r.created_at, id: r.key }),
+  scrub: [],
+};
+
+/** The experiments table: emptied with the site, exported as CSV, explained to agents. */
 export const experimentsPart: CorePart = {
-  siteTables: [],
+  siteTables: ['experiments'],
+  exports: { experiments: experimentsExport },
+  definitions: {
+    experiments:
+      "Web experiments, flags and app experiments in one list (get_app_funnel report experiments). The Worker assigns a web visitor's variant from a hash of the experiment key and the visitor id at the pageview, and keeps it on the visit as the session property exp_<key>. App experiments are the exp_<name> property FounderDataKit sets. Web arms count visitors: a visitor seen in two arms counts in the first, and switched says how many. App arms count sessions. Without cookies or Remember visitors the visitor id changes at 00:00 UTC, so a person who returns on another day may land in the other arm. conversions is the experiment's goal (the site's primary goal when none is set) reached in or after the first visit in the arm, up to the stop. revenue is the payments of those visitors after their first visit in the arm, sandbox purchases out, money a user_id stitches in, less refunds from their first counted payment on (also after the stop), never below 0 per person. revenue_per_visitor is revenue divided by visitors. vs_control compares the conversion rate with a two-proportion test and revenue per visitor with a Welch test. revenue_verdict is small_sample until each arm has 30 customers; verdict is small_sample until each arm has 100 visitors. likely means p under 0.05.",
+  },
 };

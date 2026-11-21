@@ -469,7 +469,49 @@ describe('free-plan cost: D1 rows written per write path', () => {
 
 // Round 7 (plan 5.1): each lane pins its write paths inside its own block, with its own worker and site.
 describe('round 7: exp', () => {
-  it.todo('experiment exposure: 0 rows on a new visit, 1 on a running one, once');
+  // Exposure rides on the session INSERT of a new visit (0 rows more) and costs 1 row the first time a running visit
+  // reaches the experiment's pages (plan S3). Creating, starting and stopping: pro/test/cost.test.ts.
+  // Imported here, not at the top of the file, so the four lanes' blocks merge without touching shared lines.
+  let w: TestWorker;
+  let site: any;
+  let hooks: typeof import('../src/worker/pro-hooks');
+  let before: ReturnType<typeof hooks.proHooks>;
+  const view = (vid: string, path: string) =>
+    w.fetch('/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.31' },
+      body: JSON.stringify({ w: site.id, t: 'pageview', u: `https://exp-cost.example${path}`, vid, sid: `${vid}-s` }),
+    });
+  const rows = async (fn: () => Promise<unknown>) => {
+    w.takeRowsWritten();
+    await fn();
+    await w.flush();
+    return w.takeRowsWritten();
+  };
+  beforeAll(async () => {
+    resetBudgetForTests(Infinity);
+    w = await startWorker();
+    site = await w.createSite({ domain: 'exp-cost.example' });
+    hooks = await import('../src/worker/pro-hooks');
+    const { decide, parseExpLive } = await import('../src/worker/experiments');
+    before = hooks.proHooks();
+    hooks.installPro({ ...(before ?? {}), experimentDecision: (s, vid, p) => decide(parseExpLive(s.exp_live), vid, p) });
+    await w.db.prepare('UPDATE sites SET exp_live = ? WHERE id = ?').bind('[{"k":"pricing_headline","v":[["control",50],["b",50]],"p":["/pricing"]}]', site.id).run();
+    forgetSite(site.id);
+  });
+  afterAll(async () => {
+    hooks.installPro(before);
+    await w.dispose();
+  });
+
+  it('experiment exposure: 0 rows on a new visit, 1 on a running one, once', async () => {
+    const plainNew = await rows(() => view('expcost000001', '/about'));
+    expect(await rows(() => view('expcost000002', '/pricing'))).toBe(plainNew);
+    const plainLater = await rows(() => view('expcost000001', '/features'));
+    expect(await rows(() => view('expcost000001', '/pricing'))).toBe(plainLater + 1);
+    expect(await rows(() => view('expcost000001', '/pricing/annual'))).toBe(plainLater);
+    expect([plainNew, plainLater]).toEqual([11, 5]);
+  });
 });
 
 describe('round 7: survey', () => {

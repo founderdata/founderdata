@@ -6743,7 +6743,7 @@
       "get": {
         "operationId": "getExperiments",
         "summary": "Experiments, web and app",
-        "description": "Web and app experiments in one list (FounderData Pro). platform picks web, app or all. Fields with revenue in their name are left out for a key without revenue.",
+        "description": "Web and app experiments in one list (FounderData Pro): web experiments and flags that ran in the period plus every draft, then the app experiments FounderDataKit sent. A web experiment's arms cover its own run, from start to stop, and count people (visitors, or user ids where identify() set one); app arms count sessions in the period. Each arm against the control: the goal by a two-proportion test (verdict), revenue per visitor by a Welch test (revenue_verdict, small_sample until 30 customers per arm). platform picks web, app or all. Fields with revenue in their name, and mrr, are left out for a key without revenue.",
         "tags": [
           "App"
         ],
@@ -6816,6 +6816,88 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          }
+        }
+      }
+    },
+    "/api/v1/experiments/{key}": {
+      "get": {
+        "operationId": "getExperiment",
+        "summary": "One experiment",
+        "description": "One experiment (FounderData Pro): the web experiment or flag with this key, its arms and each arm's paying people (visitor_id and revenue; name and email are null for an API key), else the app experiment of that name. Fields with revenue in their name, and mrr, are left out for a key without revenue.",
+        "tags": [
+          "App"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "description": "The experiment's key, such as pricing_headline, or an app experiment's name without exp_.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/period"
+          },
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/site"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "description": "web, app or all (the default). app reads the app experiment of this name.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "web",
+                "app"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "experiment": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           },
           "429": {
             "$ref": "#/components/responses/TooMany"

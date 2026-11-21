@@ -320,7 +320,19 @@ where your counsel says you may.
 
 ## Experiments
 
-<!-- r7 exp: written by lane exp -->
+Experiments (FounderData Pro) store no new personal data. The version a visit saw is one session property,
+`exp_<key>`, such as `exp_pricing_headline: b`, on the visit row FounderData writes anyway. The Worker picks it from a
+hash of the experiment's key and the visitor id. Nothing is stored in the browser for it: no cookie, no local storage.
+A preview link (`?fd_exp=`) stores nothing at all.
+
+Without cookies the visitor id changes every day at 00:00 UTC, so FounderData cannot keep a person in one version
+across days, and the results say how many people it saw in more than one. With Remember visitors on, the id in the
+cookie keeps them in one version; that setting needs the consent the section above describes.
+
+The results join payments and subscriptions to the people in each version, the same way the revenue reports do. A
+dashboard login sees the names of paying people per version; an API key gets visitor ids and amounts only. Erasing a
+person removes their visits, and with them the version they saw. Deleting an experiment keeps the property on old
+visits, which expire with them.
 
 ## Surveys
 

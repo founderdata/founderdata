@@ -3209,7 +3209,51 @@ lists what a recording stores.
 
 ## Experiments (Pro)
 
-<!-- r7 exp: written by lane exp -->
+Test two versions of a page, or turn new code on for a share of visitors, and see which one brings more revenue per
+visitor, not only more clicks. Experiments from your iOS app (`FounderData.experiment()`) sit in the same list.
+
+**Start one.**
+
+1. Experiments > **New experiment**. Pick versions of a page or a feature flag, a name and a key, the versions with
+   their share of visitors (the first is the control: the page as it is today), the pages (`/pricing` also covers
+   `/pricing/annual`; empty means every page) and the goal it is judged on beside revenue. It saves a draft.
+2. **Copy AI prompt** on the experiment's page and paste it into your coding agent. It marks each version in your HTML
+   with `data-fd-exp` and `data-fd-variant` (the other versions start `hidden`), or reads the flag in code with
+   `founderdata('flag', key)` or `founderdata('flags', fn)`. See "Experiments in the tracker" in [API.md](API.md).
+3. Open each preview link (`/pricing?fd_exp=pricing_headline:b`). It shows that version and stores nothing.
+4. **Start**. Within a minute new visitors on those pages get a version. Until the first one arrives the page says
+   "Waiting for the first visitor on /pricing".
+
+**Read the result.** Each row of the list has one sentence, such as "b: $1.84 per visitor against $1.21, likely
+better", or "Too few customers to compare revenue: 12 of 30". The experiment's page has each version's visitors,
+people who reached the goal, customers, revenue, revenue per visitor and MRR, the customers per version with links to
+their pages, and **Watch visits** for the recorded visits of a version. FounderData calls a gap likely real when a gap
+that big would show up by chance less than 5 times in 100. Revenue gets a verdict only once each version has 30
+customers; the goal once each has 100 visitors. Pick that bar before you start and wait for it: stopping at the first
+good day finds wins that are not there.
+
+Without cookies a visitor id lasts one day, so someone who comes back tomorrow can land in the other version. People
+who sign in count once through `identify()`. Remember visitors keeps one version per person across days; the page
+says how many people it saw in two versions.
+
+**End it.** **Stop** and pick the winner. FounderData stops assigning versions, so every visitor sees the page as
+written (the control) until you change the code. The page then shows a cleanup prompt: paste it into your coding
+agent to keep the winner and remove the rest. A stopped experiment stays stopped; start a new one to test again. At
+most 10 run at once.
+
+**Change it.** **Edit** on the experiment's page changes the name and the goal, and on a draft the pages too. The
+versions stay as created.
+
+**Flags.** A flag has the versions `off` and `on` and a rollout, the percent who get `on`. **Change rollout** on the
+flag's page sets it while the flag runs. Raise it and people who had `on` keep it. Your code checks `founderdata('flag', 'new_checkout') === 'on'`; without
+an answer it is `null`, so keep the old path as the default.
+
+**Agents.** `get_app_funnel` with `report` `experiments` answers web and app experiments with the verdicts. The skill
+`founderdata-experiments` reads them, waits for the minimums and recommends a winner. Starting and stopping stay in the
+dashboard.
+
+**Cost.** A visit's version rides on the row its first pageview writes (0 rows). A visit that reaches the pages later
+costs 1 row, once. Creating, changing, starting or stopping an experiment writes 2 rows.
 
 ## Surveys
 

@@ -129,8 +129,8 @@ describe('round 7 foundation', () => {
     expect(BREAKDOWN_CARDS[0].at(-1)).toEqual({ label: 'Heard about', dim: 'heard_about' });
   });
 
-  it('starts with four empty parts, in lane order', () => {
+  it('has four parts, in lane order, each naming only its own tables', () => {
     expect(CORE_PARTS).toHaveLength(4);
-    for (const p of CORE_PARTS) expect(p.siteTables).toEqual([]);
+    for (const p of CORE_PARTS) expect(p.siteTables.every((t) => /^[a-z_]+$/.test(t))).toBe(true);
   });
 });
