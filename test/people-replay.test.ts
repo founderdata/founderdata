@@ -174,12 +174,14 @@ describe('people and recordings in the Worker', () => {
     await setSite({ record_sample: 100, record_keep_days: 30 });
   });
 
-  it('starts only a website with Record visits and Remember visitors on, and only with Pro', async () => {
+  it('starts a site with a website with Record visits and Remember visitors on, and only with Pro', async () => {
     const created = (await w.admin('/api/sites', { method: 'POST', json: { domain: 'fresh.example' } })).body;
     expect(created).toMatchObject({ record_visits: 1, remember_visitors: 1 });
     expect(await w.db.prepare('SELECT record_visits, remember_visitors FROM sites WHERE id = ?').bind(created.id).first()).toEqual({ record_visits: 1, remember_visitors: 1 });
-    // An app, with or without a website, and an extension start with both off.
-    for (const json of [{ app_bundle_id: 'com.example.fresh' }, { domain: 'fresh-app.example', app_bundle_id: 'com.example.fresh2' }, { domain: 'fresh-ext.example', type: 'extension' }]) {
+    // An app with a website gets both too.
+    expect((await w.admin('/api/sites', { method: 'POST', json: { domain: 'fresh-app.example', app_bundle_id: 'com.example.fresh2' } })).body).toMatchObject({ record_visits: 1, remember_visitors: 1 });
+    // An app without a website, an extension and a newsletter start with both off.
+    for (const json of [{ app_bundle_id: 'com.example.fresh' }, { domain: 'fresh-ext.example', type: 'extension' }, { domain: 'fresh-news.example', type: 'newsletter' }]) {
       expect((await w.admin('/api/sites', { method: 'POST', json })).body).toMatchObject({ record_visits: 0, remember_visitors: 0 });
     }
     // Core has no switch for either, so a core site starts with both off.

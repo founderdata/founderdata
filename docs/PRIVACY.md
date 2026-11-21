@@ -284,8 +284,8 @@ clicks and the size of the window. Recording sets no cookie and stores nothing i
   where your visitors live.
 
 **Remember visitors.** A site setting that keeps a visitor id in first-party cookies (`rt_vid`, `rt_sid` and
-`rt_consent=r`) without the visitor's consent, so People can follow someone across days. With Pro, each website you
-add starts with it on. A site you added earlier keeps the setting it had. Storing
+`rt_consent=r`) without the visitor's consent, so People can follow someone across days. With Pro, each site you
+add with a website starts with it on. A site you added earlier keeps the setting it had. Storing
 an id on the device without consent breaks Article 5(3) of the ePrivacy Directive in most of the EU, so turn it on only
 where your counsel says you may.
 
@@ -338,7 +338,7 @@ of that data. Before you turn it on:
    person, so the log itself holds no personal data, and it outlives the site. With one shared admin password, "who"
    means the login, not a named colleague, so put the name in the note.
 9. **Breach readiness.** Read the breach procedure below once, before you need it.
-10. **Recordings and Remember visitors (Pro).** Pro turns both on for each website you add (recording starts once the
+10. **Recordings and Remember visitors (Pro).** Pro turns both on for each site with a website you add (recording starts once the
     bucket is bound). Read "Recordings (Pro)" above, then add them to your privacy policy, turn on **Wait for
     consent**, or turn them off.
 

@@ -1191,8 +1191,9 @@ site's own range, as its Overview shows it. `PUT /api/sites/<id>/type` takes `{ 
 writes 1 row. `POST /api/sites` takes the same `type` when it creates a site. `GET /api/sites/<id>` returns the stored
 value as `product_type`, `null` for automatic.
 
-With FounderData Pro, `POST /api/sites` creates a website (type `website`, automatic or picked) with `record_visits` and
-`remember_visitors` set to 1. Every other new site, and every site on a core deployment, starts with both at 0.
+With FounderData Pro, `POST /api/sites` sets `record_visits` and `remember_visitors` to 1 for a new site with a website,
+including an app that has one. An app without a website (its domain ends in `.invalid`), an extension, a newsletter and
+every site on a core deployment start with both at 0.
 
 #### Reporting timezone
 

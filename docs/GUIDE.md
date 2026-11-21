@@ -561,8 +561,8 @@ Marketing consent does not keep a visitor id: call `founderdata('consent', true)
 buyer who comes back the next day is a new visitor whose ad click FounderData cannot find. Without it nothing goes to Meta in the default setting.
 
 **Remember visitors (Pro setting).** A site can keep every visitor in cookies without the visitor's consent. With Pro, a
-website you add starts with **Remember visitors** on. An app, an extension and a newsletter start with it off, and a
-site you added before this release keeps the setting it had. The switch is in Settings, Data and privacy. When it is on, the server tells the script on each page, and
+site you add with a website starts with **Remember visitors** on, also when it is an app too. An app without a website,
+an extension and a newsletter start with it off, and a site you added before this release keeps the setting it had. The switch is in Settings, Data and privacy. When it is on, the server tells the script on each page, and
 the script keeps `rt_vid` and `rt_sid` as above, with `rt_consent=r` in place of `rt_consent=1`. People stay the same
 person across days without `identify()`. In the EU that usually needs consent, so turn it on only where you have it or
 don't need it. A page that calls `founderdata('consent', false)` keeps that visitor without cookies. Turn the switch off
@@ -2989,7 +2989,7 @@ Recordings are of your website only. The iPhone app is never recorded: its visit
    adds a rule that deletes each file 90 days after upload, and binds the bucket as `REPLAY_BUCKET`. Cloudflare asks
    for a payment method once to turn on R2, even when you stay inside the free tier.
 2. Open the site's Settings, then Data and privacy, and check **Record visits**. A website you add with Pro starts with it
-   on, and recording begins once the bucket is bound. A site you added before this release keeps the setting it had.
+   on when it has a website, and recording begins once the bucket is bound. A site you added before this release keeps the setting it had.
 3. Decide on consent. In the EU and the UK, recording a visitor's screen usually needs their consent. By default a
    visit is recorded whether or not the visitor accepted your cookie banner. Turn on **Wait for consent** under
    Advanced, and a visit records only after your banner calls `founderdata('consent', true)`, or on pages with

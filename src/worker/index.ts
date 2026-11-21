@@ -378,10 +378,12 @@ app.post('/api/sites', async (c) => {
     write_cap: null,
     product_type: typed.type,
   };
-  // With FounderData Pro, a new website starts with Record visits and Remember visitors on (docs/GUIDE.md, "People and
-  // recordings (Pro)"); the owner turns either off in Settings, Data and privacy. Core has no switch for them, so its
-  // sites start with both off, as do apps, extensions and newsletters. Recording waits for the REPLAY_BUCKET binding.
-  const on = proHooks() && productType(site) === 'website' ? 1 : 0;
+  // With FounderData Pro, a new site with a website (an app with one too) starts with Record visits and Remember
+  // visitors on (docs/GUIDE.md, "People and recordings (Pro)"); the owner turns either off in Settings, Data and privacy.
+  // Core has no switch for them, so its sites start with both off, as do an app without a website (domain under
+  // .invalid), an extension and a newsletter. Recording waits for the REPLAY_BUCKET binding.
+  const web = !domain.endsWith('.invalid') && !['extension', 'newsletter'].includes(productType(site));
+  const on = proHooks() && web ? 1 : 0;
   site.record_visits = on;
   site.remember_visitors = on;
   await c.env.DB.prepare(
