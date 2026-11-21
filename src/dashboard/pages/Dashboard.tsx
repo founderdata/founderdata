@@ -252,6 +252,10 @@ export function Dashboard({ siteId, view }: { siteId: string; view: View }) {
                 <Views.people />
               ) : view === 'recordings' ? (
                 <Views.recordings />
+              ) : view === 'errors' ? (
+                <Views.errors />
+              ) : view === 'experiments' ? (
+                <Views.experiments />
               ) : (
                 <Views.dropoff appOnly={appOnly} />
               )}
