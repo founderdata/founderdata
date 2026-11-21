@@ -34,7 +34,8 @@ describe('mail in core', () => {
   it('has the mail tables, with mail_domains.site_id the only link to a site', async () => {
     const tables = (await w.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'mail_%' ORDER BY name").all<{ name: string }>()).results.map((r) => r.name);
     expect(tables).toEqual([
-      'mail_addresses', 'mail_attachments', 'mail_domains', 'mail_events', 'mail_idempotency', 'mail_key_domains', 'mail_key_settings',
+      // mail_drafts and mail_flags: Today's agent drafts and flags (migration 0084).
+      'mail_addresses', 'mail_attachments', 'mail_domains', 'mail_drafts', 'mail_events', 'mail_flags', 'mail_idempotency', 'mail_key_domains', 'mail_key_settings',
       'mail_message_ids', 'mail_messages', 'mail_parties', 'mail_suppressions', 'mail_template_versions', 'mail_templates', 'mail_threads', 'mail_webhook_deliveries', 'mail_webhooks',
     ]);
     for (const t of tables) {
@@ -160,6 +161,13 @@ describe('mail in core', () => {
         expect(denied(role, method, '/api/mail-admin/status', env), `${role} ${method}`).toMatch(/Mail/);
         expect(denied(role, method, '/api/mail-admin', env), `${role} ${method}`).toMatch(/Mail/);
       }
+    }
+    // A phone is pointed at its own mail routes. Its mail actions there (read state, archive, reply) are writes a phone
+    // may make, next to chart notes (FounderData Pro, docs/MOBILE-API.md section 11).
+    expect(denied('device', 'GET', '/api/mail-admin/threads', env)).toBe('Mail on a phone goes through /api/mobile/mail, not the dashboard routes.');
+    for (const path of ['/api/mobile/mail/threads/t1/read', '/api/mobile/mail/threads/t1/archive', '/api/mobile/mail/threads/t1/reply']) {
+      expect(denied('device', 'POST', path, env), path).toBeNull();
+      expect(denied('viewer', 'POST', path, env), path).not.toBeNull();
     }
     // Only the mail-admin prefix: a similar path is not caught.
     expect(denied('viewer', 'GET', '/api/mail-administrator', env)).toBeNull();

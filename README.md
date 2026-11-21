@@ -334,8 +334,9 @@ site's Settings.
 
 FounderData Pro comes with an iPhone app for your deployment. It signs in with your admin password and shows today, 7
 day and 30 day totals per site, with Home Screen and Lock Screen widgets. Add an APNs key to the Worker and it sends a
-push for every payment. You build it with your own Apple team, and the steps are in the Pro repository. The
-phone's token can read every dashboard number but can't change a site; a new admin password signs every phone out.
+push for every payment. With mail on your own domains it also reads the inbox, replies in plain text inside a thread
+and pushes received mail. You build it with your own Apple team, and the steps are in the Pro repository. The phone's
+token can read every dashboard number but can't change a site; a new admin password signs every phone out.
 
 ## What it costs
 
@@ -402,7 +403,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Team: invite a person / accept the invite, sign in, or revoke / reset link | 5 / 1 / 2. A request with a teammate cookie writes nothing. A wrong teammate password writes 4 (the IP and the account) |
 | Chart note from an agent / its review | 3, or 4 with an idempotency key / 1 |
 | Research log entry from an agent | 1, or 2 with an idempotency key |
-| Plan ([docs/API.md](docs/API.md#plan-pro)): create it / change the document, rules or reach / change only the schedule or the share / the portfolio / a task, new or changed, claimed by a run or approved / the owner ticks a task, says yes or no, or undoes it / a session or a failed run / a check-in / the daily results job / the away alert | 1 / 2 (the plan and the version before; 3 once 30 older versions are kept) / 1 / 1 / 1 each, 0 when another run's claim or an owner task refuses it / 1 / 2, or 3 with an idempotency key, plus 1 per closed result it keeps (8 at most) / 1, or 2 with an idempotency key, plus 1 per closed result it keeps / 1 per closed result no session kept yet (3 per site a day at most), 0 when there is none / 2 per plan, once per gap. Reading the plan writes 0 |
+| Plan ([docs/API.md](docs/API.md#plan-pro)): create it / change the document, rules or reach / change only the schedule or the share / the portfolio / a task, new or changed, claimed by a run or approved / the owner ticks or answers a task, says yes or no, or undoes it / the question push / a session or a failed run / a check-in / the daily results job / the away alert | 1 / 2 (the plan and the version before; 3 once 30 older versions are kept) / 1 / 1 / 1 each (1 more when an owner task opens), 0 when another run's claim or an owner task refuses it / 1 (2 for an undo, which opens the task again) / 1 per site and push / 2, or 3 with an idempotency key, plus 1 per closed result it keeps (8 at most) / 1, or 2 with an idempotency key, plus 1 per closed result it keeps / 1 per closed result no session kept yet (3 per site a day at most), 0 when there is none / 2 per plan, once per gap. Reading the plan writes 0 |
 | Custom dashboard: created, changed or deleted / a widget run | 1 / 0 |
 | AI answer check (one prompt on one AI surface on one day), new or replaced | 1 |
 | Setup checklist: the cron heartbeat / a test button pressed / a refused location code stored | 1 at most every 10 minutes, so 96 a day / 2, 0 inside 15 seconds / 1 a day per refused country, 1 to clear it. Reading the checklist writes none and reads one row per site and payment provider with a signing secret |
@@ -434,7 +435,9 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Next actions, computed once a day on the minute-50 tick | 2 per site a day (the claim, then the items) |
 | Resend email event: the first of its type for an email / a retry or a second open | 2 / 0 |
 | Mail ([docs/MAIL.md](docs/MAIL.md)): an app sends to one address / the dashboard or an agent sends / a status event / a received message that starts a thread | 18, or 21 with an idempotency key / 23 or 24 / 5 / 15 |
+| Mail on the iPhone app ([docs/MOBILE-API.md](docs/MOBILE-API.md#11-mail)): a reply / a mail push switch / a received message that pushes | 22 / 1, or 0 when it is already so / 15, the same as without the push |
 | Mail health alerts, hourly at minute 20: a quiet hour / a domain's daily check / an alert / a received message that could not be read or stored | 0 / 1, plus 1 when its problems change / 2 / 1 |
+| Today ([docs/MOBILE-API.md](docs/MOBILE-API.md#12-today), Pro): an agent's flag or draft / a Reply card sent / Not needed, Mute 24 h or a settings change / the 08:00 push / the push for a critical Fix / the nightly cleanup | 2 / the reply's rows + 2 (23 from the dashboard, 24 from a phone) / 1 / 1 a day / 1 per tick that finds one, 0 otherwise / 1 per log row past 90 days and per ended mute. Reading the list writes 0 |
 | Meta ads import: a new ad and day / a new campaign, ad set or ad name / a run that finds nothing new | 2 (the row and its index entry) / 1 / 1. Today's rows change every hour as spend comes in, so 20 active ads write about 500 rows a day |
 | Meta Conversions API: an event sent or skipped / a tick with nothing pending | 1, plus 1 for the site's status when it changes / 0 |
 | Ad spend from Google Ads, TikTok or any channel without an import (`POST /api/v1/spend` or a CSV): a new or changed row of a day and campaign / a row sent again unchanged | 1 / 0. Meta and Apple Search Ads spend joins in from their imports and writes nothing more |
@@ -492,7 +495,7 @@ The code is laid out like this:
   subprocessors, a GDPR checklist, a balancing test template, a breach procedure and an answer sheet for procurement.
 - [MCP server](docs/MCP.md): connect Claude Code, Cursor or another agent to `/mcp` with one scoped key, and the OpenAPI
   spec at `/api/v1/openapi.json`. Pro adds a research log where agents record what they found and paid for, the
-  history of AI answer checks, and eight workflows as MCP prompts.
+  history of AI answer checks, and nine workflows as MCP prompts.
 - [API](docs/API.md): the payments and goals API, the read API for stats, share links and badges, CSV export, and
   erasing one person.
 

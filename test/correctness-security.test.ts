@@ -45,6 +45,9 @@ describePro('a device token reads the dashboard API and changes nothing', () => 
       ['POST', `/api/sites/${site.id}/funnels`, { name: 'f', steps: [{ type: 'page', value: '/' }, { type: 'page', value: '/a' }] }],
       ['POST', `/api/sites/${site.id}/rematch`],
       ['POST', '/api/appstore/backfill', { from: '2026-10-01', to: '2026-10-02' }],
+      // The dashboard's mail routes, whatever the method. A phone's mail actions live under /api/mobile/mail (Pro).
+      ['POST', '/api/mail-admin/threads/x/reply', { text: 'x' }],
+      ['POST', '/api/mail-admin/send', { to: 'x@example.net', text: 'x' }],
     ];
     for (const [method, path, json] of writes) {
       const res = await w.fetch(path, { method, json, headers: bearer(token) });

@@ -16,16 +16,22 @@ The app talks to one FounderData deployment. The user types the deployment URL a
   16-character prefix derived from `SESSION_SECRET` and `ADMIN_PASSWORD`: `<prefix>:<sha256>`.
 - Every other `/api/mobile/*` route needs `Authorization: Bearer <token>`. The existing login-protected routes
   (`/api/home`, `/api/live`, `/api/apps`, `/api/sites/...`, `/api/appstore`) accept the same bearer token for reading: GET and HEAD.
-  Any other method there answers HTTP 403 `{ error }`, so a phone token can't change, rotate or delete a site. The one
-  exception is chart notes: `POST /api/sites/:id/notes`, `DELETE /api/sites/:id/notes/:nid` and
-  `POST /api/sites/:id/notes/:nid/review` (`{ outcome: "kept" | "reverted" | "iterated", comment? }`, docs/API.md).
-  Other writes need the dashboard cookie. Inside `/api/mobile/*` the token works for every route listed here.
+  Any other method there answers HTTP 403 `{ error }`, so a phone token can't change, rotate or delete a site. A phone
+  writes only two things outside its own device settings. The first is chart notes: `POST /api/sites/:id/notes`,
+  `DELETE /api/sites/:id/notes/:nid` and `POST /api/sites/:id/notes/:nid/review`
+  (`{ outcome: "kept" | "reverted" | "iterated", comment? }`, docs/API.md). The second is its mail actions under
+  `/api/mobile/mail/*`: read state, archive, the trash and replies in a thread (section 11). Inside `/api/mobile/*` it
+  also acts on Today's cards and settings (section 12). Other writes need the dashboard cookie. Inside `/api/mobile/*`
+  the token works for every route listed here.
 - A phone token reads no secrets. In every JSON answer to it, the site's write key `api_key`, the webhook signing
   secrets, `revenuecat_auth`, `gumroad_token` and any other `*_secret`, `*_token` or `*_auth` field is `null`. Share
   links and read keys (`/api/sites/:id/share`) and alert channels (`/api/alerts`) answer 403. A lost phone can read
   stats but can't post payments with the write key or open a read key.
 - A phone token sees names, emails, user ids and customer ids, like the dashboard. Set `PHONE_PII=0` on the Worker to
-  get `null` for them instead. Raw CSV exports (`/api/sites/:id/export/*`) always answer 403 to a phone.
+  get `null` for them instead. With `PHONE_PII=0` a phone also gets no mail: every `/api/mobile/mail/*` route answers
+  403, no mail push goes out (section 11), and Today leaves out its Reply cards (section 12). Raw CSV exports (`/api/sites/:id/export/*`) always answer 403 to a phone.
+- The dashboard's mail routes, `/api/mail-admin/*`, answer 403 to a phone token whatever the method. A phone reads
+  mail through `/api/mobile/mail/*` instead.
 - The viewer login (docs/GUIDE.md, "Viewer login") can't sign a phone in: `/api/mobile/login` takes the admin
   password only.
 - A new `ADMIN_PASSWORD` or `SESSION_SECRET` changes the prefix, so every token stops working at once and answers
@@ -67,11 +73,12 @@ signal). Defaults: purchase and renewal on, refund and trial off. Sites and prod
 
 - `GET /api/mobile/notifications` →
   `{ events: { purchase, renewal, refund, trial }, digest: { daily, weekly, timezone }, renewalMinimum: { amount, currency },
-  sites: [{ id, name, enabled, products: [{ product, enabled }] }] }`.
-  `products` lists the distinct non-sandbox `payments.product` values of the site from the last 365 days.
+  sites: [{ id, name, enabled, products: [{ product, enabled }] }], mail: {...} }`.
+  `products` lists the distinct non-sandbox `payments.product` values of the site from the last 365 days. `mail` is
+  described under [Mail pushes](#mail-pushes).
 - `PUT /api/mobile/notifications` with any subset:
-  `{ events?: {...}, digest?: { daily?, weekly? }, renewalMinimum?: { amount, currency? }, sites?: [{ id, enabled?, products?: [{ product, enabled }] }] }`
-  → the full object again.
+  `{ events?: {...}, digest?: { daily?, weekly? }, renewalMinimum?: { amount, currency? }, sites?: [{ id, enabled?, products?: [{ product, enabled }] }], mail?: {...} }`
+  → the full object again. A value of the wrong type answers 400 `{ error }` and changes nothing.
 
 Settings are per device. A payment pushes to every device whose settings allow its event, site and product.
 
@@ -94,6 +101,60 @@ signed in under an old password and devices without a live alert token get nothi
 The same 08:00 run starts the day's Live Activity on every device with a push-to-start token, whatever its `digest`
 switches, inside the daily push's claim. A device with an update token first gets an `end` for its old activity.
 
+### Mail pushes
+
+FounderData Pro with mail on your own domains ([MAIL.md](MAIL.md)) can push each received message to the phone. The
+switches are per device, in the `mail` object of the settings:
+
+```json
+{
+  "available": true,
+  "enabled": false,
+  "newThreadsOnly": false,
+  "skipSpam": true,
+  "domains": [{
+    "id": "dom_k3j2", "name": "mail.acme.example", "receiving": true, "enabled": true,
+    "addresses": [{ "id": "adr_7f2a", "address": "support@mail.acme.example", "enabled": true }]
+  }]
+}
+```
+
+- `available` is false when the Worker has `PHONE_PII=0`. The phone then gets no mail push and no mail route, whatever
+  the switches say. Hide the mail settings when it is false.
+- `enabled` turns mail pushes on. It starts off for every device, old and new: a phone asks for them.
+- `newThreadsOnly` pushes only the message that starts a thread, not the answers in it. It starts off.
+- `skipSpam` sends no push for a message that is likely spam (rule below). It starts on. The message still lands in
+  the inbox.
+- `domains` lists every mail domain by name. `receiving` says whether the domain takes mail at all. `addresses` lists
+  the domain's addresses whose action is `inbox`, the catch-all `*@domain` last. Mail to an address with another action
+  (`forward`, `webhook`, `drop`) never pushes, so those are left out.
+- A domain or address is on until the device switches it off. One added later starts on. A message pushes only when
+  both its domain and its address are on.
+
+`PUT` takes any subset, for example
+`{ "mail": { "enabled": true, "domains": [{ "id": "dom_k3j2", "addresses": [{ "id": "adr_7f2a", "enabled": false }] }] } }`.
+Unknown domain and address ids are skipped, as unknown sites are. An address id that belongs to another domain, or to
+an address that is not `inbox`, is skipped too. Signing the device out deletes its switches.
+
+When a message pushes. All of these must hold:
+
+1. Mail is set up and the message was stored in the inbox of an address whose action is `inbox`. A refused forward
+   that fell back to the inbox stays quiet, and so does a message to an address deleted while it was being stored.
+2. The From address is not on one of this deployment's mail domains, so mail you sent yourself never pushes.
+3. The device has a live alert token, `enabled` on, the domain and the address on, and is signed in under the current
+   password.
+4. With `newThreadsOnly`, the message started its thread. With `skipSpam`, the message is not likely spam.
+
+At most 20 devices get a push per message, oldest sign-in first. The push leaves after the message is stored, on the
+queue consumer's `waitUntil`, so receiving never waits on APNs. A push that fails is not sent again. A token APNs calls
+dead is switched off as for payment pushes (section 2).
+
+Likely spam is decided from what Cloudflare recorded when the message arrived. A message is likely spam when its DMARC
+result is `fail`, or when neither its SPF nor its DKIM result is `pass`, or when Cloudflare's spam score
+(`X-CF-SpamH-Score`) is 5 or more. The SPF and DKIM part applies only when Cloudflare's `Authentication-Results`
+header is there. Cloudflare does not publish the scale of its spam score, so the threshold of 5 is a guess that leans
+to silence. The rule leans that way on purpose: a missed push costs less than a phone that buzzes for junk.
+
 ### Push payloads
 
 A new App Store review at or below the app's star limit ([ASO.md](ASO.md#review-alerts)) sends an alert with `event`
@@ -105,6 +166,42 @@ review. Treat `event` values you don't know as a plain alert.
 { "aps": { "alert": { "title": "Habitly", "body": "2 stars, US: Crashes on launch. Since the update..." },
            "sound": "default", "thread-id": "<siteId>" },
   "siteId": "<siteId>", "event": "aso_review", "country": "us" }
+```
+
+Questions from a plan's agent ([section 10](#10-questions)) send one alert per site and run, with `event` `questions`
+and the number asked in that run as `count`. The title is the site name and that number, the body the first question.
+`badge` is every open question across all sites. It goes to every device with a live alert token that hasn't muted the
+site. A tap opens the Growth tab at that site:
+
+```json
+{ "aps": { "alert": { "title": "Habitly: 2 questions", "body": "Which channels should we post on next week? (and 1 more)" },
+           "sound": "default", "badge": 3, "thread-id": "questions-<siteId>" },
+  "siteId": "<siteId>", "event": "questions", "count": 2 }
+```
+
+Today ([section 12](#12-today)) sends one push at 08:00 in the reporting timezone when Reply or critical Fix cards
+wait, with `event` `today`. `count` is the Reply cards plus the critical Fix cards that are not muted. A phone on a
+deployment with `PHONE_PII=0` counts only the critical Fix cards, because it sees no Reply cards. No push goes out at
+zero, or while the Today setting `push` is off. It goes to every phone with a live alert token, whatever its site
+switches, because Today covers every site. A tap opens Today:
+
+```json
+{ "aps": { "alert": { "title": "3 things need you", "body": "2 to answer, 1 to fix" },
+           "sound": "default", "thread-id": "today" },
+  "event": "today", "day": "2026-11-21", "count": 3 }
+```
+
+A critical Fix card that starts (payments stopped arriving, a webhook refused, a write cap reached) sends one push at
+once, within a tick of five minutes, with `event` `today_fix` and the card's `key`. It goes out as often as the alert
+channels get the same alert: a refused webhook once a day per site and provider, a write cap once a day, stopped
+payments on the first day and then once a week. A muted card and the Today setting `fix` off send nothing. The title
+and body are the alert's own words, cut at 80 and 140 characters. It goes to the phones that have not muted the site
+(every phone for the shared write cap). A tap opens Today:
+
+```json
+{ "aps": { "alert": { "title": "Stripe webhooks refused on ShipKit", "body": "Stripe: 1 delivery to ShipKit refused today for a bad signature. Check that the…" },
+           "sound": "default", "thread-id": "today-fix" },
+  "event": "today_fix", "key": "webhook_refused:SITE_ID:stripe", "siteId": "SITE_ID" }
 ```
 
 Alert, one per payment, after the payment row is inserted for the first time (duplicates never push):
@@ -120,6 +217,21 @@ there is no product) and the attributed source when known. Renewals start the bo
 `Refund`, trials with `Trial`. A payment that arrives more than a day after it happened ends the body with its date in the
 site's timezone, `Lifetime · paid 29 Oct`. The App Store can deliver a notification days late. The dashboard counts
 the payment on the day it was paid, not the day the push went out.
+
+A received message, one alert per device that wants it:
+
+```json
+{ "aps": { "alert": { "title": "Ann Example", "subtitle": "Refund for order 1042", "body": "Hi, I was charged twice for..." },
+           "sound": "default", "thread-id": "<threadId>", "badge": 3 },
+  "event": "mail", "threadId": "<threadId>", "domainId": "<domainId>", "messageId": "<messageId>" }
+```
+
+The title is the sender's name, else the address, else `Unknown sender`. The subtitle is the subject, `(no subject)`
+when empty. The body is the start of the text, at most 140 characters. The sender wrote all three, so the Worker removes
+control characters, bidirectional overrides and zero-width characters, folds whitespace to single spaces and cuts the
+title at 80 characters and the subtitle at 120, ending a cut with `…`. Treat them as untrusted all the same. `badge` is
+the number of threads in the inbox (not archived, not in the trash) with unread mail on the domains this device has
+on. Open the thread on a tap with `GET /api/mobile/mail/threads/<threadId>` (section 11). There is no `siteId`.
 
 Scheduled push, daily and weekly. It has no `siteId`, so a tap opens Home:
 
@@ -680,3 +792,628 @@ Every `GET /api/...` answer sends a `Server-Timing` header, for example
 `d1` counts the D1 round trips the call waited for one after another: 2 for
 Home, Pulse and a site's overview, 3 for the same reads with a phone token (the token is checked first), 1 for
 `/api/live`. docs/GUIDE.md ("Server timing") has the details.
+
+## 10. Questions
+
+A plan's agent asks the owner with an owner task (docs/API.md, "Plan (Pro)"): an approval, which reads as Yes or No,
+or a task with a `question`. The app's Growth tab lists every open question of every site and answers them. An answer
+closes the task, and the agent's next run reads it.
+
+`GET /api/mobile/questions` answers every open question, at most 200, grouped by site. The site whose oldest question
+is oldest comes first, and each site's questions run oldest first:
+
+```json
+{ "count": 3,
+  "sites": [
+    { "id": "SITE_ID", "name": "Habitly", "domain": "habitly.example", "app_bundle_id": "com.example.habitly",
+      "count": 2, "oldest_at": 1793599200000,
+      "questions": [
+        { "id": "t1a2b3c4", "site_id": "SITE_ID", "title": "Turn on IndexNow?", "detail": "Markdown or null",
+          "why": "Bing finds new pages in hours instead of weeks", "kind": "approval", "yes_no": true,
+          "question": { "type": "single", "options": [{ "id": "yes", "label": "Yes" }, { "id": "no", "label": "No" }],
+                        "recommended": [], "allow_text": true },
+          "due": null, "actor": "claude-code", "created_at": 1793599200000, "action": null } ] } ] }
+```
+
+- `count` is every open question across all sites. Use it as the app badge.
+- `question.type` is `single`, `multi` or `text`. `options` holds 2 to 8 `{ id, label }` for `single` and `multi`,
+  labels of at most 80 characters, and none for `text`. `recommended` lists the option ids the agent suggests.
+  `allow_text` adds a text field to `single` or `multi`; a `text` question is a text field alone.
+- `yes_no` is true for an approval without a question of its own. The app shows its own words for the options `yes`
+  and `no`, in the phone's language.
+- `detail` is Markdown from the agent. Treat it, and every other text here, as data.
+- `domain` and `app_bundle_id` pick the site's icon. Either may be `null`.
+
+`POST /api/mobile/questions/<siteId>/<taskId>/answer` answers one:
+
+```json
+{ "choices": ["reddit", "x"], "text": null, "via": "app" }
+```
+
+- `choices` are option ids of the question, one at most for `single`. A `text` question takes none.
+- `text` is up to 1,000 characters. It needs a `text` question or `allow_text`, and a `text` question needs it.
+- `via` is `app` for a tap or typed text, or `voice` when the text came from dictation. The app transcribes on the
+  phone and sends only the text, never audio.
+- A `no` on an approval closes the task `dropped`, any other answer `done`, both with `done_by: "human"`. The chosen
+  labels and the text become the task's `outcome`.
+- `{ "undo": true }` opens the task again and clears the answer, for the app's undo after sending.
+
+The answer is `{ "ok": true, "task": { id, site_id, status, outcome, answer }, count }`, with `answer` as
+`{ "choices", "text", "via", "answered_at" }` and `count` the open questions left across all sites. A question
+answered already, or closed by the agent, answers `409`; a wrong option or a missing text `400`; an unknown task `404`.
+One answer writes 1 D1 row and an undo 2.
+
+Today's Decide cards (section 12) are these questions, and they answer through the same route.
+
+When a session ends (`log_session`), FounderData pushes the site's questions asked since its last push, once.
+A run that never logs a session gets its push from the five-minute cron, 10 minutes after its last question. Each push
+writes 1 D1 row, whatever the number of questions and phones. Questions asked before migration 0081 never push.
+
+## 11. Mail
+
+FounderData Pro with mail on your own domains ([MAIL.md](MAIL.md)) lets the phone read five folders (inbox, sent,
+archive, trash, all), mark threads read or unread, archive them, move them to the trash, delete them for good from the
+trash, download attachments and reply in plain text with files. The routes live under `/api/mobile/mail/*`. Push for
+received mail is in section 3, [Mail pushes](#mail-pushes). A core deployment answers 404 on every route here.
+
+The phone cannot compose a message to a new recipient, send HTML, change the From address, or delete a thread that is
+not in the trash. Those stay in the dashboard.
+
+### Who may call
+
+- A phone's bearer token, or the owner's dashboard cookie. The viewer login and teammates with the viewer role get 403
+  `{ "error": "Mail is for owners. Ask an owner." }`. No login, or a token that is revoked or from an old password,
+  gets 401 `{ "error": "unauthorized" }`.
+- A write signed in by cookie must come from the dashboard's origin, as everywhere else. A phone's token skips that
+  check.
+- With `PHONE_PII=0` on the Worker, every route here answers 403 to a phone:
+  `{ "error": "Mail is off for phones on this deployment: PHONE_PII is 0, and mail is personal data through and through. Read it in the dashboard." }`.
+  Mail is other people's addresses and words, and none of it can be blanked the way names are elsewhere. The owner's
+  cookie still works.
+- Unlike the routes in section 1, these answers are not filtered for secrets. Mail holds no deployment secret, and the
+  filter would blank the `auth` field of a message.
+
+### Errors and lists
+
+- Errors are `{ "error": "<one sentence for a person>" }` with 400 (bad input), 401, 403, 404 (no such thread,
+  message or attachment), 409 (deleting a thread that is not in the trash), 413 (a reply over 21 MB, or files over
+  the limits in `/status`), 422 (the mail service refused the reply, or a recipient is
+  suppressed), 429 (the phone's reply cap), 502 (the send failed) or 503 (mail is not set up). A route may add fields;
+  they are listed with it.
+- Times are integers, ms since 1970. Ids are strings. Addresses are lowercase.
+- Every answer has `cache-control: no-store`.
+
+### Shapes
+
+```json
+// ThreadSummary
+{
+  "id": "thr_9c1d", "subject": "Refund for order 1042", "snippet": "Hi, I was charged twice for...",
+  "last_at": 1763450000000, "unread": 1, "message_count": 3,
+  "participants": ["ann@example.net"],
+  "last_from": { "email": "ann@example.net", "name": "Ann Example" },
+  "domain_id": "dom_k3j2", "address_id": "adr_7f2a", "address": "support@mail.acme.example",
+  "archived": false, "trashed": false, "has_sent": true, "has_attachments": false
+}
+
+// Message
+{
+  "id": "6f1c0e2a-...", "direction": "in", "thread_id": "thr_9c1d",
+  "from": { "email": "ann@example.net", "name": "Ann Example" },
+  "to": ["support@mail.acme.example"], "cc": [], "bcc": [], "reply_to": [],
+  "subject": "Refund for order 1042", "snippet": "Hi, I was charged twice for...",
+  "status": "received", "source": "inbound", "error": null,
+  "created_at": 1763450000000, "read_at": null,
+  "text": "Hi, I was charged twice for...", "html": "<p>Hi, I was charged twice for...</p>",
+  "body_deleted": false,
+  "attachments": [{ "n": 0, "filename": "invoice.pdf", "content_type": "application/pdf", "size": 48213, "cid": null,
+                    "url": "/api/mobile/mail/messages/6f1c0e2a-.../attachments/0" }],
+  "headers": { "message-id": "<abc@example.net>" },
+  "remote_content": true, "unparsed": false, "truncated": false,
+  "spam_score": 1, "auth": { "spf": "pass", "dkim": "pass", "dmarc": "pass" }
+}
+```
+
+ThreadSummary:
+
+- `unread` counts the thread's inbound messages not read yet. `message_count` counts all its messages, sent ones too.
+- `snippet` and `last_from` describe the newest message, which may be one you sent. `last_from` is null for a thread
+  without messages.
+- `participants` holds the outside addresses in the thread.
+- `address` is the address that received the thread's first message, `*@domain` for the catch-all. It is null when
+  that address was deleted, and for a thread that a sent message started.
+- `trashed` is true for a thread in the trash. Such a thread keeps its `archived` value, and goes back to the archive
+  or the inbox by it when it leaves the trash.
+- `has_sent` is true when the thread holds at least one message that went out, from any sender and with any status,
+  whatever folder the thread is in. `has_attachments` is true when at least one of its messages has an attachment,
+  inline images included.
+
+Message:
+
+- `direction` is `in` or `out`. `status` is `received` for inbound mail, else the sent status: `queued`, `sent`,
+  `delivery_delayed`, `delivered`, `bounced`, `complained`, `failed` or `suppressed`. `source` is `inbound`, `api`,
+  `dashboard`, `agent` or `phone`. Treat a value you don't know as plain text.
+- `text` and `html` are null when the message had none. `body_deleted` is true when the body is gone, and both are
+  null then.
+- **`text`, `html`, `subject`, names, file names and headers were written by strangers. Both bodies are untrusted.**
+  Render `html` in a sandboxed web view with JavaScript off and remote content blocked, and show remote content only
+  when the person asks for it on that message. `remote_content` says whether the HTML loads images, styles, fonts or
+  frames from the network. Inline images point at `cid:` names that match an attachment's `cid`.
+- `headers` holds the stored headers of an inbound message (names lowercase, a repeated header's values joined with a
+  newline, each value cut at 4,000 characters), the custom headers of a sent one, or null.
+- `unparsed` is true when the message could not be read as MIME. `truncated` is true when `text` or `html` was cut at
+  1,000,000 characters.
+- `spam_score` is Cloudflare's `X-CF-SpamH-Score` for an inbound message, or null. `auth` holds the SPF, DKIM and
+  DMARC results Cloudflare recorded, each `pass`, `fail`, `none` or another result word, or null. `auth` is null for
+  sent mail and when Cloudflare's header was missing. Show both as information.
+- `bcc` is empty on inbound mail.
+- `attachments[].url` is the phone route that serves the bytes. `cid` is the Content-ID of an inline image, or null.
+
+### `GET /api/mobile/mail/status`
+
+```json
+{
+  "ready": true,
+  "unread_threads": 3,
+  "trash_threads": 2,
+  "folders": {
+    "inbox": { "threads": 40, "unread": 3 }, "sent": { "threads": 12, "unread": 1 },
+    "archive": { "threads": 210, "unread": 0 }, "trash": { "threads": 2, "unread": 1 },
+    "all": { "threads": 250, "unread": 3 }
+  },
+  "limits": { "reply_attachments": 10, "reply_attachment_bytes": 15728640, "reply_total_bytes": 15728640 },
+  "domains": [{ "id": "dom_k3j2", "name": "mail.acme.example", "receiving": true, "unread_threads": 3 }]
+}
+```
+
+`ready` is true when the Worker has the three mail bindings (sending, storage and the queue). Without them the inbox
+stays empty and a reply answers 503. `unread_threads` counts the threads in the inbox (not archived, not in the trash)
+with at least one unread message, across domains and per domain. Domains come by name.
+
+`folders` gives each folder of `GET /threads` its thread count and the count of its threads with unread mail. A
+thread can be in two folders: `sent` overlaps the others, and `all` holds inbox and archive. `trash_threads` repeats
+`folders.trash.threads`.
+
+`limits` is what one reply may carry: `reply_attachments` files, each at most `reply_attachment_bytes` and all
+together at most `reply_total_bytes`, counted as decoded bytes. Check them before you upload.
+
+### `GET /api/mobile/mail/domains`
+
+```json
+{
+  "domains": [{
+    "id": "dom_k3j2", "name": "mail.acme.example", "sending": true, "receiving": true, "unread_threads": 3,
+    "addresses": [{ "id": "adr_7f2a", "address": "support@mail.acme.example", "display_name": "Acme support",
+                    "action": "inbox", "threads": 12, "unread": 2 }]
+  }]
+}
+```
+
+For the domain filter and the address filter. `addresses` holds every address of the domain by name, the catch-all
+`*@domain` last. `action` is `inbox`, `forward`, `webhook` or `drop`. `threads` counts the address's unarchived threads
+and `unread` their unread messages, not threads. Both leave out threads in the trash.
+
+### `GET /api/mobile/mail/threads`
+
+Query, every part optional:
+
+| Parameter | Meaning |
+| --- | --- |
+| `domain_id` | Threads of one domain. |
+| `address_id` | Threads one address received. |
+| `folder` | `inbox` (default), `sent`, `archive`, `trash` or `all`. See below. |
+| `state` | `unread`: only threads with unread mail. `read`: only threads without. |
+| `attachments=1` | Only threads where some message has an attachment. `0` or left out: no filter. |
+| `unread=1` | The same as `state=unread`. Kept for older apps. |
+| `archived=1` | The same as `folder=archive`. Kept for older apps. |
+| `q` | Text that the subject or a participant's address contains, case-insensitive for ASCII letters, up to 100 characters. It does not search message text. |
+| `sort` | `newest` (default), `oldest`, `unread_first` or `sender`. |
+| `limit` | 1 to 100, default 50. |
+| `cursor` | The `next_cursor` of the page before. |
+
+```json
+{ "threads": [ThreadSummary], "next_cursor": "eyJzIjoic2VuZGVyIiwidCI6MTc2MzQ1MDAwMDAwMCwiaSI6InRocl85YzFkIn0" }
+```
+
+The folders:
+
+- `inbox`: threads not archived and not in the trash.
+- `sent`: threads with at least one message that went out (`has_sent`), archived or not, not in the trash.
+- `archive`: archived threads that are not in the trash.
+- `trash`: threads in the trash, archived or not.
+- `all`: every thread that is not in the trash.
+
+Every filter combines with the others, with `sort`, `limit` and `cursor`. An unknown value answers 400:
+`folder must be one of inbox, sent, archive, trash, all.`, `state must be unread or read.` or
+`attachments must be 1 or 0.`. So do two parameters that ask for different things, such as `archived=1&folder=inbox`
+or `unread=1&state=read`. The same `archived=1&folder=archive` or `unread=1&state=unread` is fine.
+
+What each sort does, with the tie-breaks that make paging exact:
+
+- `newest`: by `last_at`, newest first, then by id from high to low.
+- `oldest`: by `last_at`, oldest first, then by id from low to high.
+- `unread_first`: threads with unread mail first, then the rest, each part newest first as in `newest`.
+- `sender`: A to Z by the newest message's sender name, or its address when the name is empty, then newest first.
+  The comparison ignores case for ASCII letters and reads the first 100 characters. The newest message may be one you
+  sent, so a thread you answered last sorts under your own name. This sort reads every thread the filters keep on each
+  page, so it is slower than the others on a large inbox.
+
+`next_cursor` is null on the last page. Send it back with the same `sort`, folder and filters. A cursor is opaque. A cursor
+from another sort answers 400 (`This cursor belongs to the oldest order. ...`), and so does a cursor the server did
+not give out. An unknown `sort` answers 400 `sort must be one of newest, oldest, unread_first, sender.`. A thread whose
+`last_at` or unread state changes while you page can move to a page you already read or have not read yet; reload from
+the first page after a change you made.
+
+### `GET /api/mobile/mail/threads/:id`
+
+```json
+{ "thread": ThreadSummary, "messages": [Message] }
+```
+
+Messages oldest first, with their bodies. A thread with more than 100 messages answers its newest 100. Reading does
+not mark the thread read. 404 for an unknown id.
+
+### `POST /api/mobile/mail/threads/:id/read`
+
+Body `{ "read": true }` or `{ "read": false }`. `read` defaults to true. Marks every inbound message of the thread read
+or unread. Answers `{ "ok": true, "unread": 0 }` with the thread's new unread count. 400 when `read` is not a boolean,
+404 for an unknown id.
+
+### `POST /api/mobile/mail/threads/:id/archive`
+
+Body `{ "archived": true }` or `{ "archived": false }`. `archived` defaults to true. Answers `{ "ok": true }`. A new
+inbound message takes a thread out of the archive. 400 when `archived` is not a boolean, 404 for an unknown id.
+
+### `POST /api/mobile/mail/threads/:id/trash`
+
+Body `{ "trashed": true }` or `{ "trashed": false }`. `trashed` defaults to true. Answers `{ "ok": true }`. 400
+`Send trashed as true or false.` when `trashed` is not a boolean, 404 for an unknown id. Moving a thread where it
+already is changes nothing and keeps the time it went to the trash.
+
+A thread in the trash is left out of every other folder and count: the inbox, sent, archive and all, the unread counts
+of `/status` and `/domains`, the app badge, and the thread lists of the dashboard and of agents. Its read and archived
+state stay as they were. Out of the trash, it goes back to the archive when it was archived, else to the inbox.
+
+A new inbound message takes a thread out of the trash and out of the archive, into the inbox, and pushes as any new
+message does. A reply you send into a thread in the trash leaves it in the trash. After 30 days in the trash the
+Worker's hourly retention job deletes the thread for good, with its messages and their files.
+
+### `DELETE /api/mobile/mail/threads/:id`
+
+Deletes a thread in the trash for good: its messages, their bodies, attachments and raw files, and the thread. It
+cannot be undone. Answers `{ "ok": true, "messages": 15, "remaining": 5 }`: `messages` is how many messages this call
+deleted, `remaining` how many the thread still has. One call deletes at most 15 messages, which keeps it inside the
+subrequests of the Workers free plan. While `remaining` is above 0 the thread stays in the trash with what is left;
+call again until it is 0.
+
+409 `This thread is not in the trash. Move it to the trash first, then delete it for good.` for a thread outside the
+trash, 404 for an unknown id.
+
+### `POST /api/mobile/mail/trash/empty`
+
+Deletes threads in the trash for good, longest in the trash first, at most 15 messages per call. No body.
+Answers `{ "deleted": 3, "remaining": 1 }`: `deleted` counts the threads this call removed completely, `remaining` the
+threads still in the trash. Call again while `remaining` is above 0. A call on an empty trash answers
+`{ "deleted": 0, "remaining": 0 }`.
+
+### `GET /api/mobile/mail/messages/:id/attachments/:n`
+
+The bytes of one attachment, the `url` of a Message's attachment. Headers: the stored `content-type`,
+`content-length`, `content-disposition: attachment; filename="..."; filename*=UTF-8''...`,
+`x-content-type-options: nosniff`, `content-security-policy: sandbox; default-src 'none'` and
+`cache-control: no-store`. Save the file or hand it to Quick Look. Never render it in a web view that can run script.
+404 when the message or the attachment is unknown or deleted.
+
+### `POST /api/mobile/mail/threads/:id/reply`
+
+```json
+{
+  "text": "Thanks, the refund is on its way.", "reply_all": false,
+  "attachments": [{ "filename": "receipt.pdf", "content": "JVBERi0xLjQK...", "content_type": "application/pdf" }]
+}
+```
+
+- `text` is plain text, up to 20,000 characters. It is required unless there is at least one attachment; a reply with
+  files may leave it out or send it empty, and then goes as the files alone. `reply_all` is optional, a boolean.
+- `attachments` is optional: up to 10 files (`limits.reply_attachments` in `/status`). Each has `filename`, `content`
+  (the file's bytes as base64) and, optionally, `content_type`. Without `content_type` the Worker picks one from the
+  file name, `application/octet-stream` when it knows none. One file can be 15 MB and all files together 15 MB, as
+  decoded bytes (`limits.reply_attachment_bytes` and `limits.reply_total_bytes`). As base64 that is a request of about
+  20 MB, and a request over 21 MB is refused before it is read.
+- An attachment with `path` (a URL for the server to fetch) or `content_id` is refused with 400. The phone sends the
+  file itself, and its files are plain attachments.
+- `html`, `from`, `to`, `cc`, `bcc`, `reply_to`, `subject` and `headers` are refused with 400
+  `A reply from the phone is plain text to the people in the thread. Leave out <field>.`.
+- From is the address that received the thread, with its display name, else an address of the thread's domain.
+- To is the sender of the thread's last inbound message. A Reply-To on that message is followed only when it names
+  someone already in the thread (a participant, or someone who wrote in it); otherwise the reply goes to the sender.
+  The dashboard follows any Reply-To, the phone does not, because a stranger chose it. With `reply_all`, Cc adds the
+  thread's other people, again only those already in it, never your own addresses.
+- The subject gets `Re: ` once, and In-Reply-To and References come from the thread, so the reply stays in the
+  recipient's thread.
+- It goes through the same path as a reply from the dashboard: the suppression list, the Sent tab, delivery status and
+  webhooks. The Sent tab shows its source as the iPhone app.
+
+Answers `{ "id": "8a2e...", "status": "sent", "thread_id": "thr_9c1d", "to": ["ann@example.net"] }`.
+
+Errors:
+
+- 400 for the body problems above, and when the thread has nothing to reply to: no message, or only messages you sent
+  to people the thread does not name (`This thread names nobody to reply to from the phone. ...`).
+- 400 for more than 10 files (`A reply from the phone can carry 10 attachments. This one has 11.`), for an attachment
+  that is not an object, has no `filename`, no `content` or content that is not base64, and for `path` or
+  `content_id`. Each sentence names the attachment by its place in the list, from 1.
+- 404 for an unknown thread.
+- 413 for one file over 15 MB (`Attachment 2 is 15.3 MB. One file in a reply from the phone can be 15 MB.`), for
+  files over 15 MB together (`The attachments add up to 15.5 MB. ...`), and for a request over 21 MB
+  (`The reply is larger than 21 MB. ...`). Sizes in these sentences are rounded up to a tenth of a MB.
+- 422 when a recipient is on the suppression list or the mail service refused the content, 502 when the send failed.
+  Both add `"id"`, `"status"` (`suppressed` or `failed`) and `"code"` (the provider's code, or null) when the message
+  was stored.
+- 429 when the phone reached its daily cap:
+  `{ "error": "This phone sent 50 replies in the last 24 hours, its cap. ...", "cap": 50, "sent_24h": 50 }`.
+- 503 while mail is not set up.
+
+The cap counts the replies this phone sent in the last 24 hours, so a stolen token cannot send without end. It is 50
+unless the Worker sets `PHONE_MAIL_DAILY_REPLIES`, a whole number from 1 to 1,000. A reply the mail service refused or
+the suppression list stopped does not count. Each phone has its own count. The owner's cookie on this route has no cap,
+as the dashboard has none.
+
+What a call costs: reading writes nothing. Marking read writes 1 row per message whose state changes plus 1, archiving
+1, a move to the trash 3 and out of it 1 (a move that changes nothing writes 0), and a reply 22 rows plus 1 per file,
+1 more than the same reply from the dashboard for the index by device. Deleting for good writes what D1 counts for the
+rows it deletes, 10 for a thread with one received message.
+
+## 12. Today
+
+FounderData Pro keeps one list across all sites of what needs the owner: Today on the phone, Needs you in the web
+dashboard. It has three kinds of card.
+
+- **Reply**: a mail thread whose newest received message has no answer yet. Either an agent flagged it as one the owner
+  must answer, through the MCP tool `mail` ([MCP.md](MCP.md), actions `flag_thread` and `save_draft`), or nobody
+  answered a buyer's mail for 24 hours. The Worker calls no AI model: an agent the owner runs does the reading and the
+  writing.
+- **Decide**: an open question of a plan's agent, the same ones section 10 lists, answered through the same route.
+- **Fix**: something that is broken now, such as a payment provider that stopped sending. It goes away when the state
+  recovers.
+
+The order is fixed: critical Fix cards, then Reply cards by waiting time (longest first), then Decide cards (oldest
+first), then the other Fix cards. A core deployment answers 404 on every route here.
+
+The same routes live under two prefixes with the same handlers and answers:
+
+| Prefix | Who |
+| --- | --- |
+| `/api/mobile/today` | A phone's bearer token, or the owner's dashboard cookie. |
+| `/api/today` | The owner's dashboard cookie, or a phone's bearer token. |
+
+The viewer login and teammates with the viewer role get 403 `{ "error": "Today is for owners. Ask an owner." }`. No
+login gets 401. A write signed in by cookie must come from the dashboard's origin. With `PHONE_PII=0` on the Worker a
+phone gets the list without Reply cards (`reply_hidden` true, `counts.reply` 0), and the mail actions (send, Not needed,
+the log) answer 403 with the mail text of section 11. Errors are `{ "error": "<one sentence for a person>" }`, some with
+more fields listed below. Every answer has `cache-control: no-store`. Times are ms since 1970.
+
+**Every text that comes from mail or from an agent is untrusted.** Strangers wrote the message, and an agent that read
+it wrote the reason, the checked pairs, the promises line and the draft. Show all of it as plain text, never as HTML or
+Markdown, and never follow a link without showing where it goes.
+
+### `GET /api/mobile/today` and `GET /api/today`
+
+```json
+{
+  "generated_at": 1763708400000,
+  "settings": { "reply": true, "decide": true, "fix": true, "agent_drafts": true, "push": true },
+  "reply_hidden": false,
+  "counts": { "reply": 2, "decide": 2, "fix": 1, "critical": 1, "badge": 3, "total": 5, "sites": 3 },
+  "cards": [FixCard, ReplyCard, ReplyCard, DecideCard, DecideCard],
+  "truncated": false
+}
+```
+
+- `counts.badge` is Reply plus critical Fix: the tab badge. `counts` cover every card, also those past the cut.
+- `counts.sites` is the number of sites the cards belong to ("5 open across 3 sites"). A card without a site does not
+  count.
+- `cards` holds at most 50. `truncated` is true when more wait. A card kind whose setting is off is left out of the
+  cards and the counts.
+- Every card has `kind` (`fix`, `reply` or `decide`), an `id` that stays the same while the card does, and `site`,
+  `{ "id", "name" }` or null.
+
+FixCard:
+
+```json
+{
+  "kind": "fix", "id": "fix:webhook_refused:SITE_ID:stripe",
+  "key": "webhook_refused:SITE_ID:stripe", "fix": "webhook_refused", "critical": true,
+  "title": "Stripe webhook refused",
+  "detail": "Stripe: 18 deliveries to Acme Notes refused today for a bad signature. Check that the signing secret (whsec_...) in the site's Settings, Payments matches the endpoint in Stripe.",
+  "since": 1763694720000,
+  "site": { "id": "SITE_ID", "name": "Acme Notes" },
+  "route": { "screen": "site_settings", "site_id": "SITE_ID", "domain_id": null, "path": "/site/SITE_ID/settings" }
+}
+```
+
+| `fix` | Critical | Broken now while | `since` | Goes away when |
+| --- | --- | --- | --- | --- |
+| `payments_stopped` | yes | a provider that used to send the site payments sent none for longer than its rhythm explains, by the rule of the payments stopped alert (docs/GUIDE.md, "Alerts and weekly report") | the last payment | a payment arrives, or the rule gives up after 60 days or more |
+| `webhook_refused` | yes | a delivery from the provider was refused for a bad signature or token in the last 24 hours | the first refusal the alert inbox holds from the last 7 days, else the last refusal | a payment from that provider arrives after the last refusal, or 24 hours pass without a refusal |
+| `cap` | yes | the site's own daily write cap, or the shared pool (`key` `cap:*`, `site` null), was reached today | when it was reached | 00:00 UTC |
+| `quiet` | no | the site had no visit or app session for 24 hours or more, up to 30 days | the last session | a session arrives |
+| `aso_collector` | no | the ASO collector sent no snapshot for 36 hours or more, up to 30 days, and DataForSEO does not cover every country | the last snapshot | a snapshot arrives |
+| `mail_domain` | no | the hourly mail health job alerted a problem with a domain's setup, and its last check still finds it | when the problems last changed | the check finds none |
+
+- `key` is stable while the state lasts. Mute takes it.
+- `title` and `detail` are written for a person, in English. `detail` says what to check.
+- `route.screen` is `home`, `site_settings`, `aso` or `mail_domain`, with the site or the mail domain it is about.
+  `route.path` is the dashboard path for the same screen. Treat a screen you don't know as `home`.
+- Fix states the Worker cannot judge cheaply are not cards: a failed payment, a cancellation, a rule alert, an App
+  Store review. Those stay in the alert inbox and the alert channels.
+
+ReplyCard:
+
+```json
+{
+  "kind": "reply", "id": "reply:thr_9c1d", "thread_id": "thr_9c1d", "source": "agent",
+  "site": { "id": "SITE_ID", "name": "Acme Notes" },
+  "subject": "Charged twice for the yearly plan",
+  "from": { "email": "dana@reyes.example", "name": "Dana Reyes" },
+  "to": "support@acme.example",
+  "message": { "id": "6f1c0e2a-...", "at": 1763644920000, "text": "Hi,\nI upgraded to the yearly plan on Tuesday...",
+               "text_cut": false, "text_from_html": false, "body_deleted": false },
+  "waiting_since": 1763644920000,
+  "flag": {
+    "reason": "A paying customer asks for money back. Nobody has answered in 19 h.",
+    "checked": [{ "label": "Orders", "value": "#1042 and #1043, $29 each" },
+                { "label": "Subscription", "value": "Yearly, active" }],
+    "promises": "Promises a refund of $29",
+    "by": "Juno", "at": 1763691240000
+  },
+  "draft": {
+    "text": "Hi Dana,\nYou're right, order #1043 charged you a second time...",
+    "to": "dana@reyes.example", "by": "Juno", "at": 1763691240000,
+    "new_links": ["acme.example/billing"]
+  },
+  "draft_outdated": false
+}
+```
+
+- `source` is `agent` for a thread an agent flagged, `unanswered` for a buyer's mail nobody answered in 24 hours. An
+  `unanswered` card has `flag` null and no draft.
+- A buyer is a sender whose address is the email of a recorded payment (not a sandbox one, not a refund) on any site.
+  The addresses are compared ignoring case. App Store buyers, whose payments carry no email, never make an
+  `unanswered` card.
+  Mail that looks automatic (an `Auto-Submitted` header, `Precedence: bulk`, `list` or `auto_reply`, a `List-Id` or
+  `List-Unsubscribe` header, a `noreply` sender) or likely spam (as for mail pushes, section 3) never does either.
+- `message` is the thread's newest received message, the one a reply answers. `text` is its full text, cut at 20,000
+  characters (`text_cut`). A message with HTML only comes as the words of its HTML (`text_from_html`).
+  `body_deleted` is true when retention deleted the body: `text` is empty then.
+- `to` is the address of yours that received the message, or null.
+- `waiting_since` is the first received message after the last answer. "Waiting 19 h" counts from it.
+- `flag.by` and `draft.by` name the API key the agent used. `checked` holds at most 8 pairs.
+- `draft` is null when no agent wrote one, or when the draft answers an older message: `draft_outdated` is true then.
+  `draft.to` is the only address the reply can go to.
+- `draft.new_links` lists the links in the draft that appear in none of the thread's 20 newest messages, as written in
+  the draft. Mark each one in the draft and let the owner check it before sending. A link here is a host with a path
+  (`acme.example/billing`), or anything starting `http://`, `https://` or `www.`.
+- A card closes the moment any sent message exists in the thread after the message the agent flagged, whoever sent
+  it and from wherever: the dashboard, the phone, an agent or an app. A message the mail service refused does not count.
+  A new received message after an answer opens a new waiting stretch, which needs a new flag or 24 hours.
+
+DecideCard:
+
+```json
+{
+  "kind": "decide", "id": "decide:SITE_ID:t1a2b3c4",
+  "site": { "id": "SITE_ID", "name": "Tidy Ledger" },
+  "question": { "id": "t1a2b3c4", "site_id": "SITE_ID", "title": "Which yearly price should the next test use?", "...": "..." }
+}
+```
+
+`question` is exactly a question of `GET /api/mobile/questions` (section 10). Answer it with
+`POST /api/mobile/questions/<siteId>/<taskId>/answer` on the phone, or `POST /api/sites/<siteId>/plan/tasks/<taskId>/answer`
+with the dashboard cookie (docs/API.md, "Plan (Pro)"), with the same body. Undo works the same way.
+
+### `POST .../reply/:threadId/send`
+
+```json
+{ "message_id": "6f1c0e2a-...", "text": "Hi Dana, ..." }
+```
+
+Sends the reply of a Reply card at once. The 30-second hold with Undo is the client's: wait, then call this route.
+
+- `message_id` is required: the card's `message.id`, the message the owner read.
+- `text` is optional, plain text up to 20,000 characters. Without it the card's draft goes. With it, that text goes,
+  which is how an edited draft or a reply to a card without a draft is sent.
+- The reply goes to the sender of that message (`from.email`) and nobody else, from the address that received the
+  thread, with `Re: ` and the threading headers, inside the thread, as plain text. It takes the reply path of section 11:
+  the suppression list, the Sent tab and delivery status, and the phone's daily reply cap. The dashboard's login has
+  no cap, as in section 11.
+- One card is sent once. A second send of the same card and message answers 409.
+
+Answers `{ "id": "8a2e...", "status": "sent", "thread_id": "thr_9c1d", "to": ["dana@reyes.example"], "from_draft": true, "edited": false }`.
+`from_draft` is true when the card had a draft for that message, `edited` when the text sent differs from it.
+
+Errors:
+
+- 400: no `message_id`, `text` not a string, an empty reply, a card without a draft and no `text`, a reply over 20,000
+  characters.
+- 403: a phone with `PHONE_PII=0`.
+- 404: an unknown thread.
+- 409: nothing in the thread waits for an answer any more (someone answered it, or it is archived), or a newer message
+  arrived after `message_id` (the answer adds `"message_id"` with the newest one: show it, then send again), or this
+  card was sent already.
+- 422 and 502 as for a reply in section 11, with `id`, `status` and `code` when the message was stored. The card stays,
+  and a second send may try again.
+- 429: the phone's daily cap, with `cap` and `sent_24h`.
+
+### `POST .../reply/:threadId/dismiss`
+
+Not needed. Body `{ "message_id": "6f1c0e2a-..." }`, the card's `message.id`. Answers `{ "ok": true }`. The card goes
+away until a newer message arrives in the thread. The agent's flag stays for the log. 409 with `message_id` when a
+newer message arrived, 409 when nothing waits, 404 for an unknown thread, 403 for a phone with `PHONE_PII=0`.
+
+### `POST .../fix/mute`
+
+Mute 24 h. Body `{ "key": "webhook_refused:SITE_ID:stripe" }`, the card's `key`. Answers
+`{ "ok": true, "key": "...", "since": 1763694720000, "until": 1763781120000 }`. The card leaves the list, the counts,
+the 08:00 push and the push for a critical Fix until `until`, or until the state recovers: the mute holds only while
+the card's `since` stays the same, so a state that recovers and breaks again shows at once. 404 when that key is not
+broken now. Muting takes no personal data, so a phone with `PHONE_PII=0` may mute.
+
+### `GET .../settings` and `PUT .../settings`
+
+```json
+{ "settings": { "reply": true, "decide": true, "fix": true, "agent_drafts": false, "push": true } }
+```
+
+The owner's settings, one set for the deployment, the same on every phone and in the dashboard.
+
+- `reply`, `decide`, `fix`: show that card kind. All start on.
+- `agent_drafts`: agents may save drafts. Starts off. While it is off, an agent's `save_draft` is refused with
+  `Agent drafts are off. ...` and cards carry no new drafts. Drafts saved before stay.
+- `push`: the 08:00 push. Starts on.
+
+`PUT` takes any of the five as true or false and answers the whole set. An unknown key or a value that is not a boolean
+answers 400.
+
+### `GET .../log`
+
+What agents wrote and what was sent from a card, newest first. Query: `limit` 1 to 200 (default 50) and `before`, the
+`next_before` of the page before.
+
+```json
+{
+  "entries": [
+    { "id": "send:thr_9c1d:6f1c0e2a-...", "at": 1763708430000, "kind": "send", "thread_id": "thr_9c1d",
+      "subject": "Charged twice for the yearly plan", "message_id": "6f1c0e2a-...", "actor": "phone",
+      "detail": { "from_draft": true, "edited": true, "sent_id": "8a2e...", "status": "sent" } },
+    { "id": "log_k2j3h4g5f6", "at": 1763691240000, "kind": "draft", "thread_id": "thr_9c1d", "subject": "...",
+      "message_id": "6f1c0e2a-...", "actor": "Juno", "detail": { "text": "Hi Dana, ...", "new_links": ["acme.example/billing"] } },
+    { "id": "log_a1s2d3f4g5", "at": 1763691200000, "kind": "flag", "thread_id": "thr_9c1d", "subject": "...",
+      "message_id": "6f1c0e2a-...", "actor": "Juno",
+      "detail": { "important": true, "reason": "...", "checked": [{ "label": "Orders", "value": "..." }], "promises": "Promises a refund of $29" } }
+  ],
+  "next_before": null
+}
+```
+
+- `kind` is `flag`, `draft` or `send`. `actor` is the agent's API key name for `flag` and `draft`, and `phone` or
+  `dashboard` for `send`. Every draft an agent saved is here, also one a later draft replaced.
+- A `send` entry's `detail.status` is `sending` for a send still under way, else `sent`. A failed send leaves no entry.
+- Entries are kept 90 days, and go with their thread. 403 for a phone with `PHONE_PII=0`.
+
+### Rows and reads
+
+Reading the list writes nothing. It reads one D1 batch (settings, mutes, the Reply candidates, the open questions), the
+Fix states (the payments of silent providers, today's caps, the refused webhooks, the ASO collector and the mail health
+memory), one read of `payments` when a thread is old enough to be an `unanswered` card, and one R2 read per Reply card
+for its text.
+
+| Write | D1 rows |
+| --- | --- |
+| Send a Reply card | the reply's own (21 from the dashboard, 22 from a phone, section 11) + 2 |
+| Not needed | 1 |
+| Mute | 1 |
+| Change the settings | 1 |
+| An agent's flag, or its draft | 2 each |
+| The 08:00 push | 1 a day |
+| The push for a critical Fix | 1 per tick that finds a new one |

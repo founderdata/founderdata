@@ -21,7 +21,7 @@ import type { AppEnv } from '../src/worker/env';
 import { resetKeysForTests } from '../src/worker/keys';
 import { resetShareCachesForTests } from '../src/worker/share';
 import { startWorker, type TestWorker } from './helpers/worker';
-import { itPro } from './helpers/edition';
+import { itCore, itPro } from './helpers/edition';
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -589,5 +589,18 @@ describe('dashboard_url', () => {
       const who = await w.fetch('/api/v1/whoami', { headers: auth() });
       expect(who.headers.get('x-dashboard-url')).toBeNull();
     });
+  });
+});
+
+describe('Needs you route', () => {
+  // The page and its nav entry are FounderData Pro's slots (pro/dashboard/index.ts). Core has neither, so the path is Home.
+  itCore('opens Home in core, where no Pro slot draws the page', () => {
+    expect(matchRoute('/needs-you', false)).toEqual({ page: 'home' });
+  });
+
+  itPro('opens the Needs you page for an owner in Pro, and Home for the viewer login', () => {
+    expect(matchRoute('/needs-you', false)).toEqual({ page: 'needsYou' });
+    expect(matchRoute('/needs-you/', false)).toEqual({ page: 'needsYou' });
+    expect(matchRoute('/needs-you', true)).toEqual({ page: 'home' });
   });
 });

@@ -50,7 +50,7 @@ function PlusIcon() {
 }
 
 /**
- * All sites and apps. Money first (revenue and MRR with the live globe beside them, then the four numbers behind the money),
+ * All sites and apps. In Pro, what needs the owner comes first. Then money (revenue and MRR with the live globe beside them, then the four numbers behind the money),
  * then what changed (Worth a look, the agents' changes), then where to look (every site ranked, its card, the sources
  * and the latest payments). A period change keeps the old numbers on screen, dimmed, until the new ones tick in.
  */
@@ -141,6 +141,8 @@ export function Home() {
         ) : (
           // One grid, so a phone can put LiveCard after the site list (order-*) and a wide screen beside the money.
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-12" aria-busy={refreshing || undefined}>
+            {/* What waits on the owner, the first three cards (FounderData Pro). It does not depend on the period. */}
+            {isPro && !viewer && <ProSlot name="needsYouStrip" className="fd-reveal order-first lg:col-span-12" />}
             <Reveal className="order-1 lg:col-span-6">
               <div className={`h-full ${dim}`}>
                 <MoneyCard data={data} />

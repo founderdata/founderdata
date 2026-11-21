@@ -20,6 +20,8 @@ export const Pages = {
   Apps: proUi?.slots.appsPage ?? Upsell,
   // Mail (/mail) is FounderData Pro's too: its page in a Pro build (slot `mailPage`), the Pro card in core.
   Mail: proUi?.slots.mailPage ?? Upsell,
+  // Needs you (/needs-you) is FounderData Pro's: lib/routes.ts opens it only when Pro has the slot `needsYouPage`.
+  NeedsYou: proUi?.slots.needsYouPage ?? Upsell,
   // Custom dashboards (/dashboards) that agents build over MCP: Pro's page (slot `dashboardsPage`), the Pro card in core.
   Dashboards: (proUi?.slots.dashboardsPage ?? Upsell) as Preloadable<ComponentType<{ id: string | null }>>,
   Live: lazyNamed(() => import('../pages/Live'), 'Live'),

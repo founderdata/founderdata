@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { navigate } from '../App';
 import { isViewer, type Site } from '../lib/api';
-import { isPro } from '../lib/pro';
+import { isPro, proUi } from '../lib/pro';
 import { ALL_VIEWS, SECTION_LABELS, sectionState, sectionUrl } from '../lib/sections';
 import { setThemePref } from '../lib/theme';
 import { useApi } from '../lib/useApi';
@@ -117,6 +117,7 @@ export function CommandPalette() {
     if (!isViewer()) out.push({ id: 'go-alerts', group: 'Go to', label: 'Notifications and alerts', run: () => navigate('/notifications') });
     out.push({ id: 'go-apps', group: 'Go to', label: 'Connected apps', hint: isPro ? undefined : 'Pro', run: () => navigate('/apps') });
     out.push({ id: 'go-dashboards', group: 'Go to', label: 'Dashboards', hint: isPro ? undefined : 'Pro', run: () => navigate('/dashboards') });
+    if (!isViewer() && proUi?.slots.needsYouPage) out.push({ id: 'go-needs-you', group: 'Go to', label: 'Needs you', run: () => navigate('/needs-you') });
     if (!isViewer()) out.push({ id: 'go-mail', group: 'Go to', label: 'Mail', hint: isPro ? undefined : 'Pro', run: () => navigate('/mail') });
     for (const t of ['system', 'light', 'dark'] as const)
       out.push({ id: `t-${t}`, group: 'Theme', label: t === 'system' ? 'Follow the system' : t === 'light' ? 'Light' : 'Dark', run: () => setThemePref(t) });

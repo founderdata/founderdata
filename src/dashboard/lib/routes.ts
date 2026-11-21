@@ -1,6 +1,7 @@
 import type { FallbackKind } from '../components/ui/RouteFallback';
 import { isViewer, qs } from './api';
 import { Pages, Views } from './pages';
+import { proUi } from './pro';
 import { prefetch } from './cache';
 import type { View } from './sections';
 import { readQuery } from './useQueryState';
@@ -16,6 +17,7 @@ export type Route =
   | { page: 'home' }
   | { page: 'apps' }
   | { page: 'mail' }
+  | { page: 'needsYou' }
   | { page: 'dashboards'; id: string | null }
   | { page: 'notifications' }
   | { page: 'live' }
@@ -51,6 +53,8 @@ export function matchRoute(path: string, viewer: boolean = isViewer()): Route {
   if (/^\/apps\/?$/.test(path)) return { page: 'apps' };
   // Mail holds other people's addresses and messages: the owner's only, like Notifications.
   if (/^\/mail\/?$/.test(path) && !viewer) return { page: 'mail' };
+  // Needs you (FounderData Pro): what waits on the owner across every site. It exists only when Pro draws it.
+  if (/^\/needs-you\/?$/.test(path) && !viewer && proUi?.slots.needsYouPage) return { page: 'needsYou' };
   // Custom dashboards (FounderData Pro): the list, or one dashboard. A viewer reads them; only an owner changes them.
   const board = /^\/dashboards(?:\/([\w-]+))?\/?$/.exec(path);
   if (board) return { page: 'dashboards', id: board[1] ?? null };
@@ -94,6 +98,8 @@ function chunksOf(route: Route) {
       return [Pages.Apps];
     case 'mail':
       return [Pages.Mail];
+    case 'needsYou':
+      return [Pages.NeedsYou];
     case 'dashboards':
       return [Pages.Dashboards];
     case 'notifications':

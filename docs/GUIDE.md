@@ -279,8 +279,9 @@ to `1` if the viewer needs them, which also allows the raw CSV exports. `GET /ap
 The viewer cookie is bound to `VIEWER_PASSWORD`: changing it signs out every viewer and leaves the owner signed in.
 Removing the secret turns the viewer login off. Use a different password from `ADMIN_PASSWORD`; when both match, the
 login signs in as the owner. Phones sign in with the admin password only. A phone sees names, emails and user ids,
-because the owner's app locks itself with Face ID; set `PHONE_PII=0` to hide them on phones too. A phone never gets
-a raw CSV export, so a lost phone does not hold your customer list as a file.
+because the owner's app locks itself with Face ID; set `PHONE_PII=0` to hide them on phones too. That also turns mail
+off on phones (Pro, [MOBILE-API.md](MOBILE-API.md#10-mail)). A phone never gets a raw CSV export, so a lost phone does
+not hold your customer list as a file.
 
 ### Team (Pro)
 
@@ -2191,6 +2192,46 @@ The same screen sets the amount, or 0 for every renewal. The schedule needs the 
 deployment that keeps its crons in `wrangler.local.jsonc` can keep `0 * * * *`, which runs the same hourly work,
 but then DataForSEO rank checks and AI checks run once an hour, 24 times a day, not 288. Replace `0 * * * *` (or the
 old `0 7 * * *`) with `*/5 * * * *` there to get the numbers in the README. The 07:00 UTC run sends the alerts below.
+
+## Needs you and Today (Pro)
+
+FounderData Pro keeps one list of what waits on you, across every site. The web dashboard calls it **Needs you**. The
+iPhone app calls it **Today**. The names differ because Home's period control already has a Today button. Both read the
+same list ([MOBILE-API.md](MOBILE-API.md), section 12), so a card you finish on one is gone on the other. The viewer
+login and teammates with the viewer role don't see it.
+
+The list has three kinds of card. A critical Fix comes first, then Reply cards (longest wait first), then Decide cards
+(oldest first), then the other Fix cards. Each card shows its site.
+
+- **Reply** is a mail that waits on your answer. An agent flagged it with the MCP tool `mail`, or a buyer's mail went 24
+  hours without an answer. Open it to read the whole mail, why it is here, what the agent checked and the agent's draft.
+  An amber line names what the draft promises, such as a refund. A link in the draft that appears in none of the
+  thread's messages is underlined and tagged **New link**. Check where it goes before you send. **Edit** turns the draft
+  into a text field in place. **Not needed** removes the card until the sender writes again.
+- **Decide** is a question from a plan's agent. Click an answer and it is sent. **Undo** takes it back for 6 seconds.
+  **Answer in your own words** opens a text field.
+- **Fix** is something broken now, such as a refused payment webhook. **Open** goes to the screen where you fix it.
+  **Mute 24 h** hides the card for 24 hours. A state that recovers and breaks again shows at once.
+
+**Send** waits 30 seconds before the reply leaves. The bar at the bottom of the screen counts down and has **Undo**.
+If you leave the page in those 30 seconds, nothing is sent. The reply goes to the sender only, inside the thread, as
+plain text, and shows in Mail's Sent tab.
+
+On a wide screen the open reply sits beside the list. On a phone it opens as its own page, with Send, Edit and Not
+needed in a row above the browser's bar. The header has a **Needs you** button with the number of Reply and critical
+Fix cards. Home shows the first three cards above the money cards, with **See all**. With nothing open, Home shows one
+line: "Nothing needs you".
+
+On the iPhone, Today is a tab. Its badge counts the Reply and critical Fix cards. A Reply card opens as a sheet with
+**Send**, **Edit** and **Not needed** at the bottom, and **Edit** opens the reply composer with the draft in it. After
+Send, a row takes the card's place, counts down 30 seconds and has **Undo**. If you leave the app in those 30 seconds,
+nothing is sent and the card comes back with your edit. **Open** on a Fix card goes to the site, its ASO screen or
+Mail, since the phone has no site settings. A Decide card sends a single-choice answer on one tap, with Undo for 6
+seconds. The 08:00 push and a critical Fix push open the tab. Account has the switches under **Today**.
+
+**Settings** on the page has a switch for each card kind and one for **Agent drafts**. Agent drafts start off: an agent
+can flag mail, but FounderData refuses its drafts until you turn the switch on. The iPhone app has the same switches
+plus the 08:00 push, which counts Reply and critical Fix cards and is skipped when there are none.
 
 ## Alerts and weekly report
 

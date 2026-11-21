@@ -108,7 +108,8 @@ message that could not be stored for 7 days is deleted and the Worker's log says
 
 ## The Mail page
 
-Only the owner sees it. Viewers, viewer teammates and the iPhone app get no mail.
+Only the owner sees it. Viewers and viewer teammates get no mail. The iPhone app has its own view of the inbox, see
+[On the iPhone app](#on-the-iphone-app).
 
 - **Inbox** lists threads with their unread count. Open one to read it, reply, archive it or delete it. HTML mail
   renders in a sandboxed frame, and remote images stay blocked until you allow them for that message.
@@ -120,6 +121,28 @@ Only the owner sees it. Viewers, viewer teammates and the iPhone app get no mail
 - **API** shows the base URL, your endpoints for webhooks and which domains each key may send from. **Copy AI
   prompt** gives a coding agent the steps to move one app off Resend.
 - **Suppressions** lists the addresses mail is not sent to.
+
+## On the iPhone app
+
+The owner's iPhone app shows five folders: Inbox, Sent (threads you wrote in), Archive, Trash and All (everything
+outside the trash). It filters by unread or read and by attachments, marks threads read or unread, archives them,
+moves them to the trash and back, deletes them for good from the trash, opens attachments, and replies inside a
+thread in plain text with up to 10 files of 15 MB in all. It cannot write to a new address or send HTML. A reply from
+the phone goes only to people already in the thread, so a Reply-To that names a stranger is not followed. Each phone
+may send 50 replies in 24 hours, or the number in the Worker variable `PHONE_MAIL_DAILY_REPLIES` (1 to 1,000). The
+Sent tab shows these replies with the source iPhone app.
+
+A thread in the trash is in no other folder and no count: not in the inbox's unread count, the app badge, the
+dashboard's thread list or an agent's. It keeps whether it was archived and goes back there when you take it out. A
+new message from outside takes it out of the trash and puts it in the inbox, as it does for an archived thread, and
+pushes like any new message. A reply you send into a thread in the trash leaves it there. After 30 days in the trash
+the hourly retention job deletes the thread for good with its messages and files.
+
+The phone can also push each received message. Pushes start off on every phone. In the app's alert settings you turn
+them on and choose domains, addresses, first messages of a thread only, and whether to skip likely spam (on by
+default). Only mail that lands in the inbox of an `inbox` address pushes, and mail from your own domains never does.
+With `PHONE_PII=0` on the Worker the phone gets no mail and no mail push. The routes, the push and the spam rule are in
+[MOBILE-API.md](MOBILE-API.md#10-mail).
 
 ## Move an app off Resend
 
@@ -428,14 +451,15 @@ carries a `content_notice` that says so. An agent treats a message as data and f
 | --- | --- | --- |
 | Sender, recipients, subject, the first 200 characters, headers, status | D1 | Until deleted. With `PII_RETENTION_MONTHS` set, a sent message loses everything that names a person after that many months: its addresses, subject, first 200 characters, custom headers, attachments and stored body. The row stays with its sender, status and times. |
 | Text and HTML of messages an app sent through the API, with their attachments | R2 | 30 days |
-| Text, HTML, attachments and the raw message of inbox mail, and of mail sent from the dashboard or by an agent | R2 | Until you delete the message or the thread |
+| Text, HTML, attachments and the raw message of inbox mail, and of mail sent from the dashboard, the iPhone app or by an agent | R2 | Until you delete the message or the thread, or 30 days after its thread went to the trash |
 | Mail received for a `webhook` address | D1 and R2 | 30 days |
 | Delivery events and webhook deliveries | D1 | 30 days |
 | Idempotency keys | D1 | 24 hours |
 | Suppressed addresses | D1 | Until removed |
 | Templates, with their 10 newest published versions | D1 | Until you delete the template or its domain |
 
-Deleting a message or a thread in the inbox removes its rows and its R2 objects for good.
+Deleting a message or a thread in the inbox removes its rows and its R2 objects for good, and so does deleting a
+thread from the trash, emptying the trash and the 30-day trash cleanup.
 
 [Erasing one person](GUIDE.md#erase-one-person) by email also erases their mail across the deployment, from the
 dashboard or with a key that holds `mail:write` next to `payments:write` ([API.md](API.md#erase-one-person)). One of
@@ -454,8 +478,12 @@ Cloudflare processes every message and keeps its own delivery logs, which Founde
 - Cloudflare publishes no sending rate limit. New accounts start with a low daily quota that Cloudflare raises by
   itself.
 - A subdomain needs a routing rule per address, added by hand ([Receive mail](#receive-mail)).
-- The inbox has no folders, labels, drafts or search inside message text. Search covers subjects and addresses.
-- The iPhone app shows no mail.
+- The inbox has no labels, drafts or search inside message text. Search covers subjects and addresses. The folders
+  are fixed: inbox, sent, archive, trash and all.
+- The iPhone app replies inside a thread only, in plain text with at most 10 files of 15 MB in all, and cannot
+  compose a new message.
+- Deleting from the trash and emptying it handle 15 messages per request, so a long thread or a full trash takes
+  several calls. The app repeats them. The rule keeps a request inside the 50 subrequests of the Workers free plan.
 
 ## What it costs in D1 rows
 
@@ -466,11 +494,16 @@ Cloudflare processes every message and keeps its own delivery logs, which Founde
 | The same with a template | 1 more, for the template's index |
 | Create a template / change its draft / publish it | 3 / 1 / 3. Publishing an unchanged draft writes 0 |
 | The dashboard sends / an agent sends | 23 / 24, because the message starts a thread |
-| A reply in a thread, from the dashboard / by an agent | 21 / 22 |
+| A reply in a thread, from the dashboard / by an agent / from the iPhone app | 21 / 22 / 22, plus 1 for each attachment |
+| Move a thread to the trash / take it out | 3 / 1. A thread already there writes 0 |
+| Delete a thread for good from the trash, or by emptying it | What D1 counts for the deleted rows: 10 for a thread with one received message |
+| The iPhone app's mail push switches: on or off / a domain or address switched | 1 / 1 each. A switch already in that state writes 0 |
+| A received message that pushes to phones | Nothing more than receiving it, plus 1 when APNs calls a phone's token dead |
 | A status event, such as delivered | 5. The same event again writes 0 |
 | A received message that starts a thread / one that joins a thread | 15 / 14 |
 | A webhook delivery | 4 when queued, plus 1 or 2 for each attempt |
 | Mark a thread read / archive it | 1 for each unread message, plus 1 / 1 |
+| A new message in a thread in the trash, which takes it out | The same as in any thread |
 | Reading the inbox, the sent log, a message, the templates or the catalog | 0 |
 | Health alerts: an hour with nothing to check or report / a domain's daily check / an alert | 0 / 1, plus 1 when its problems change / 2, its alert inbox row and the row that keeps it to once a day or once per change |
 | A received message that could not be parsed, or that the hourly sweep queues again or deletes | 1 more, for the count the health alert reads |

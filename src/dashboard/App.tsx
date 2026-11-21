@@ -102,6 +102,8 @@ function Routes({ path }: { path: string }) {
       return <Pages.Apps />;
     case 'mail':
       return <Pages.Mail />;
+    case 'needsYou':
+      return <Pages.NeedsYou />;
     case 'dashboards':
       return <Pages.Dashboards id={route.id} />;
     case 'notifications':
