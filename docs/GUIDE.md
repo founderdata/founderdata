@@ -3267,17 +3267,21 @@ writes these steps for your coding assistant.
 
 ### Read an issue
 
-The list has three tabs: Open, Resolved and Ignored. Filter by page or device; both stay in the URL, so
-`/site/<id>/errors?page=/checkout` is a link you can share. **New** marks an issue first seen in the last 24 hours.
-**Back again** marks one you resolved that happened after that.
+The list has three tabs: Open, Resolved and Ignored. Filter by page or device, and click the Events, People or
+Paying customers column header to sort by it. All three stay in the URL, so `/site/<id>/errors?page=/checkout&sort=events`
+is a link you can share. **New** marks an issue first seen in the last 24 hours. **Back again** marks one you resolved
+that happened after that. A row without a recorded visit says **No recording**; hover it to see why: recording is off,
+its pages are never recorded, or none of its visits was picked for recording. "Script error." rows say the error came
+from a script on another domain.
 
 Open an issue for:
 
 - the stack, top frame first, and the variants of the message
 - the pages and browsers it happened on, each page linked to its Content page
 - the people it hit, customers first with what they pay, each linked to their person page
-- recorded visits with it. **Watch** opens the player 3 seconds before the error. **All recordings with it** opens
-  Recordings filtered to the issue
+- recorded visits with it. **Watch** opens the player 3 seconds before the error. Each recording says whether that
+  person pays, and the section says how many of the paying customers were recorded, such as "0 of 2 paying customers
+  recorded". **All recordings with it** opens Recordings filtered to the issue
 - **Resolve**, **Ignore** and **Copy AI prompt**. The prompt gives your coding assistant the message, frames, pages,
   browsers and counts, and tells it to read more with `get_recordings` and log the fix with `add_note`
 
@@ -3292,8 +3296,10 @@ recordings pattern.
 ### Alert me about new errors
 
 **Alert me about new errors on /checkout** on the Errors page makes an alert rule in one click: metric `new_error`,
-the page and every page under it, checked every hour, sent to your notification channels and the iPhone app. It fires
-once for each issue first seen in the last 24 hours, so the same bug never alerts twice. Settings, Alert rules lists it,
+the page and every page under it, sent to your notification channels and the iPhone app. Rules run once an hour, so
+the alert arrives up to an hour after the error. It fires once for each issue first seen in the last 24 hours, so the
+same bug never alerts twice. The alert names the message and the page, how many people it hit, how many of them pay
+you and what they pay a month, and links to the issue. Settings, Alert rules lists it,
 and the preset "A new error on the checkout" makes the same rule there. An AI agent reads the alert's issue with
 `get_recordings`, `view` `error`.
 
@@ -3305,13 +3311,17 @@ The Recordings list takes more filters, which other sections link to:
 | --- | --- |
 | An error issue | An issue's **All recordings with it** and its **Issue** button in What to fix |
 | An experiment version | An experiment's results |
-| A channel | `?channel=Organic%20Search` in the address |
+| A channel | The **Any channel** menu, or `?channel=Organic%20Search` in the address |
 | Paying customers | The **Anyone** menu, set to Paying customers |
 | A funnel step | **Watch them** on a drop-off line of the Funnel tab under the breakdowns: the visitors who reached that step and not the next, with the filters the tab has on |
 
+A filter that came from a link shows as a chip you can remove: the issue by its message, the experiment by its name
+and version. What to fix then counts only those visits, such as "Patterns in 1 recorded visit with this error".
+
 Every visit in the list also has a summary of 2 to 4 sentences, such as "Came from Google to /blog/launch-checklist on
-a phone. Read 22% of it, opened /pricing and clicked "Compare plans" 3 times in a row. Left from /pricing after 1 min
-40 s without signing up or paying." It is built from what the recorder saw, never from a guess about why.
+a phone. Read 22% of it, opened /pricing and clicked "Compare plans" 3 times in a row on /pricing. Left from /pricing
+after 1 min 40 s without signing up or paying." It follows the order of the visit, names the page of each click, and
+is built from what the recorder saw, never from a guess about why.
 
 ### Costs
 

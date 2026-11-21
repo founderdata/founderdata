@@ -1791,11 +1791,15 @@ const seoParts = (() => {
     { vid: 'err-ivy', name: null, user: null, mrr: 0, geo: ['DE', 'Berlin', 'Berlin'] },
   ];
   people.forEach((p, i) => {
+    // A customer was first seen on the visit they paid on, 30 days ago; the others on the visit with the error. So the
+    // person page's "found you" date is a visit the timeline shows.
+    const start = now - (6 - i) * HOUR;
+    const bought = now - 30 * DAY - 12 * MIN;
     insert('visitors', {
-      site_id: site, id: p.vid, first_seen: now - 40 * DAY, user_id: p.user, name: p.name,
+      site_id: site, id: p.vid, first_seen: p.mrr ? bought : start, user_id: p.user, name: p.name,
       email: p.name ? `${p.name.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com` : null,
     });
-    const start = now - (6 - i) * HOUR;
+    if (p.mrr) visit(p.vid, `${p.vid}-s0`, bought, { minutes: 12, pages: ['/', '/pricing', '/checkout'], geo: p.geo });
     const mobile = i === 2;
     visit(p.vid, `${p.vid}-s1`, start, {
       minutes: 3, pages: ['/pricing', '/checkout'], geo: p.geo, ...(mobile ? { device: 'Mobile', os: 'iOS', browser: 'Mobile Safari' } : {}),
@@ -1805,7 +1809,7 @@ const seoParts = (() => {
     if (p.mrr) {
       const paid = now - 30 * DAY;
       insert('payments', {
-        id: `pay_demo_err_${i}`, site_id: site, provider: 'stripe', ts: paid, amount: p.mrr, kind: 'payment', currency: 'USD', visitor_id: p.vid,
+        id: `pay_demo_err_${i}`, site_id: site, provider: 'stripe', ts: paid, amount: p.mrr, kind: 'payment', currency: 'USD', visitor_id: p.vid, session_id: `${p.vid}-s0`,
         customer_id: `cus_demo_err_${i}`, email: `${p.name.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com`, name: p.name, product: p.mrr === 4900 ? 'shipkit_pro_monthly' : 'shipkit_starter_monthly',
       });
       insertSub({

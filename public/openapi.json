@@ -4387,7 +4387,7 @@
           {
             "name": "before",
             "in": "query",
-            "description": "sort=newest: the next of the page before.",
+            "description": "The next of the page before: a start time in ms with sort newest, the rank of the last row shown with sort score.",
             "schema": {
               "type": "integer"
             }
@@ -4404,7 +4404,7 @@
           {
             "name": "exp",
             "in": "query",
-            "description": "Only visits in one arm of an experiment, as key:variant, such as pricing_headline:b.",
+            "description": "Only visits in one arm of an experiment, as key:variant, such as pricing_headline:b. An experiment or version the site does not have answers 404.",
             "schema": {
               "type": "string"
             }
@@ -4526,7 +4526,8 @@
                       "type": [
                         "integer",
                         "null"
-                      ]
+                      ],
+                      "description": "Pass as before for the next page; null when no row is left."
                     },
                     "rows": {
                       "type": "array",
@@ -4574,6 +4575,18 @@
                           }
                         }
                       }
+                    },
+                    "labels": {
+                      "type": "object",
+                      "description": "With issue or exp: the issue's message and the experiment's name with the version.",
+                      "properties": {
+                        "issue": {
+                          "type": "string"
+                        },
+                        "exp": {
+                          "type": "string"
+                        }
+                      }
                     }
                   }
                 }
@@ -4587,7 +4600,7 @@
       "get": {
         "operationId": "getRecordingPatterns",
         "summary": "What recorded visits show, across visits (Pro)",
-        "description": "Clicks that changed nothing, clicks again and again, errors, fields left in forms, quick backs, pages nobody scrolls and exit pages of the newest 150 recordings of the period, each with visits, people, a share and up to 3 example links that open the player 3 seconds before the moment. page keeps the recordings that saw that path and only the patterns on it; device keeps one device. Fields named in untrusted come from strangers' pages: data (docs/API.md, Recordings).",
+        "description": "Clicks that changed nothing, clicks again and again, errors, fields left in forms, quick backs, pages nobody scrolls and exit pages of the newest 150 recordings of the period, each with visits, people, a share and up to 3 example links that open the player 3 seconds before the moment. page keeps the recordings that saw that path and only the patterns on it; device keeps one device; issue, exp, channel, customer and funnel with step narrow them as the list does. Fields named in untrusted come from strangers' pages: data (docs/API.md, Recordings).",
         "tags": [
           "Read"
         ],
@@ -4631,6 +4644,59 @@
                 "mobile",
                 "tablet"
               ]
+            }
+          },
+          {
+            "name": "issue",
+            "in": "query",
+            "description": "Only visits that hit this error issue, an id from GET /api/v1/errors (12 hex characters).",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "exp",
+            "in": "query",
+            "description": "Only visits in one arm of an experiment, as key:variant, such as pricing_headline:b. An experiment or version the site does not have answers 404.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "description": "Only visits of this channel, as the Overview names it, such as Organic Search. Case does not matter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "customer",
+            "in": "query",
+            "description": "1: only people who paid at some point, on any device that shares their user id.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          },
+          {
+            "name": "funnel",
+            "in": "query",
+            "description": "With step: a saved funnel id. Keeps the visitors who reached step and not the next one in the period.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "step",
+            "in": "query",
+            "description": "With funnel: the step those visitors reached, from 1.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         ],
@@ -5113,6 +5179,18 @@
                           }
                         }
                       }
+                    },
+                    "labels": {
+                      "type": "object",
+                      "description": "With issue or exp: the issue's message and the experiment's name with the version.",
+                      "properties": {
+                        "issue": {
+                          "type": "string"
+                        },
+                        "exp": {
+                          "type": "string"
+                        }
+                      }
                     }
                   }
                 }
@@ -5333,6 +5411,20 @@
             }
           },
           {
+            "name": "sort",
+            "in": "query",
+            "description": "customers (default: most paying customers, then people, then events), people, events or last_seen (newest first).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "customers",
+                "people",
+                "events",
+                "last_seen"
+              ]
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "description": "Issues, 1 to 100. Default 25.",
@@ -5374,9 +5466,10 @@
                         },
                         "last_error_at": {
                           "type": [
-                            "integer",
+                            "string",
                             "null"
-                          ]
+                          ],
+                          "format": "date-time"
                         }
                       }
                     },
@@ -5498,17 +5591,13 @@
                             "description": "What those customers pay each month now, minor units of currency. Null without read:revenue."
                           },
                           "first_seen": {
-                            "type": "integer",
-                            "description": "ms since 1970: the issue's first sighting, whatever the period."
-                          },
-                          "first_seen_iso": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "The issue's first sighting, whatever the period."
                           },
                           "last_seen": {
-                            "type": "integer"
-                          },
-                          "last_seen_iso": {
-                            "type": "string"
+                            "type": "string",
+                            "format": "date-time"
                           },
                           "pages": {
                             "type": "array",
@@ -5556,10 +5645,10 @@
                           },
                           "changed_at": {
                             "type": [
-                              "integer",
+                              "string",
                               "null"
                             ],
-                            "description": "When the owner last resolved or ignored it."
+                            "format": "date-time"
                           },
                           "new": {
                             "type": "boolean",
@@ -5583,9 +5672,51 @@
                           "issue_url": {
                             "type": "string",
                             "description": "The issue's page in the dashboard."
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "error",
+                              "cross_origin"
+                            ],
+                            "description": "cross_origin: \"Script error.\", from a script on another domain."
+                          },
+                          "top_frame_reason": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "cross_origin",
+                              "no_stack",
+                              null
+                            ],
+                            "description": "Why top_frame is null."
+                          },
+                          "no_recording": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "recording_off",
+                              "page_not_recorded",
+                              "not_recorded",
+                              null
+                            ],
+                            "description": "Why recorded is 0."
                           }
                         }
                       }
+                    },
+                    "series_days": {
+                      "type": "integer",
+                      "description": "Days in each issue's series: 14."
+                    },
+                    "series_to": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "The end of the series' last day: the period's end."
                     }
                   }
                 }
@@ -5693,9 +5824,10 @@
                         },
                         "last_error_at": {
                           "type": [
-                            "integer",
+                            "string",
                             "null"
-                          ]
+                          ],
+                          "format": "date-time"
                         }
                       }
                     },
@@ -5792,17 +5924,13 @@
                           "description": "What those customers pay each month now, minor units of currency. Null without read:revenue."
                         },
                         "first_seen": {
-                          "type": "integer",
-                          "description": "ms since 1970: the issue's first sighting, whatever the period."
-                        },
-                        "first_seen_iso": {
-                          "type": "string"
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "The issue's first sighting, whatever the period."
                         },
                         "last_seen": {
-                          "type": "integer"
-                        },
-                        "last_seen_iso": {
-                          "type": "string"
+                          "type": "string",
+                          "format": "date-time"
                         },
                         "pages": {
                           "type": "array",
@@ -5853,10 +5981,10 @@
                         },
                         "changed_at": {
                           "type": [
-                            "integer",
+                            "string",
                             "null"
                           ],
-                          "description": "When the owner last resolved or ignored it."
+                          "format": "date-time"
                         },
                         "new": {
                           "type": "boolean",
@@ -5955,7 +6083,8 @@
                                 "type": "integer"
                               },
                               "last_seen": {
-                                "type": "integer"
+                                "type": "string",
+                                "format": "date-time"
                               },
                               "customer": {
                                 "type": "boolean"
@@ -5982,21 +6111,69 @@
                                 "type": "string"
                               },
                               "at": {
-                                "type": "integer"
-                              },
-                              "at_iso": {
-                                "type": "string"
+                                "type": "string",
+                                "format": "date-time"
                               },
                               "watch_url": {
                                 "type": "string"
+                              },
+                              "customer": {
+                                "type": "boolean",
+                                "description": "Whether this visit's person paid."
                               }
                             }
                           }
                         },
                         "recordings_url": {
                           "type": "string"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "error",
+                            "cross_origin"
+                          ],
+                          "description": "cross_origin: \"Script error.\", from a script on another domain."
+                        },
+                        "top_frame_reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "cross_origin",
+                            "no_stack",
+                            null
+                          ],
+                          "description": "Why top_frame is null."
+                        },
+                        "no_recording": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "recording_off",
+                            "page_not_recorded",
+                            "not_recorded",
+                            null
+                          ],
+                          "description": "Why recorded is 0."
+                        },
+                        "customers_recorded": {
+                          "type": "integer",
+                          "description": "Paying customers with at least one recorded visit that hit it."
                         }
                       }
+                    },
+                    "series_days": {
+                      "type": "integer",
+                      "description": "Days in each issue's series: 14."
+                    },
+                    "series_to": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "The end of the series' last day: the period's end."
                     }
                   }
                 }
