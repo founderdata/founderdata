@@ -26,7 +26,7 @@ starts lower and rises in steps ([Price](#price)). Pro adds:
 - Web retention and lifecycle for the people your site recognizes ([GUIDE.md](GUIDE.md#retention-and-lifecycle))
 - Errors grouped into issues with the paying customers each one hit, and an alert for new ones ([GUIDE.md](GUIDE.md#errors-pro))
 - Experiments and feature flags judged on revenue per visitor, with your iOS app's experiments in the same list ([GUIDE.md](GUIDE.md#experiments-pro))
-- Click maps and scroll depth on your real pages, and Paths through the site ([GUIDE.md](GUIDE.md#click-maps-and-scroll-depth-pro))
+- Click maps and scroll depth on your real pages, and Paths through the site ([GUIDE.md](GUIDE.md#click-maps-heatmaps-and-scroll-depth-pro))
 - The survey card for "How did you hear about us?" and "Why are you canceling?", and cancel reasons next to churn ([GUIDE.md](GUIDE.md#surveys))
 - All 39 MCP tools, the `query` tool, custom dashboards that agents build, alert rules, the alert inbox, the research log and agent skills
 - Teammates with their own login

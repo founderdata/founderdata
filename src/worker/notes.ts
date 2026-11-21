@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import { vitalsReport } from './vitals';
+import { pageScroll, vitalsReport } from './vitals';
 import type { AppEnv, Site } from './env';
 import { addDays, pagePath, queriesForPage, type GscPageQuery } from '../shared/seo-insights';
 import { convertPayments } from './fx';
@@ -1462,8 +1462,11 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
     vitalsReport(db, site, { path, now }),
     // Pro: the click map's 10 most clicked elements over the same 28 days as vitals (pro/worker/page-maps.ts); null
     // without rows, and always null in core.
-    proHooks()?.pageClicks?.(db, { siteId: site.id, path, from: now - 28 * 86_400_000, to: now }) ?? null,
+    proHooks()?.pageClicks?.(db, { siteId: site.id, path, from: now - MAP_WINDOW_DAYS * 86_400_000, to: now }) ?? null,
   ]);
+  // Scroll depth as the Content list and the page's card pick it (vitals.ts pickScroll): page speed rows from 30, else
+  // click map rows when there are more of them. The click map rows are read only below 30 page speed rows.
+  const scroll = await pageScroll(db, site.id, path, now - MAP_WINDOW_DAYS * 86_400_000, now, { speed: speed.scroll });
   const totals = (k: (typeof o)['current']) =>
     showRevenue
       ? { visitors: k.visitors, customers: k.customers, revenue: k.revenue, revenue_per_visitor: Math.round(k.revenuePerVisitor) }
@@ -1486,11 +1489,38 @@ export async function contentPage(c: Context<AppEnv>, showRevenue: boolean) {
     search,
     // Core Web Vitals of loads of this page over the last 28 days (vitals.ts), whatever `weeks` is.
     vitals: { days: speed.days, from: speed.from, to: speed.to, min_sample: speed.min_sample, ...speed.overall, devices: speed.devices },
-    // How far visitors scrolled on loads of this page (vitals.scroll), null before any sent one; the click map's elements (Pro).
-    scroll: speed.scroll.samples ? speed.scroll : null,
-    clicks: clicks ? { days: 28, ...clicks } : null,
+    // How far visitors scrolled on this page, null before any page view sent one; the click map's elements (Pro).
+    scroll: scroll.samples ? { days: MAP_WINDOW_DAYS, ...scroll } : null,
+    clicks: clicks ? { days: MAP_WINDOW_DAYS, ...clicks } : null,
+    // With neither, why: a path no visit viewed reads the same as a quiet page, so an agent gets the switch and a step.
+    ...(!scroll.samples && !clicks ? { click_maps: clickMapsState(site, path, !!proHooks()?.pageClicks) } : {}),
     notes: impacts.map((i) => noteWithImpact(i, showRevenue)),
   });
+}
+
+/** Days the content page's `scroll` and `clicks` cover, whatever `weeks` is (vitals' 28 days). */
+const MAP_WINDOW_DAYS = 28;
+
+/**
+ * `click_maps` of the content page answer when it has neither `scroll` nor `clicks`: whether the site maps clicks and
+ * what to do next, so a mistyped path does not read as a quiet page.
+ */
+export function clickMapsState(site: Pick<Site, 'maps_on'>, path: string, pro: boolean): { on: boolean; next_step: string } {
+  const on = !!site.maps_on;
+  if (!pro)
+    return {
+      on,
+      next_step: `No page view of ${path} sent a scroll depth in the last 28 days. Check the spelling of the path. Click maps come with FounderData Pro.`,
+    };
+  if (!on)
+    return {
+      on,
+      next_step: `Click maps are off for this site, and no page view of ${path} sent a scroll depth in the last 28 days. Check the spelling of the path. An owner turns click maps on in Settings, Click maps.`,
+    };
+  return {
+    on,
+    next_step: `Click maps are on, and no page view of ${path} sent a map or a scroll depth in the last 28 days. Check the spelling of the path. A map starts with the next visit to the page.`,
+  };
 }
 
 /** What an app version looks like: 1 to 4 numbers with dots, and an optional build number, e.g. "2.3.1 (45)". */

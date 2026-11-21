@@ -743,8 +743,11 @@ With neither, the answer lists the saved funnels with their ids.
 
 `GET /api/v1/paths?path=/pricing` answers where visits go around one page: `sessions` that viewed it, `views`,
 `entrances` and `exits`, `exit_rate`, and `came_from` and `went_to`, the 10 pages right before and after it with
-`count` and `share`. A repeat of the same page in a row counts once. Without `path`, it answers the most viewed pages
-(`limit`, 20 by default, 50 at most) with their 5 top next pages. `platform` is `all` (the default), `web` or `app`.
+`count` and `share`. A repeat of the same page in a row counts once. `exit_rate` is `exits` over `sessions`. A `share`
+in `came_from` and `went_to` is `count` over `views`, the page's views with repeats in a row counted once, so a visit
+that came back to the page later counts twice. Without `path`, it answers the most viewed pages
+(`limit`, 20 by default, 50 at most) with their 5 top next pages, each `share` over the page's `views` the same way.
+Every rate and share is rounded to 3 decimals. `platform` is `all` (the default), `web` or `app`.
 D1 counts every page view in the range and returns only the totals, so `truncated` is always `false`.
 
 `seq=/,/pricing` (Pro, 1 to 3 paths, comma-separated) follows visits that viewed those pages one right after the other,
@@ -753,7 +756,8 @@ counts wherever in it the pages came, not only when it started on the first one.
 `exits` and `exit_rate` count the ones that left right after the last page, and `paid` and `paid_rate` the ones whose
 visitor paid at the visit's start or later. `next` lists the 10 pages they went to next with `sessions`, `share` (of
 `sessions`), `exit_rate` (left right after that page) and `paid_rate`. `path` is ignored with `seq`. A path in `seq`
-that does not start with `/` gets `400`.
+that does not start with `/` gets `400`, and so do more than 3. The dashboard's Paths view follows the same 3 pages
+and lists the pages after them.
 
 ```json
 { "sequence": ["/", "/pricing"], "platform": "web", "sessions": 120, "exits": 31, "exit_rate": 0.258, "paid": 9, "paid_rate": 0.075,
@@ -1776,32 +1780,50 @@ collects them:
 
 ```json
 { "...": "as above",
-  "scroll": { "samples": 380, "median": 62, "reached_25": 0.91, "reached_50": 0.64, "reached_75": 0.38, "reached_100": 0.17 },
-  "clicks": { "days": 28, "views": 412,
-              "elements": [ { "element": "div.plan-card", "label": "Compare plans", "clicks": 131, "views": 88, "share": 0.214 } ] } }
+  "scroll": { "days": 28, "samples": 410, "median_pct": 70, "reached_25": 0.96, "reached_50": 0.71, "reached_75": 0.4,
+              "reached_100": 0.18, "source": "page_speed" },
+  "clicks": { "days": 28, "views": 400, "sampled": false,
+              "elements": [ { "element": "div.plan-card", "label": "Compare plans", "clicks": 131, "views": 88, "share": 0.22,
+                              "rage": 4 } ] } }
 ```
 
-- `scroll` comes from the page speed rows of the last 28 days: how far down the page the bottom of the screen reached,
-  in percent, on loads of this page. It is `null` before the first page load that sent one, and its numbers are `null`
-  below 10 samples ([`GET /api/v1/vitals`](#get-apiv1vitals)).
+- `scroll` covers the last 28 days, whatever `weeks` is: how far down the page the bottom of the screen reached, in
+  percent. Two kinds of rows hold it. Page speed rows have one per page load. Click map rows have one per mapped page
+  view, single-page moves included. The answer uses the page speed rows when the page has 30 or more, else the click
+  map rows when there are more of those. `source` says which: `page_speed` or `click_maps`. `samples` counts the page
+  views behind the numbers. Below 10 samples `median_pct` and the shares are `null`. `scroll` is `null` when neither
+  kind has a row. The Content tab's list and the page's "Clicks and scroll" card pick the same way, so all three show
+  one number.
 - `clicks` comes from the click map of the last 28 days (Settings, Click maps). `views` counts the page views with a
   map. `elements` lists the 10 most clicked elements: `element` is the tag with its first class or id, `label` its text
-  (40 characters, empty when masked), `clicks` every click on it, `views` the page views with at least one, and
-  `share` those views over `views`. `clicks` is `null` when the page has no map in the window, and always `null` in
+  (40 characters, empty when masked), `clicks` every click on it, `views` the page views with at least one, `share`
+  those views over `views`, and `rage` the rage clicks on it in recorded visits. Click positions show only in the
+  dashboard's overlay. A read takes the newest 2,000 mapped page views of the page. `sampled` is `true` when the window
+  had more, and then `views` is 2,000. `clicks` is `null` when the page has no map in the window, and always `null` in
   FounderData core.
+- With neither `scroll` nor `clicks`, the answer has `click_maps`, so a mistyped path does not read as a quiet page:
+
+  ```json
+  "click_maps": { "on": true, "next_step": "Click maps are on, and no page view of /chekout sent a map or a scroll depth in the last 28 days. Check the spelling of the path. A map starts with the next visit to the page." }
+  ```
+
+  `on` is the site's switch. `next_step` says what to check.
 
 The dashboard reads more behind the login:
 
 - `GET /api/sites/<id>/page-map?path=/pricing&device=Desktop&days=28` answers the Content page's "Clicks and scroll"
-  card. `device` is `Desktop`, `Mobile` or `Tablet` and is optional. `days` is 1 to 90, 28 by default. The answer has
-  `on` and `sample` (the site's switch and share), `views`, `devices` (views and the usual window width per device), 20
+  card. `device` is `Desktop`, `Mobile` or `Tablet` and is optional. `days` is 1 to 90, 28 by default. It reads the
+  newest 2,000 mapped page views of the page in that window, every device together. The answer has
+  `on` and `sample` (the site's switch and share), `views`, `sampled` (`true` when the window had more than 2,000),
+  `devices` (views and the usual window width per device), 20
   `elements` with `rage` (rage clicks on the element in recorded visits, from the `activity` rows) and `x` and `y` (where
   its clicks landed on average, `x` in thousandths of the width), `points` (with
   `device` only: `[x, y, clicks]`, at most 500 spots of nearby clicks), `height` (the usual page height in px), and
-  `scroll`. `scroll.source` says where its numbers come from: `maps` (the click map rows, which include single-page
-  moves), `speed` (the page speed rows, when there is no map) or `null`.
-- `GET /api/sites/<id>/page-map/pages` answers `{ "days": 28, "pages": [{ "path": "/pricing", "views": 412 }] }`: the
-  pages with a click map in the last 28 days, 500 at most, for the map icon in Content's list.
+  `scroll`, picked as in `GET /api/v1/content/page` (of `device` when set), with `source` `page_speed`, `click_maps` or
+  `null`.
+- `GET /api/sites/<id>/page-map/pages` answers `{ "days": 28, "pages": [{ "path": "/pricing", "views": 412, "sampled": false }] }`:
+  every page with a click map in the last 28 days, entry page or not, 500 at most, for the list on Settings' Click maps
+  card. `views` stops counting at 2,000 and `sampled` is then `true`.
 - `GET /api/sites/<id>/paths` answers the dashboard's Paths view and "Before and after this page": the same answer as
   `GET /api/v1/paths` with `path`, `limit` or `seq`, for web visits, in the dashboard's period and filters.
 - `GET /api/sites/<id>/page-map/token?path=/pricing` answers `{ "token": "...", "expires_at": 1767226500000 }`: a token
@@ -1810,7 +1832,10 @@ The dashboard reads more behind the login:
 - `GET /api/map/<site id>?path=/pricing&device=Desktop&t=<token>` is public and answers the overlay's data: the answer
   above without `devices`, for the token's page only. It sends CORS headers for the site's domain and its subdomains, so
   only your own pages can read it. A missing or wrong token gets `401`, an expired one `401` with `"expired": true`, a
-  token for another page `403`.
+  token for another page `403`. It reads the same newest 2,000 page views as the card.
+
+Opening a page's card reads about 13 D1 rows per mapped page view it covers, so at most about 26,000 rows with the
+2,000 cap. The overlay reads the same again. The free plan allows 5 million rows read a day.
 
 #### `GET /api/v1/seo/decay` (Pro)
 
@@ -1957,15 +1982,18 @@ TTFB. Each metric has `p75`, the 75th percentile by nearest rank, in ms (CLS is 
 
 `scroll` sums up how far down the page visitors scrolled (see "Click maps and scroll" under the tracker), over all
 pages or the one `path`, and each entry of `pages` has its own. `samples` counts the page loads that sent a scroll
-depth. `median` is the middle one in percent. `reached_25`, `reached_50`, `reached_75` and `reached_100` are the shares
-of those page loads whose screen bottom got that far down. Below 10 samples they are `null`.
+depth. `median_pct` is the middle one in percent. `reached_25`, `reached_50`, `reached_75` and `reached_100` are the
+shares of those page loads whose screen bottom got that far down, from 0 to 1. Below 10 samples they are `null`.
+`source` is always `page_speed` here: this route reads the page speed rows only. `GET /api/v1/content/page` picks
+between these rows and the click map rows, so its number can differ for a page with few page loads.
 
 ```json
-"scroll": { "samples": 380, "median": 62, "reached_25": 0.91, "reached_50": 0.64, "reached_75": 0.38, "reached_100": 0.17 }
+"scroll": { "samples": 380, "median_pct": 62, "reached_25": 0.91, "reached_50": 0.64, "reached_75": 0.38, "reached_100": 0.17,
+            "source": "page_speed" }
 ```
 
 The example leaves out some metrics for space; every group has all five. `GET /api/v1/content/page` answers the same
-numbers for its page as `vitals`. Settings, Daily write cap, sets the share of page loads stored; `PATCH
+`vitals` numbers for its page. Settings, Daily write cap, sets the share of page loads stored; `PATCH
 /api/sites/<id>` with `{ "vitals_sample": 25 }` does the same, 0 to 100.
 
 #### `GET /api/v1/definitions`
@@ -4148,7 +4176,10 @@ of a larger element is left out, as in "Page activity". When the body would pass
 clicks first.
 
 The server checks each field and drops a click outside the ranges or a map without `w`. It stores `x` as thousandths
-of `w` (0 to 1000). A hint that is not a tag with an optional class or id becomes `""`. It keeps one `page_maps` row
+of `w` (0 to 1000). A hint that is not a tag with an optional class or id becomes `""`. A label loses emails, phone
+numbers and runs of 6 or more digits to `[removed]`, as error messages do, and so does any word with an `@`: the
+script's 40-character cut can leave half an email. A name in a link ("Anna Müller") stays unless the element has
+`data-fd-mask`. It keeps one `page_maps` row
 per page view (migration 0093): the path, the device, `w`, `H`, `s` and the clicks as JSON, with no visitor or session
 id. The row's time is the page view's start, the server's clock less `a`. A later send with the same `i` and a start
 within 5 minutes of it replaces that row's clicks and keeps the deeper scroll. So a visitor who opens a link in a new

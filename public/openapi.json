@@ -3695,16 +3695,20 @@
                         "object",
                         "null"
                       ],
-                      "description": "How far down the page visitors scrolled on loads of it in the last 28 days, in percent. null before the first page load that sent one; the numbers are null below 10 samples.",
+                      "description": "How far down the page visitors scrolled in the last 28 days, in percent. From the page speed rows when the page has 30 or more, else from the click map rows when there are more of those (source). null when neither has a row; the numbers are null below 10 samples.",
                       "properties": {
+                        "days": {
+                          "type": "integer"
+                        },
                         "samples": {
                           "type": "integer"
                         },
-                        "median": {
+                        "median_pct": {
                           "type": [
                             "integer",
                             "null"
-                          ]
+                          ],
+                          "description": "Median scroll depth in percent."
                         },
                         "reached_25": {
                           "type": [
@@ -3729,6 +3733,17 @@
                             "number",
                             "null"
                           ]
+                        },
+                        "source": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "page_speed",
+                            "click_maps",
+                            null
+                          ]
                         }
                       }
                     },
@@ -3737,13 +3752,17 @@
                         "object",
                         "null"
                       ],
-                      "description": "The click map of the last 28 days (Pro, Settings, Click maps): mapped page views and the 10 most clicked elements. null without a map in the window, and always null in FounderData core.",
+                      "description": "The click map of the last 28 days (Pro, Settings, Click maps): mapped page views and the 10 most clicked elements, from the newest 2,000 mapped page views. null without a map in the window, and always null in FounderData core.",
                       "properties": {
                         "days": {
                           "type": "integer"
                         },
                         "views": {
                           "type": "integer"
+                        },
+                        "sampled": {
+                          "type": "boolean",
+                          "description": "true when the window had more than 2,000 mapped page views; views is then 2,000."
                         },
                         "elements": {
                           "type": "array",
@@ -3768,9 +3787,25 @@
                               "share": {
                                 "type": "number",
                                 "description": "views over the page's mapped page views."
+                              },
+                              "rage": {
+                                "type": "integer",
+                                "description": "Rage clicks on the element in recorded visits."
                               }
                             }
                           }
+                        }
+                      }
+                    },
+                    "click_maps": {
+                      "type": "object",
+                      "description": "Present only when scroll and clicks are both null: whether click maps are on, and what to check.",
+                      "properties": {
+                        "on": {
+                          "type": "boolean"
+                        },
+                        "next_step": {
+                          "type": "string"
                         }
                       }
                     }
@@ -9043,12 +9078,12 @@
                     },
                     "scroll": {
                       "type": "object",
-                      "description": "Scroll depth of the page loads: how far down the page the bottom of the screen reached, in percent. Each entry of pages has its own. Below 10 samples median and the shares are null.",
+                      "description": "Scroll depth of the page loads, from page speed rows only: how far down the page the bottom of the screen reached, in percent. Each entry of pages has its own. Below 10 samples median_pct and the shares are null.",
                       "properties": {
                         "samples": {
                           "type": "integer"
                         },
-                        "median": {
+                        "median_pct": {
                           "type": [
                             "integer",
                             "null"
@@ -9076,6 +9111,16 @@
                           "type": [
                             "number",
                             "null"
+                          ]
+                        },
+                        "source": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "page_speed",
+                            null
                           ]
                         }
                       }

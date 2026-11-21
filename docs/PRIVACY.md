@@ -370,11 +370,18 @@ row with:
 
 A row has no visitor id, no session id, no IP address and no time finer than the page view. Click text follows the
 masking rules of recordings: nothing a visitor typed, nothing from form fields or editable parts, and nothing inside an
-element marked `data-fd-mask` or `data-fd-block`. Mark any element whose text names a person. Pages on the never-record
-list (Settings, Record visits) send no click map. Rows are deleted after 90 days and when the site is deleted.
+element marked `data-fd-mask` or `data-fd-block`. Pages on the never-record list (Settings, Record visits) send no
+click map. Rows are deleted after 90 days and when the site is deleted.
 
-Because a row cannot be tied to a person, erasing a person has nothing to remove here. A share of page views (Settings,
-Click maps) keeps fewer rows.
+The text of links and buttons is kept, so watch for text that names a person. The server replaces emails, phone
+numbers, runs of 6 or more digits and any word with an `@` with `[removed]` before it stores a label, the same scrub
+error messages get. "Logged in as anna@example.com" is stored as "Logged in as [removed]". A name is not caught: a
+link that reads "Anna Müller" is stored as it is. Put `data-fd-mask` on any element that shows the visitor's name,
+account or order details.
+
+A row has no visitor id, so erasing a person cannot find their click text. A name that reached a label stays until
+the row is 90 days old. Masking the element is the only way to keep it out. A share of page views (Settings, Click
+maps) keeps fewer rows.
 
 The overlay that shows the map runs on your own page. The dashboard opens it with a token that is valid for 15 minutes
 and reads only the counts of that one page.

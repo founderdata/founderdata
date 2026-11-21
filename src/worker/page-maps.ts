@@ -11,6 +11,7 @@ import type { CorePart } from './core-parts';
 import type { Site } from './env';
 import { normalizePath } from './collect';
 import { isSkipped, skipList } from './recording';
+import { scrub } from './errors';
 
 const DAY = 86_400_000;
 /** Days a click map row is kept, like vitals (VITALS_DAYS). */
@@ -26,6 +27,22 @@ export const MAX_Y = 50_000;
 export const MAP_MATCH_MS = 5 * 60_000;
 /** Oldest page view a map may describe: a tab left open longer starts its row this far back. */
 export const MAP_MAX_AGE_MS = 7 * 86_400_000;
+/**
+ * Newest page_maps rows of one page a read takes from its window: the "Clicks and scroll" card, the overlay's public
+ * route, `clicks` and `scroll` of the content page answer. A busy page then costs what a page with 2,000 mapped views
+ * costs, and the answer says `sampled: true`.
+ */
+export const MAP_READ_CAP = 2000;
+
+/**
+ * SQL for the time from which one page's newest MAP_READ_CAP rows of the window start: the ts of its 2,000th newest
+ * row, or the window's start (?2) when it has fewer. `pathSql` names the path (a column or a parameter); ?1 is the site
+ * id and ?2, ?3 the window. It walks the primary key backwards from ?3, so it reads at most MAP_READ_CAP rows.
+ */
+export function mapCutoffSql(pathSql: string): string {
+  return `COALESCE((SELECT x.ts FROM page_maps x WHERE x.site_id = ?1 AND x.path = ${pathSql} AND x.ts >= ?2 AND x.ts < ?3 ORDER BY x.ts DESC LIMIT 1 OFFSET ${MAP_READ_CAP - 1}), ?2)`;
+}
+
 /** Longest click label kept. */
 export const LABEL_MAX = 40;
 /**
@@ -84,11 +101,25 @@ const int = (v: unknown, min: number, max: number): number | null =>
 const text = (v: unknown, n: number): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
 
 /**
+ * A click label as stored: one line, scrubbed as error messages are (emails, phone numbers and runs of 6 or more digits
+ * become [removed]), then cut to LABEL_MAX. A word with an @ goes too: the tracker cuts a label at 40 characters, which
+ * can leave half an email ("anna.mueller@exam") that the email pattern no longer matches. A name inside a link stays:
+ * data-fd-mask keeps it out (docs/PRIVACY.md "Click maps and scroll").
+ */
+export function cleanLabel(v: unknown): string {
+  return scrub(text(v, 200))
+    .replace(/\S*@\S*/g, '[removed]')
+    .slice(0, LABEL_MAX)
+    .trim();
+}
+
+/**
  * The map payload `h` of a ping, checked and clipped, or null when it holds nothing to keep. Shape from the tracker:
  * { p: path, w: viewport width, H: document height, s: deepest scroll percent, c: [[x, y, hint, label], ...],
  * i: page view id, a: page view age in ms }. A click's x is px from the left of the viewport, turned into thousandths
  * of `w` here; y is px from the top of the document. A click outside the ranges is dropped (all of them without `w`),
- * a hint that is not a tag with an optional class or id becomes '', a label keeps 40 characters. `fallback` is the
+ * a hint that is not a tag with an optional class or id becomes '', a label is scrubbed and keeps 40 characters
+ * (cleanLabel). `fallback` is the
  * ping's own path, used when `p` is missing or not a path.
  */
 export function parseMapPayload(h: unknown, fallback: string): MapPayload | null {
@@ -104,7 +135,7 @@ export function parseMapPayload(h: unknown, fallback: string): MapPayload | null
     if (px === null || cy === null) continue;
     const cx = Math.round((px * 1000) / width!);
     const hint = typeof c[2] === 'string' && MAP_HINT.test(c[2]) ? c[2].toLowerCase() : '';
-    clicks.push([cx, cy, hint, text(c[3], LABEL_MAX)]);
+    clicks.push([cx, cy, hint, cleanLabel(c[3])]);
   }
   const height = int(x.H, 1, 1_000_000);
   const scroll = int(x.s, 0, 100);
@@ -170,8 +201,12 @@ export type MapWhere = { siteId: string; path: string; from: number; to: number;
 
 /** `clicks` of GET /api/v1/content/page: the page's mapped page views and its most clicked elements. */
 export interface PageClicks {
+  /** Mapped page views read: all of the window's, or its newest MAP_READ_CAP when `sampled`. */
   views: number;
-  elements: MapElement[];
+  /** True when the window had more than MAP_READ_CAP mapped page views and only the newest were read. */
+  sampled: boolean;
+  /** With `rage`: rage clicks on the element in recorded visits (3 or more clicks within a second). */
+  elements: (MapElement & { rage: number })[];
 }
 
 /** Copies maps_on and map_sample from a PATCH body onto `next`, or returns the error to answer. */
@@ -194,8 +229,8 @@ export const pageMapsPart: CorePart = {
     (['maps_on', 'map_sample'] as const).filter((k) => b[k] !== undefined).map((k): [string, unknown] => [k, next[k] ?? null]),
   definitions: {
     click_maps:
-      'Click maps (sites.maps_on, off by default) store one row per sampled page view: the viewport width, the document height, the deepest scroll and up to 50 clicks. A click is x in thousandths of the viewport width, y in px from the top of the page, the element as tag.class, and its visible text (40 characters, masked text left out). No visitor or session id. Kept 90 days. Pages on the never-record list get none. clicks in get_content counts clicks per element over the last 28 days, whatever weeks is; share is the mapped page views with at least one click on the element, divided by all mapped page views.',
+      'Click maps (sites.maps_on, off by default) store one row per sampled page view: the viewport width, the document height, the deepest scroll and up to 50 clicks. A click is x in thousandths of the viewport width, y in px from the top of the page, the element as tag.class, and its visible text: 40 characters, masked text left out, emails, phone numbers and runs of 6 or more digits replaced by [removed]. No visitor or session id. Kept 90 days. Pages on the never-record list get none. clicks in get_content covers the last 28 days, whatever weeks is: the top 10 elements with clicks, views (mapped page views with at least one click on it), share (views over all mapped page views) and rage (rage clicks in recorded visits). Click positions show only in the dashboard overlay. A read takes the newest 2,000 mapped page views of the page; sampled is true when there were more. With neither scroll nor clicks, click_maps says whether the switch is on and what to check.',
     scroll:
-      'Scroll depth is how far down the page the bottom of the screen reached, as a percent of the page height. Sites with page speed on store it on the page speed row of each page load; pages reached by a single-page move get it only from click maps. median is the middle value; reached_25 to reached_100 are the shares of page loads that got at least that far.',
+      'Scroll depth is how far down the page the bottom of the screen reached, as a percent of the page height. Page speed rows store it for each page load; click map rows store it for each mapped page view, single-page moves included. scroll in get_content and the dashboard use the page speed rows when a page has 30 or more in the 28 days, else the click map rows when there are more of them; source says which (page_speed or click_maps), samples how many. get_web_vitals uses page speed rows only. median_pct is the middle value in percent; reached_25 to reached_100 are the shares of page views that got at least that far, 0 to 1. Below 10 samples they are null.',
   },
 };
