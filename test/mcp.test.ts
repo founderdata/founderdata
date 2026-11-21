@@ -177,6 +177,14 @@ describe('MCP server', () => {
       expect((await call('get_portfolio')).content[0].text).toMatch(/403|404/);
     });
 
+    it('refuses an argument the tool does not have, and model first on a dimension without first touch, by name (shared-2)', async () => {
+      const extra = await call('get_overview', { period: '7d', key: 'pricing_headline' });
+      expect(extra).toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/^Unknown argument key\. get_overview takes /) }] });
+      const first = await call('get_breakdown', { dim: 'heard_about', model: 'first' });
+      expect(first).toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/model first works only with dim channel, source/) }] });
+      expect((await call('get_breakdown', { dim: 'channel', model: 'first' })).isError).toBeUndefined();
+    });
+
     itPro('an all-sites key reads the portfolio, and one site with the site argument', async () => {
       const all = (await w.admin('/api/read-keys', { method: 'POST', json: { label: 'MCP' } })).body.token as string;
       const portfolio = await call('get_portfolio', { period: '7d' }, {}, all);

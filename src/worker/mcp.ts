@@ -14,6 +14,7 @@
 import type { Context, Hono } from 'hono';
 import openapi from '../../public/openapi.json';
 import type { AppEnv } from './env';
+import { FIRST_TOUCH_DIM_NAMES } from './stats';
 import { bearerSecret } from './keys';
 import { proHooks } from './pro-hooks';
 import type { Pro } from './pro-hooks';
@@ -217,6 +218,10 @@ const coreTools = (pro: Pro | null): Tool[] => [
     route: (a) => {
       oneOf(a, 'dim', pro ? BREAKDOWN_DIMS : BREAKDOWN_DIMS.filter((d) => d !== 'x_post'), 'source');
       oneOf(a, 'model', ['last', 'first']);
+      // First touch exists only on the visitor's first channel, source, campaign, referrer and entry page.
+      if (a.model === 'first' && !FIRST_MODEL_DIMS.includes(String(a.dim ?? 'source'))) {
+        throw new ArgError(`model first works only with dim ${FIRST_MODEL_DIMS.join(', ')}. dim ${String(a.dim)} has no first touch. Drop model.`);
+      }
       return { path: '/api/v1/stats/breakdown', query: ['dim', 'model', 'limit', ...RANGE] };
     },
   },
@@ -518,7 +523,23 @@ function nextStep(res: Response, msg: string): string {
   return '';
 }
 
+/** The breakdown dimensions with a first-touch column (model first). */
+const FIRST_MODEL_DIMS = FIRST_TOUCH_DIM_NAMES;
+
 async function callTool(app: App, c: Context<AppEnv>, tool: Tool, a: Args) {
+  // An argument the tool's schema does not name is refused by name, never dropped: a dropped key or filter would answer
+  // a different question than the one asked.
+  const known = (tool.inputSchema as { properties?: Record<string, unknown>; additionalProperties?: boolean });
+  if (known.additionalProperties === false) {
+    const extra = Object.keys(a).filter((k) => !(k in (known.properties ?? {})));
+    if (extra.length) {
+      // Personal data never comes back, so a name or email argument says so (the wording of pro/shared/recordings.ts).
+      const pii = extra.some((k) => /^(name|email|e-?mail|user_?id|user|visitor_?id|visitor|ip|phone)$/i.test(k));
+      return toolError(
+        `Unknown argument ${extra.join(', ')}. ${pii ? `${tool.name} never returns names, emails or user ids. ` : ''}${tool.name} takes ${Object.keys(known.properties ?? {}).join(', ')}.`,
+      );
+    }
+  }
   // from and to are days wherever a tool declares them as days. FounderData Pro's mail tool takes addresses under the same names.
   const props = ((tool.inputSchema as { properties?: Record<string, { pattern?: string }> }).properties ?? {});
   for (const k of ['from', 'to']) {
