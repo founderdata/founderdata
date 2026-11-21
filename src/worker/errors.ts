@@ -19,27 +19,44 @@ export const ERRORS_DAYS = 90;
 export const MAX_PAGE_ERRORS = 5;
 const DAY = 86_400_000;
 
-/** `cfg.e` of the pageview answer: 1 when the tracker should catch errors on this site, else undefined. */
-export function errorsConfig(site: Site): 1 | undefined {
-  return site.errors_on || site.record_visits ? 1 : undefined;
+/** Whether the site keeps errors at all: Catch JavaScript errors on, or Record visits on (recordings caught them already). */
+export function catchesErrors(site: Pick<Site, 'errors_on' | 'record_visits'>): boolean {
+  return !!(site.errors_on || site.record_visits);
 }
 
 /**
- * Personal data out of free text: email addresses, phone numbers and runs of 6 or more digits become `[removed]`.
- * An error message can quote what someone typed ("No account for anna@example.com"), so it is scrubbed before storing.
+ * `cfg.e` of the pageview answer: 1 when the tracker should catch errors on every visit, else undefined. Catch
+ * JavaScript errors turns it on. Record visits turns it on too, except with Wait for consent: then errors leave only
+ * with a recording, after consent, as before round 7. A visit from a hosting network gets none (no first sighting, so
+ * its errors could never raise a new-error alert).
+ */
+export function errorsConfig(site: Pick<Site, 'errors_on' | 'record_visits' | 'record_consent'>, datacenter: 0 | 1 = 0): 1 | undefined {
+  if (datacenter) return undefined;
+  return site.errors_on || (site.record_visits && !site.record_consent) ? 1 : undefined;
+}
+
+/**
+ * Personal data out of free text: email addresses, phone numbers, runs of 6 or more digits and runs of 16 or more
+ * letters and digits mixed (tokens, keys) become `[removed]`. An error message can quote what someone typed ("No
+ * account for anna@example.com") or a token from a URL, so it is scrubbed before storing.
  */
 export function scrub(text: string): string {
   return text
     .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[removed]')
     .replace(/\+?\(?\d[\d ().-]{6,}\d/g, (m) => (m.replace(/\D/g, '').length >= 8 ? '[removed]' : m))
+    .replace(/(?<![A-Za-z0-9])(?=[A-Za-z]*\d)(?=\d*[A-Za-z])[A-Za-z0-9]{16,}(?![A-Za-z0-9])/g, '[removed]')
     .replace(/\d{6,}/g, '[removed]');
+}
+
+/** A message on one line, without the "Uncaught " Chrome puts in front, 200 characters. Not scrubbed. */
+function oneLine(m: string): string {
+  return m.replace(/\s+/g, ' ').trim().replace(/^Uncaught (?:\(in promise\) )?/, '').slice(0, 200);
 }
 
 /** A message as stored: one line, without the "Uncaught " Chrome puts in front, 200 characters, scrubbed. */
 export function cleanMessage(m: unknown): string {
   if (typeof m !== 'string') return '';
-  const one = m.replace(/\s+/g, ' ').trim().replace(/^Uncaught (?:\(in promise\) )?/, '');
-  return scrub(one.slice(0, 200)).slice(0, 200);
+  return scrub(oneLine(m)).slice(0, 200);
 }
 
 /** A file without its query or hash: "https://a.example/app.js?v=3:12" is "https://a.example/app.js:12". */
@@ -74,23 +91,36 @@ export function framesText(frames: Frame[]): string | null {
 
 /**
  * A script's file the same across deploys: the path without origin and query, and without a build hash such as
- * "index-B3kZ9a1x.js" or "main.3f9a2b1c.chunk.js", so one bug keeps one issue when the bundle is rebuilt.
+ * "index-B3kZ9a1x.js", "index-DkLmNoPq.js" or "main.3f9a2b1c.chunk.js", so one bug keeps one issue when the bundle is
+ * rebuilt. A hash is a segment after "-" or "." and before the extension with 6 or more characters and a digit, or 8 or
+ * more with upper and lower case letters; "react-dom.production.min.js" keeps every part.
  */
 export function fileKey(file: string | null | undefined): string {
   if (!file) return '';
   return noQuery(file)
     .replace(/:\d+(?::\d+)?$/, '')
     .replace(/^[a-z][\w+.-]*:\/\/[^/]+/i, '')
-    .replace(/[-.](?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{6,}(?=\.)/g, '');
+    .replace(/[-.](?:(?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{6,}|(?=[A-Za-z0-9_]*[a-z])(?=[A-Za-z0-9_]*[A-Z])[A-Za-z0-9_]{8,})(?=\.)/g, '');
 }
 
-/** A message with what changes from one occurrence to the next taken out: URLs, quoted text, ids and numbers. */
+/**
+ * A message with what changes from one occurrence to the next taken out: URLs and quoted text, then ids (UUIDs, emails,
+ * prefixed ids such as "pi_3Nx4k9a2eZvKYlo2", codes such as "ORD-8841-AB", tokens of 6 or more letters and digits
+ * mixed), then numbers of any length. It reads the message as sent, before the scrub, so "Order 1234" and
+ * "Order 1234567" stay one issue.
+ */
 export function normalizeMessage(message: string): string {
+  const id = '(?<![A-Za-z0-9_-])';
+  const end = '(?![A-Za-z0-9_-])';
   return message
     .replace(/\b[a-z][\w+.-]*:\/\/\S+/gi, '<url>')
     .replace(/'[^']*'|"[^"]*"|`[^`]*`/g, '<str>')
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<id>')
-    .replace(/\b(?:0x)?(?=[0-9a-f]*\d)[0-9a-f]{6,}\b/gi, '<id>')
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '<id>')
+    .replace(/(?<![0-9a-f])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f])/gi, '<id>')
+    .replace(new RegExp(`${id}[a-z]+_(?=[a-z]*[A-Z0-9])[A-Za-z0-9]{8,}${end}`, 'g'), '<id>')
+    .replace(new RegExp(`${id}(?=[A-Za-z0-9-]{6})(?=[A-Za-z-]*\\d)(?=[\\d-]*[A-Za-z])[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+${end}`, 'g'), '<id>')
+    .replace(/(?<![A-Za-z0-9])(?:0x)?(?=[A-Za-z]*\d)(?=\d*[A-Za-z])[A-Za-z0-9]{6,}(?![A-Za-z0-9])/g, '<id>')
+    .replace(/\+?\(?\d[\d ().-]{6,}\d/g, (m) => (m.replace(/\D/g, '').length >= 8 ? '<n>' : m))
     .replace(/\d+(?:\.\d+)?/g, '<n>')
     .replace(/\s+/g, ' ')
     .trim();
@@ -118,7 +148,7 @@ function hash53(s: string): number {
 export function fingerprint(message: string, source: string | null, stack: string | null): string {
   const top = parseFrames(stack)[0];
   const where = top ? `${fileKey(top.file)} ${top.fn ?? ''}` : fileKey(source);
-  return hash53(`${normalizeMessage(cleanMessage(message) || message)}\n${where.trim()}`).toString(16).padStart(14, '0').slice(-12);
+  return hash53(`${normalizeMessage(oneLine(message))}\n${where.trim()}`).toString(16).padStart(14, '0').slice(-12);
 }
 
 /** A random row id: 53 bits, so two errors of one millisecond never share a key. */
@@ -151,7 +181,8 @@ export function pageErrors(a: unknown, now: number): { path: string | null; erro
     if (!message) continue;
     const source = typeof e.s === 'string' && e.s.trim() ? noQuery(e.s.trim()).slice(0, 200) : null;
     const stack = framesText(parseFrames(e.k));
-    const fp = fingerprint(message, source, stack);
+    // The fingerprint reads the message as sent: the scrub would split "Order 1234" from "Order 1234567".
+    const fp = fingerprint(e.m, source, stack);
     const at = start !== null && typeof e.t === 'number' && e.t >= 0 ? start + Math.round(e.t) : NaN;
     const ts = at >= now - DAY && at <= now ? at : now;
     const seen = byFp.get(fp);
@@ -168,7 +199,7 @@ export function pageErrors(a: unknown, now: number): { path: string | null; erro
  * activity row, so a ping of a visit the Worker never saw writes nothing.
  */
 export function errorStatements(db: D1Database, site: Site, a: unknown, sid: string, path: string, ua: string, now: number): D1PreparedStatement[] {
-  if (!errorsConfig(site)) return [];
+  if (!catchesErrors(site)) return [];
   const page = pageErrors(a, now);
   if (!page.errors.length) return [];
   const where = page.path ?? path;
@@ -242,6 +273,6 @@ export const errorsPart: CorePart = {
   exports: { errors: errorsExport },
   definitions: {
     errors:
-      'JavaScript errors (Pro, get_recordings views errors and error), caught on sites with Catch JavaScript errors or Record visits on. An issue is a fingerprint: the message with numbers, quoted text, URLs and hex ids taken out, plus the top stack frame\'s file and function, else the source file. events counts errors (one page view can count several), people distinct visitor ids, sessions distinct visits, customers the people who paid (stitched by user id), mrr their monthly revenue now. status: open, resolved, ignored, or regressed (resolved, then seen again after resolving). new: first seen in the last 24 hours (first_seen is kept while the issue has errors rows). Visits from hosting networks and bots are left out unless the site shows them. Messages keep 200 characters with emails, phone numbers and runs of 6 or more digits replaced; frames keep file, line, column and function, at most 3. Kept 90 days.',
+      'JavaScript errors (Pro, get_recordings views errors and error), caught on sites with Catch JavaScript errors or Record visits on. An issue is a fingerprint: the message as sent with URLs, quoted text, ids (UUIDs, emails, prefixed ids, codes, words of 6 or more letters and digits mixed) and numbers taken out, plus the top stack frame\'s file (without its build hash) and function, else the source file. events counts errors (one page view can count several), people distinct visitor ids, sessions distinct visits, customers the people who paid (stitched by user id), mrr their monthly revenue now. status: open, resolved, ignored, or regressed (resolved, then seen again after resolving). new: first seen in the last 24 hours (first_seen is kept while the issue has errors rows). Times are ISO strings. series: events per day of the 14 days (series_days) ending at series_to, whatever the period. kind cross_origin: "Script error.", from a script on another domain. customers_recorded (one issue): paying customers with a recorded visit that hit it. Visits from hosting networks and bots are left out unless the site shows them. Messages keep 200 characters with emails, phone numbers, runs of 6 or more digits and runs of 16 or more letters and digits mixed replaced; frames keep file, line, column and function, at most 3. Kept 90 days.',
   },
 };

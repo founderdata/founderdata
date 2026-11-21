@@ -390,9 +390,18 @@ and reads only the counts of that one page.
 
 Catch JavaScript errors is off by default. A site that records visits catches errors already. With either on, the
 script sends the errors of each page view with its ping, and the Worker stores one row per distinct error in your own
-D1 database. Each row keeps:
+D1 database.
 
-- the message, cut at 200 characters, with emails, phone numbers and runs of 6 or more digits replaced by `[removed]`
+Catch JavaScript errors does not wait for consent. Errors leave from the first page view with the visit and
+visitor id, the same ids a cookieless page view carries. A site that records visits with Wait for consent on and Catch
+JavaScript errors off sends errors only with a recording, after the visitor consents. Visits from hosting networks send
+none.
+
+Each row keeps:
+
+- the message, cut at 200 characters. Before it is stored, the Worker replaces these with `[removed]`: email
+  addresses, phone numbers (8 or more digits with spaces, dots, dashes or brackets), runs of 6 or more digits, and runs
+  of 16 or more letters and digits mixed, such as tokens and API keys
 - the file and line it came from, without the query
 - at most 3 stack frames, each a file, line, column and function name, 300 characters in all
 - the page's path, the device and the browser

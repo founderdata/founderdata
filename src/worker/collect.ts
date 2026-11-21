@@ -314,7 +314,7 @@ export async function trackerConfig(
   if (rec) cfg.rec = site.record_consent ? { ...rec, c: 1 } : rec;
   if (sv) cfg.sv = sv;
   if (facts.props && Object.keys(facts.props).length) cfg.x = facts.props;
-  const e = errorsConfig(site);
+  const e = errorsConfig(site, facts.datacenter);
   if (e) cfg.e = e;
   const m = mapConfig(site);
   if (m) cfg.m = m;

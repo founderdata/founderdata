@@ -235,8 +235,9 @@ describe('people and recordings in the Worker', () => {
     Object.defineProperty(req, 'cf', { value: { asn: 16509 } });
     const res = await app.fetch(req, w.env as any, { waitUntil() {}, passThroughOnException() {}, props: {} } as any);
     expect(res.status).toBe(202);
-    // No recording; errors are still caught on a site that records (cfg.e).
-    expect(JSON.parse(await res.text())).toEqual({ cfg: { e: 1 } });
+    // No recording, and no cfg.e either (errors-9): a hosting-network visit sets no first sighting, so its errors could
+    // never raise a new-error alert.
+    expect(await res.text()).toBe('');
     expect(decisions).toEqual([]);
   });
 
@@ -264,7 +265,8 @@ describe('people and recordings in the Worker', () => {
   it('adds c: 1 to cfg.rec when the site waits for consent', async () => {
     await setSite({ record_visits: 1, record_consent: 1 });
     const res = JSON.parse((await answer(await event({ t: 'pageview', vid: 'recvisitor0002', sid: 'recsession0002' }))).text);
-    expect(res).toEqual({ cfg: { rec: { ...REC, c: 1 }, e: 1 } });
+    // No cfg.e: errors wait for consent with the recording (errors-2); Catch JavaScript errors would send them anyway.
+    expect(res).toEqual({ cfg: { rec: { ...REC, c: 1 } } });
     await setSite({ record_consent: 0 });
   });
 

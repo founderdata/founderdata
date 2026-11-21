@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resetBudgetForTests } from '../src/worker/budget';
 import { forgetSite } from '../src/worker/env';
-import { cleanMessage, ERRORS_DAYS, errorsConfig, fileKey, fingerprint, normalizeMessage, pageErrors, parseFrames, scrub } from '../src/worker/errors';
+import { catchesErrors, cleanMessage, ERRORS_DAYS, errorsConfig, fileKey, fingerprint, normalizeMessage, pageErrors, parseFrames, scrub } from '../src/worker/errors';
 import { pruneOldData } from '../src/worker/retention';
 import { startWorker, type TestWorker } from './helpers/worker';
 
@@ -37,6 +37,43 @@ describe('errors: fingerprint', () => {
     expect(fileKey('https://shop.example/js/react-dom.production.min.js')).toBe('/js/react-dom.production.min.js');
   });
 
+  // errors-1 (critique 1): one bug must stay one issue when an id or a build hash changes.
+  it('groups messages that differ only in an id, a code, a long number or a UUID, and build hashes without digits', () => {
+    const at = 'https://shop.example/assets/index-B3kZ9a1x.js:7:3 pay';
+    const pairs: [string, string][] = [
+      ['Error: Order 1234 not found', 'Error: Order 1234567 not found'],
+      ['Payment failed for pi_3Nx4k9a2eZvKYlo2 (card_declined)', 'Payment failed for pi_3Oz8m1b3fAwLZmp3 (card_declined)'],
+      ['No such customer cus_Nx4k9aBcDeFg for sub_1Nx4k9', 'No such customer cus_Oz8m1bHiJkLm for sub_1Oz8m1'],
+      ['Order ORD-8841-AB not found', 'Order ORD-1234-ZZ not found'],
+      ['User 550e8400-e29b-41d4-a716-446655440000 missing', 'User 6fa459ea-ee8a-3ca4-894e-db77e160355e missing'],
+      ['User 550E8400-E29B-41D4-A716-446655440000 missing', 'User 6FA459EA-EE8A-3CA4-894E-DB77E160355E missing'],
+      ['No account for anna@example.com', 'No account for ben.k@shop.example'],
+      ['payment failed token abc123def456abc123', 'payment failed token 9f8e7d6c5b4a3f2e1d'],
+    ];
+    for (const [a, b] of pairs) {
+      expect(fingerprint(a, null, at), `${a} / ${b}`).toBe(fingerprint(b, null, at));
+      expect(fingerprint(a, 'https://shop.example/app.js:3', null), `${a} / ${b}`).toBe(fingerprint(b, 'https://shop.example/app.js:9', null));
+    }
+    // Different bugs stay apart, also from the same line.
+    expect(fingerprint('Payment failed', null, at)).not.toBe(fingerprint('Order not found', null, at));
+    expect(fingerprint('Payment failed for pi_3Nx4k9a2eZvKYlo2 (card_declined)', null, at)).not.toBe(
+      fingerprint('Payment failed for pi_3Nx4k9a2eZvKYlo2 (expired_card)', null, at),
+    );
+    // Maya's three builds of one bundle.
+    const m = 'Error: Portal session expired';
+    const builds = ['index-Xk2mPq7r.js', 'index-DkLmNoPq.js', 'index-AbCdEfGh.js'].map((f) => fingerprint(m, null, `https://shop.example/assets/${f}:40:2 openPortal`));
+    expect(new Set(builds).size).toBe(1);
+    expect(fileKey('https://shop.example/assets/Dashboard-DkLmNoPq.js:1')).toBe('/assets/Dashboard.js');
+    expect(fileKey('https://shop.example/assets/vendor.production.js')).toBe('/assets/vendor.production.js');
+    // The scrubbed message is what is stored; the fingerprint reads it as sent.
+    const now = Date.now();
+    const page = pageErrors({ p: '/', s: now - 1000, e: [{ t: 1, m: 'Error: Order 1234 not found' }, { t: 2, m: 'Error: Order 1234567 not found' }] }, now);
+    expect(page.errors.map((e) => [e.message, e.n])).toEqual([['Error: Order 1234 not found', 2]]);
+    const long = pageErrors({ p: '/', s: now - 1000, e: [{ t: 1, m: 'Error: Order 1234567 not found' }] }, now).errors[0];
+    expect(long.message).toBe('Error: Order [removed] not found');
+    expect(long.fp).toBe(page.errors[0].fp);
+  });
+
   it('parses at most 3 frames and drops their queries', () => {
     expect(parseFrames('https://a.example/x.js?v=3:10:5 load\nhttps://a.example/y.js:2:1\nnot a frame\nz.js:1:1 a\nw.js:9:9 b')).toEqual([
       { file: 'https://a.example/x.js', line: 10, col: 5, fn: 'load' },
@@ -54,6 +91,10 @@ describe('errors: scrub', () => {
     expect(scrub('Order 12345678 failed after 1500 ms at 12:5')).toBe('Order [removed] failed after 1500 ms at 12:5');
     expect(cleanMessage('Uncaught (in promise) Error:   card\n4242424242424242 declined')).toBe('Error: card [removed] declined');
     expect(cleanMessage('x'.repeat(300))).toHaveLength(200);
+    // errors-8: tokens and keys, 16 or more letters and digits mixed. Words and short codes stay.
+    expect(scrub('payment failed for user token abc123def456abc123')).toBe('payment failed for user token [removed]');
+    expect(scrub('Bad key sk_live_51HxYzAbCdEfGhIjKl')).toBe('Bad key sk_live_[removed]');
+    expect(scrub('HTMLButtonElementConstructor failed in v2 at ES2017')).toBe('HTMLButtonElementConstructor failed in v2 at ES2017');
   });
 
   it('places each error at the page start plus its offset, and groups repeats', () => {
@@ -84,6 +125,22 @@ describe('errors: scrub', () => {
     expect(errorsConfig({ errors_on: 0, record_visits: 0 } as any)).toBeUndefined();
     expect(errorsConfig({ errors_on: 1 } as any)).toBe(1);
     expect(errorsConfig({ record_visits: 1 } as any)).toBe(1);
+  });
+
+  // errors-2: with Wait for consent, a recording site's errors leave only with the recording, after consent.
+  it('sends no cfg.e on a site that records with Wait for consent, unless Catch JavaScript errors is on', () => {
+    expect(errorsConfig({ errors_on: 0, record_visits: 1, record_consent: 1 } as any)).toBeUndefined();
+    expect(errorsConfig({ errors_on: 1, record_visits: 1, record_consent: 1 } as any)).toBe(1);
+    // The Worker still keeps the errors a consented recording sends.
+    expect(catchesErrors({ errors_on: 0, record_visits: 1 } as any)).toBe(true);
+    expect(catchesErrors({ errors_on: 0, record_visits: 0 } as any)).toBe(false);
+  });
+
+  // errors-9: a visit from a hosting network sets no first sighting, so it catches nothing.
+  it('sends no cfg.e to a visit from a hosting network', () => {
+    expect(errorsConfig({ errors_on: 1 } as any, 1)).toBeUndefined();
+    expect(errorsConfig({ record_visits: 1 } as any, 1)).toBeUndefined();
+    expect(errorsConfig({ errors_on: 1 } as any, 0)).toBe(1);
   });
 });
 
