@@ -1825,7 +1825,7 @@ const seoParts = (() => {
     const start = now - 3 * HOUR;
     insert('replays', {
       site_id: site, session_id: 'err-ivy-s1', visitor_id: 'err-ivy', started_at: start, entry_page: '/pricing',
-      digest: JSON.stringify({ s: start, v: [1440, 900], p: [{ u: '/pricing', a: 0, g: 0, ms: 40_000, sd: 64 }, { u: '/checkout', a: 40_000, g: 0, ms: 140_000, sd: 30, f: ['email'] }], x: '/checkout' }),
+      digest: JSON.stringify({ s: start, v: [1440, 900], p: [{ u: '/pricing', a: 0, g: 0, ms: 40_000, sd: 64 }, { u: '/checkout', a: 40_000, g: 0, ms: 140_000, sd: 30, f: ['email'], fs: 1 }], x: '/checkout' }),
     });
     insertEvents(site, 'err-ivy-s1', 'err-ivy', [
       { ts: start + 170_000, type: 'activity', path: '/checkout', props: { s: start + 40_000, c: [{ t: 9000, l: 'Pay $49', k: 'submit' }], e: [{ t: 10_000, m: ERRORS.price.message, s: ERRORS.price.source }] } },
