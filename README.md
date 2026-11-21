@@ -303,6 +303,14 @@ consent, from a hash of `identifierForVendor`, so retention covers those install
 
 Screens, goals, onboarding steps and sign-out are covered in [ios/README.md](ios/README.md).
 
+### Android
+
+`com.founderdata:founderdata-android` is the Kotlin port of the same SDK, for Android 6 (API 23) and later. It sends
+the same events, with Google Play purchases checked by the server with Google
+([docs/APP-API.md](docs/APP-API.md), section 9). Call `FounderData.configure(this, "SITE_ID", "https://YOUR-FOUNDERDATA-URL")`
+in `Application.onCreate`. Setup, consent, `InstallId.VENDOR` and Play's Data safety answers are in
+[android/README.md](android/README.md).
+
 ### App Store setup
 
 1. In FounderData, add the app (Home, **Add site or app**, iOS app) with its bundle id, or enter the bundle id in an
@@ -471,6 +479,7 @@ The code is laid out like this:
 - `src/dashboard` is the React dashboard (Vite, Tailwind, Recharts). The same Worker serves it as static files.
 - `migrations/` holds the database schema.
 - `ios/` holds the FounderDataKit Swift package.
+- `android/` holds the FounderData Android library (Kotlin, Gradle).
 - FounderData Pro adds a `pro/` folder with its reports and the iPhone app ([docs/PRO.md](docs/PRO.md)).
 
 ## Docs

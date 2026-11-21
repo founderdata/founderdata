@@ -1,0 +1,28 @@
+[versions]
+agp = "9.5.2"
+mavenPublish = "0.37.0"
+coroutines = "1.10.2"
+lifecycle = "2.10.0"
+installReferrer = "2.2"
+billing = "8.3.0"
+appset = "16.1.0"
+junit = "4.13.2"
+robolectric = "4.18.1"
+androidxTestCore = "1.7.0"
+mockwebserver = "4.12.0"
+
+[libraries]
+coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
+installreferrer = { module = "com.android.installreferrer:installreferrer", version.ref = "installReferrer" }
+billing = { module = "com.android.billingclient:billing", version.ref = "billing" }
+appset = { module = "com.google.android.gms:play-services-appset", version.ref = "appset" }
+junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }
+mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "mockwebserver" }
+
+[plugins]
+android-library = { id = "com.android.library", version.ref = "agp" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }

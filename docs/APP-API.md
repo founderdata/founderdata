@@ -263,8 +263,8 @@ The Android SDK is the `founderdata-android` Kotlin library in `android/`. It se
 ```
 
 - `ctx.platform` is `"android"`. A batch without it, or with `"ios"`, is an iOS batch as before.
-- In a debuggable build the SDK sets the session property `build_channel` to `debug` (section 6), so test sessions
-  can be filtered out.
+- Set the session property `build_channel` to `debug` in debug builds (section 6), so test sessions can be filtered
+  out. The SDK does not set it by itself.
 - `bundle_id` is the application id (package name). It must equal the site's `android_package` setting (migration
   `0080_android.sql`; `PATCH /api/sites/:id` with `{ "android_package": "com.example.app" }`, or Settings, General),
   else `403` as for iOS. The two settings are separate because an app often has different ids
@@ -287,7 +287,9 @@ The same three modes as iOS (section 3), with Android storage:
 - `installId = InstallId.VENDOR`: the App set ID (`play-services-appset`) when its scope is developer, hashed as for
   iOS: the first 16 bytes of SHA-256(`"founderdata-vendor-v1:" + site id + ":" + app set id` in lowercase), version
   nibble 8. Batches carry `ctx.id: "vendor"`. With app scope, without Google Play services, or on any error the
-  launch uses a random id. The SDK reads the value on each launch and never stores it.
+  launch uses a random id. The SDK reads the value on each launch and never stores it. The App set ID arrives
+  asynchronously, so a launch starts under a random id and holds its first upload for up to 5 seconds; when the id
+  arrives, the events queued so far move to it, so the server never sees the random id.
 - The SDK never reads `Settings.Secure.ANDROID_ID`, the advertising id, or any hardware id. Google Play treats
   ANDROID_ID as a persistent device identifier, which may not be linked to personal data, and `identify` sends some.
 
@@ -297,12 +299,15 @@ The same three modes as iOS (section 3), with Android storage:
   its `installReferrer` string as a query string. `utm_*`, `ref` and the click ids of section 5, point 11 (`gclid`
   and the others) go into that session's `src`, exactly as from a deep link. The SDK then remembers that it asked,
   only when it has consent; without consent it asks on each launch, which the referrer API allows for 90 days.
+  The referrer only fills fields of `src` that are unset: a link the app was opened with wins, so a cold launch from
+  a campaign link keeps its `utm_*` when `utm_source=google-play&utm_medium=organic` arrives later. The first upload
+  waits up to 10 seconds for the referrer.
 - `FounderData.handle(intent)` reads App Links the same way as `handle(url:)` on iOS, including `rt_vid`.
 - There is no `ads_token`: Apple Search Ads has no Android equivalent.
 
 ### Google Play purchases
 
-The app sends the purchase after Play Billing returns it:
+The app sends the purchase after Play Billing returns it (`FounderData.trackPurchase(purchase, kind)`):
 
 ```json
 { "t": "purchase", "sid": "...", "ts": 1761400050000,
@@ -312,13 +317,15 @@ The app sends the purchase after Play Billing returns it:
 
 - The SDK omits `order` when `Purchase.orderId` is null. `product` is the first of `Purchase.products`. The server
   takes the order id and the product from Google's answer, so both are hints only.
-- The SDK sends only purchases in the purchased state, once per token.
+- The SDK sends only purchases in the purchased state. A pending purchase sends nothing until it completes. Each
+  token is sent once per launch, and once ever with consent.
 - `token` is 10 to 4096 printable ASCII characters without spaces, and `kind` is `subs` or `inapp`. Otherwise,
   or when the batch is not an Android batch, the event is skipped and counted in `rejected`. A deployment without
   the service account (below) accepts the event and stores nothing.
 
-The app, not the SDK, calls `BillingFlowParams.Builder.setObfuscatedAccountId(FounderData.obfuscatedAccountId)`:
-the install id as a lowercase UUID (36 characters, the same role as `appAccountToken`).
+The app, not the SDK, calls `BillingFlowParams.Builder.setObfuscatedAccountId(FounderData.obfuscatedAccountId)`
+(or the SDK's builder extension `setFounderDataAccountId()`): the install id as a lowercase UUID (36 characters, the
+same role as `appAccountToken`). The SDK never builds the billing flow itself.
 
 The token proves nothing by itself, so the server checks it with Google before it stores money:
 
