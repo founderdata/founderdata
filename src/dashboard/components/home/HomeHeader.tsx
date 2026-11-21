@@ -3,6 +3,7 @@ import { navigate } from '../../App';
 import { warmQuery } from '../../lib/prefetch';
 import { isPro } from '../../lib/pro';
 import { HomeLink } from '../Logo';
+import { ProSlot } from '../ProSlot';
 import { HeartIcon, showSupport, SupportDialog } from '../Support';
 import { Check, ThemeToggle } from '../ThemeToggle';
 import { Chevron, Dropdown, itemCls, MenuLabel, SearchButton } from '../Toolbar';
@@ -143,6 +144,9 @@ function AccountMenu({ hasApps, viewer, onLogout }: { hasApps: boolean; viewer: 
   );
 }
 
+/** The Needs you button on phones, where the nav links sit in the account menu. */
+export const phoneLink = 'btn gap-1.5 px-3 md:hidden';
+
 const navLink = 'hidden h-9 items-center rounded-[10px] px-3 text-[13px] font-medium text-stone-500 transition-colors duration-fast hover:bg-stone-100 hover:text-ink md:inline-flex';
 
 /**
@@ -169,6 +173,8 @@ export function HomeHeader({
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-3">
         <HomeLink />
         <nav className="ml-3 hidden items-center gap-0.5 md:flex" aria-label="Main">
+          {/* Needs you (FounderData Pro): the owner's open cards with their count. Core draws nothing here. */}
+          {!viewer && <ProSlot name="needsYouLink" className={navLink} />}
           {hasApps && (
             <button className={navLink} onClick={() => navigate('/apps')}>
               All apps
@@ -191,6 +197,8 @@ export function HomeHeader({
           )}
         </nav>
         <div className="ml-auto flex items-center gap-1.5">
+          {/* Phones keep the other pages in the account menu, so Needs you gets a button of its own. */}
+          {!viewer && <ProSlot name="needsYouLink" className={phoneLink} />}
           {showPeriod && <PeriodControl period={period} onChange={onPeriod} className="hidden lg:inline-flex" />}
           <SearchButton />
           <ThemeToggle small />
