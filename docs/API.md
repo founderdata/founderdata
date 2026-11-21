@@ -1682,6 +1682,18 @@ import:
                                "detail": "The last import ran 2 hours ago and failed, so spend is missing." } ] } }
 ```
 
+In FounderData Pro a key with `read` also gets `switches` on each site: `recordings`, `errors`, `click_maps` and
+`surveys`, each with `on` and the `settings_url` of the Settings section that turns it on. An empty answer from one of
+these features then reads as off or as quiet. `errors` is on when Catch JavaScript errors or Record visits is on,
+because a recorded visit catches its errors. `surveys` is on when either survey is.
+
+```json
+"switches": { "recordings": { "on": true, "settings_url": "https://founderdata.example.com/site/SITE_ID/settings#record-visits" },
+              "errors": { "on": true, "settings_url": "https://founderdata.example.com/site/SITE_ID/settings#catch-errors" },
+              "click_maps": { "on": false, "settings_url": "https://founderdata.example.com/site/SITE_ID/settings#click-maps" },
+              "surveys": { "on": false, "settings_url": "https://founderdata.example.com/site/SITE_ID/settings#surveys" } }
+```
+
 #### Read key for all sites
 
 Make one in Settings, Share links and read API: pick All sites next to Create read key. It reads every site,

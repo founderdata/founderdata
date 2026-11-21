@@ -33,6 +33,7 @@ import { vitalsRoute, withPageScroll } from './vitals';
 import { proHooks } from './pro-hooks';
 import { partDefinitions } from './core-parts';
 import { VERSION } from '../shared/product';
+import { parseSurveys, SURVEYS } from '../shared/surveys';
 
 /** The range parameters every ranged route takes; `cacheKey` keeps only the parameters a route names. */
 export const RANGE = ['period', 'from', 'to', 'filters'];
@@ -347,6 +348,21 @@ export function inMinorUnits<T>(v: T): T {
 // ---------- GET /api/v1/whoami: the key itself, for any live key, whatever its scopes
 
 /**
+ * The four Pro capture switches of a site, each on or off with the Settings section that turns it on. Recording a visit
+ * also catches its errors, so errors is on when either switch is.
+ */
+export function captureSwitches(s: Site, origin: string) {
+  const url = (anchor: string) => `${origin}/site/${s.id}/settings#${anchor}`;
+  const surveys = parseSurveys(s.surveys);
+  return {
+    recordings: { on: s.record_visits === 1, settings_url: url('record-visits') },
+    errors: { on: s.errors_on === 1 || s.record_visits === 1, settings_url: url('catch-errors') },
+    click_maps: { on: s.maps_on === 1, settings_url: url('click-maps') },
+    surveys: { on: SURVEYS.some((k) => surveys[k]?.on === 1), settings_url: url('surveys') },
+  };
+}
+
+/**
  * Who is calling: the key's name, scopes, the sites it covers with their names, its expiry, and the deployed Worker
  * version when the CF_VERSION_METADATA binding exists. Works for a key without read too (a push-only seo:write key),
  * so an agent can check a key before it writes. Not cached: it is one indexed read of the sites table.
@@ -362,6 +378,7 @@ async function whoami(c: Context<AppEnv>) {
   const covered = results.filter((s) => !ids || ids.includes(s.id));
   // A key that reads also gets each site's tracking start and source health; a push-only key gets the ids.
   const reads = canRead(scopes);
+  const origin = new URL(c.req.url).origin;
   const trust = reads ? await siteTrust(c.env, covered) : null;
   const sites = covered.map((s) => ({
     id: s.id,
@@ -369,6 +386,8 @@ async function whoami(c: Context<AppEnv>) {
     domain: s.domain,
     app: !!s.app_bundle_id,
     ...(trust ? (({ timezone: _t, currency: _c, currency_decimals: _d, app: _a, ...rest }) => rest)(siteFacts(s, trust.get(s.id), !!tok.show_revenue, false)) : {}),
+    // Pro's capture switches, so an agent can tell "off" from "quiet" (critique shared-8). Core has none of them.
+    ...(reads && proHooks() ? { switches: captureSwitches(s, origin) } : {}),
   }));
   const v = c.env.CF_VERSION_METADATA;
   return c.json(

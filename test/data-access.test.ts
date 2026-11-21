@@ -1,6 +1,7 @@
 // Data ownership and sharing: CSV export, list paging, erasing one person, share links and the read API
 // (src/worker/export.ts, erase.ts, share.ts; docs/API.md).
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { captureSwitches } from '../src/worker/agent-api';
 import { csvCell } from '../src/worker/export';
 import { resetShareCachesForTests, SHARE_MISSES_PER_MINUTE } from '../src/worker/share';
 import { startWorker, type TestWorker } from './helpers/worker';
@@ -386,5 +387,20 @@ describe('data access', () => {
       expect(byUser.body).toMatchObject({ visitors: 0 });
       expect((await w.admin(`/api/sites/${site.id}/erase`, { method: 'POST', json: {} })).status).toBe(400);
     });
+  });
+});
+
+describe('whoami switches (shared-8)', () => {
+  it('reports each Pro capture switch with its settings section; a recorded visit catches errors', () => {
+    const base = { id: 'abc', record_visits: 1, errors_on: 0, maps_on: 0, surveys: '{"heard_about":{"on":1}}' } as any;
+    const sw = captureSwitches(base, 'https://founderdata.example.com');
+    expect(sw).toEqual({
+      recordings: { on: true, settings_url: 'https://founderdata.example.com/site/abc/settings#record-visits' },
+      errors: { on: true, settings_url: 'https://founderdata.example.com/site/abc/settings#catch-errors' },
+      click_maps: { on: false, settings_url: 'https://founderdata.example.com/site/abc/settings#click-maps' },
+      surveys: { on: true, settings_url: 'https://founderdata.example.com/site/abc/settings#surveys' },
+    });
+    const off = captureSwitches({ ...base, record_visits: 0, surveys: null }, 'https://x.example');
+    expect([off.recordings.on, off.errors.on, off.click_maps.on, off.surveys.on]).toEqual([false, false, false, false]);
   });
 });
