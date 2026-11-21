@@ -13,6 +13,7 @@ const ALL_TYPES: { file: string; has: string; why: string }[] = [
   { file: 'src/worker/export.ts', has: 'SELECT e.id, e.ts, e.type, e.name, e.path, e.props, e.session_id, e.visitor_id FROM events e', why: 'the events CSV holds every row, with its type' },
   { file: 'pro/worker/meta-capi.ts', has: 'SELECT COALESCE(MAX(id), 0) AS id FROM events', why: 'a cursor over row ids, not a count' },
   { file: 'pro/worker/meta-api.ts', has: 'SELECT COALESCE(MAX(id), 0) AS id FROM events', why: 'a cursor over row ids, not a count' },
+  { file: 'pro/worker/appstats.ts', has: 'WITH cut AS (SELECT ts FROM events WHERE site_id = ?1 AND ts >= ?2 AND ts < ?3 ORDER BY ts DESC', why: "Paths' read cap: the time of the newest events, every type, since the paths query reads every event of the visits it reads" },
 ];
 
 function files(dir: string): string[] {
