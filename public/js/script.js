@@ -36,7 +36,10 @@
   var ignored = false;
   try { ignored = localStorage.getItem('rt_ignore') === '1'; } catch (e) {}
   var local = /^(localhost|127\.|0\.0\.0\.0|\[::1\]|.*\.local$)/.test(loc.hostname) || loc.protocol === 'file:';
-  if (!siteId || ignored || nav.webdriver || (local && !allowLocal)) {
+  // #fd-map=: the page shows its click map and sends nothing. It does in a browser that ignores itself too (rt_ignore),
+  // which is where the founder opens it.
+  var off = mapMode(); // 1 or undefined
+  if (!siteId || !off && (ignored || nav.webdriver || local && !allowLocal)) {
     expose(idle); // flags and flag still answer, with no variants (region experiments)
     idle.attribution = function () { return {}; };
     queued.forEach(function (c) { idle.apply(null, c); });
@@ -168,7 +171,6 @@
       return u.toString();
     } catch (e) { return href; }
   }
-  var off = 0; // 1 while the page shows a click map (mapMode): nothing is sent
   function send(type, extra, beacon) {
     if (off) return;
     var id = ids();
@@ -650,7 +652,6 @@
   // Consent queued before the script loaded applies to the first pageview too.
   var early = function (c) { return c === 'consent' || c === 'marketing'; };
   for (var q = 0; q < queued.length; q++) if (early(queued[q][0])) api.apply(null, queued[q]);
-  off = mapMode() ? 1 : 0; // #fd-map=: the page shows its click map and sends nothing
   pageview();
   for (q = 0; q < queued.length; q++) if (!early(queued[q][0])) api.apply(null, queued[q]);
 })();

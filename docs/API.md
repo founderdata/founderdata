@@ -1860,8 +1860,10 @@ The dashboard reads more behind the login:
   too.
 - `GET /api/map/<site id>?path=/pricing&device=Desktop&t=<token>` is public and answers the overlay's data: the answer
   above without `devices`, for the token's page only. It sends CORS headers for the site's domain and its subdomains, so
-  only your own pages can read it. A missing or wrong token gets `401`, an expired one `401` with `"expired": true`, a
-  token for another page `403`. It reads the same newest 2,000 page views as the card.
+  only your own pages can read it. A browser page reads it only from `https://` at the site's domain or a subdomain,
+  any port, so a local copy or a page on plain `http://` gets `403`, with an error that names the page's origin. A
+  missing or wrong token gets `401`, an expired one `401` with `"expired": true`, a token for another page `403`. It
+  reads the same newest 2,000 page views as the card.
 
 Opening a page's card reads about 15 D1 rows per mapped page view it covers: 6,615 rows for the demo's `/pricing`
 with 400, and 30,023 for a page capped at 2,000. The overlay reads about the same again. The free plan allows 5
@@ -4420,7 +4422,8 @@ page views (a whole percent from 1 to 100).
 
 A page opened with `#fd-map=<token>` in its URL sends nothing: no pageview and no ping. The script loads
 `/js/map.js` from the FounderData host, which draws the clicks over the page. It hands over the token as
-`founderdata._map = { token, host, site }`. The dashboard makes the token ("Clicks and scroll (Pro)").
+`founderdata._map = { token, host, site }`. The dashboard makes the token ("Clicks and scroll (Pro)"). The map
+loads in a browser that ignores its own visits (`?rt_ignore=true`) too, and still sends nothing.
 
 ### Errors
 

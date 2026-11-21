@@ -3568,6 +3568,18 @@ desktop or 390 px for mobile, and draws the clicks over it:
 - the click count on each of the 10 most clicked elements
 - lines at 25%, 50% and 75% of the page with the share of visitors that scrolled that far
 
+The map draws on your live site only: a page on `https://` at the site's domain or one of its subdomains. A local
+copy or a page on plain `http://` cannot load it, because FounderData sends the clicks to no other address. The page
+needs:
+
+- the FounderData tracking script
+- your FounderData host in `script-src` (for `/js/map.js`) and in `connect-src` (for the clicks), if your site sends a
+  Content-Security-Policy. The tracking script needs both already.
+- your FounderData host in `frame-ancestors`, only to see the map inside the dashboard. **Open on your site** works
+  without it.
+
+The map also shows in a browser where you ignore your own visits with `?rt_ignore=true`, and it sends nothing.
+
 Many sites forbid other sites to frame them (`X-Frame-Options` or `frame-ancestors` in their Content-Security-Policy).
 Then the card says so and offers **Open on your site**, which opens the same view in a new tab for 15 minutes. To see
 it inside the dashboard instead, allow your FounderData host to frame your pages:
