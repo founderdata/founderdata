@@ -171,7 +171,19 @@ export function HomeHeader({
   return (
     <StickyBar>
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-3">
-        <HomeLink />
+        {isPro && !viewer ? (
+          // Pro's Needs you button needs the room on phones, so the logo drops its wordmark there.
+          <>
+            <span className="md:hidden">
+              <HomeLink compact />
+            </span>
+            <span className="hidden md:contents">
+              <HomeLink />
+            </span>
+          </>
+        ) : (
+          <HomeLink />
+        )}
         <nav className="ml-3 hidden items-center gap-0.5 md:flex" aria-label="Main">
           {/* Needs you (FounderData Pro): the owner's open cards with their count. Core draws nothing here. */}
           {!viewer && <ProSlot name="needsYouLink" className={navLink} />}
