@@ -403,7 +403,9 @@ Each row keeps:
 
 - the message, cut at 200 characters. Before it is stored, the Worker replaces these with `[removed]`: email
   addresses, phone numbers (8 or more digits with spaces, dots, dashes or brackets), runs of 6 or more digits, and runs
-  of 16 or more letters and digits mixed, such as tokens and API keys
+  of 16 or more letters and digits mixed, such as tokens and API keys. A web address in the message keeps its scheme,
+  host and path and loses its query and hash: "Failed to fetch https://api.example.com/v1/users?name=Anna" is stored as
+  "Failed to fetch https://api.example.com/v1/users"
 - the file and line it came from, without the query
 - at most 3 stack frames, each a file, line, column and function name, 300 characters in all
 - the page's path, the device and the browser
@@ -544,7 +546,8 @@ Replace the bracketed parts and delete what does not apply.
 > The data is stored by Cloudflare, Inc. [in the European Union. The servers that receive each request run in the
 > Cloudflare data center nearest you, which can be outside the European Union.] [Alerts about purchases go to [Slack /
 > email via Resend] without your name or email.] [When a page fails, we store the error message with the visit's
-> identifier for 90 days, to find and fix the fault.] [When you answer our question how you heard about us, or why you
+> identifier for 90 days, to find and fix the fault. Email addresses, phone numbers, long numbers and the query of any
+> web address in the message are removed first.] [When you answer our question how you heard about us, or why you
 > cancel, we store your answer with your visit [and your account].] [We store where on a page visitors click and how
 > far they scroll, with the text of the link or button and no identifier of the visitor, for 90 days.] To see or
 > delete your data, write to [address].

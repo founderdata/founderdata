@@ -53,10 +53,21 @@ function oneLine(m: string): string {
   return m.replace(/\s+/g, ' ').trim().replace(/^Uncaught (?:\(in promise\) )?/, '').slice(0, 200);
 }
 
-/** A message as stored: one line, without the "Uncaught " Chrome puts in front, 200 characters, scrubbed. */
+/**
+ * URLs a message quotes without their query and hash: "Failed to fetch https://api.example/v1/users?name=Anna" keeps
+ * "https://api.example/v1/users". A query can hold names, cities and session ids, which the scrub does not catch.
+ */
+export function noUrlQuery(m: string): string {
+  return m.replace(/\b[a-z][\w+.-]*:\/\/[^\s'"`<>()[\]]+/gi, (url) => url.replace(/[?#].*$/, ''));
+}
+
+/**
+ * A message as stored: URLs without their query, one line, without the "Uncaught " Chrome puts in front, 200
+ * characters, scrubbed.
+ */
 export function cleanMessage(m: unknown): string {
   if (typeof m !== 'string') return '';
-  return scrub(oneLine(m)).slice(0, 200);
+  return scrub(oneLine(noUrlQuery(m))).slice(0, 200);
 }
 
 /** A file without its query or hash: "https://a.example/app.js?v=3:12" is "https://a.example/app.js:12". */
@@ -141,13 +152,25 @@ function hash53(s: string): number {
 }
 
 /**
+ * A top frame's function name as the fingerprint reads it: null for a minified name, which the next build renames.
+ * A name is minified when its last part has 1 to 3 characters: "Jt", "HTMLButtonElement.Qe", "async e", Firefox's
+ * "Jt/<". "checkout" and "App.render" count; a real name of 3 letters such as "pay" is left out too.
+ */
+export function stableFn(fn: string | null | undefined): string | null {
+  if (!fn) return null;
+  const last = fn.replace(/^(?:async|new) /, '').replace(/[/<]+$/, '').split('.').pop() ?? '';
+  return /^[\w$]{1,3}$/.test(last) ? null : fn;
+}
+
+/**
  * The issue an error belongs to: 12 hex characters (plan S12). A hash of the normalized message and the top stack
  * frame's file and function, else the source file. "Cannot read 'a' of user 41" and "... of user 42" from the same
- * function share one; the same message from two functions makes two.
+ * function share one; the same message from two functions makes two. A minified function name (1 to 3 characters,
+ * `stableFn`) is left out, so a rebuild that renames `Jt` to `Qe` keeps the issue.
  */
 export function fingerprint(message: string, source: string | null, stack: string | null): string {
   const top = parseFrames(stack)[0];
-  const where = top ? `${fileKey(top.file)} ${top.fn ?? ''}` : fileKey(source);
+  const where = top ? `${fileKey(top.file)} ${stableFn(top.fn) ?? ''}` : fileKey(source);
   return hash53(`${normalizeMessage(oneLine(message))}\n${where.trim()}`).toString(16).padStart(14, '0').slice(-12);
 }
 

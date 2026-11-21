@@ -3262,8 +3262,8 @@ errors, no releases and no breadcrumbs.
 
 The Errors section shows the JavaScript errors visitors hit on your website, grouped into issues. An issue is one bug:
 the same message with other numbers, ids or quoted text, from the same function. The function name counts, so the same
-message thrown in two functions makes two issues. Each row says how often it happened,
-how many people it hit and how many of them pay you, with their monthly revenue in coral. Issues that cost money come
+message thrown in two functions makes two issues. A minified name of 1 to 3 characters, such as `Jt`, does not count:
+the next build renames it, and the bug stays one issue. Each row says how often it happened, how many people it hit and how many of them pay you, with their monthly revenue in coral. Issues that cost money come
 first.
 
 ### Turn it on
