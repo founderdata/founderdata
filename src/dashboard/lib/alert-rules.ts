@@ -14,8 +14,7 @@ export function channelLabel(ch: Pick<AlertChannel, 'kind' | 'name'>): string {
 
 /**
  * Where a rule sends, as one line: "Slack #growth, Email founders, iPhone push, webhook hooks.example.com". With channels
- * on, every channel that covers the rule's site (all of them for a rule for all sites); "no channel covers this site"
- * when none does. Null while the channels are not loaded.
+ * on, every channel that covers the rule's site (all of them for a rule for all sites), and a note when none does. Null while the channels are not loaded.
  */
 export function ruleDestinations(
   r: { channels: boolean; push: boolean; webhook_url: string | null; site_id: string; all_sites?: boolean },
@@ -26,15 +25,16 @@ export function ruleDestinations(
     if (!channels) return null;
     const covering = channels.filter((ch) => r.all_sites || !ch.sites || ch.sites.includes(r.site_id));
     if (covering.length) out.push(...covering.map(channelLabel));
-    else out.push('no notification channel covers this site');
+    else out.push('notification channels (none covers this site yet)');
   }
   if (r.push) out.push('iPhone push');
   if (r.webhook_url) {
-    let host = r.webhook_url;
+    // The dashboard gets the URL masked ("hooks.example.com/••••a1b2"): the host is the part before the first slash.
+    let host = r.webhook_url.split('/')[0];
     try {
       host = new URL(r.webhook_url).host;
     } catch {
-      // shown as it is
+      // a masked URL keeps its host part
     }
     out.push(`webhook ${host}`);
   }
