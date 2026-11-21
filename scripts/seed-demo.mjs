@@ -1475,8 +1475,8 @@ const seoParts = (() => {
 
   // Extra visitors on /pricing in the window, alternating versions. b's buyers pick bigger licenses.
   const PRICE = { control: [4900, 9900, 9900, 9900], b: [9900, 16900, 16900, 29900] };
-  // Each named extra person gets a first and last name pair of their own (20 x 16 pairs), so two people in the arms'
-  // customer lists never share a name.
+  // Each named extra person gets a first and last name pair of their own (20 x 16 pairs) and a middle initial, which
+  // the rest of the demo's people do not have, so two people in the arms' customer lists never share a name.
   let named = 0;
   for (let i = 0; i < 920; i++) {
     const arm = i % 2 ? 'b' : 'control';
@@ -1488,7 +1488,7 @@ const seoParts = (() => {
     const [browser, os, device] = at(DEVICES)[0];
     const signs = r() < 0.12;
     const buys = r() < 0.06;
-    const nm = signs || buys ? `${FIRST[named % FIRST.length]} ${LAST[Math.floor(named++ / FIRST.length) % LAST.length]}` : '';
+    const nm = signs || buys ? `${FIRST[named % FIRST.length]} ${'ABCDEFGHJKLMNPRSTVW'[named % 19]}. ${LAST[Math.floor(named++ / FIRST.length) % LAST.length]}` : '';
     const who = signs || buys ? { name: nm, email: `${nm.toLowerCase().replace(/[^a-z]+/g, '.')}.exp@example.com` } : null;
     const events = [
       { ts: t0, type: 'pageview', path: '/pricing' },
