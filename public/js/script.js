@@ -372,8 +372,36 @@
 
   // ==== region experiments: flags and experiments (cfg.x, data-fd-exp, ?fd_exp=)
   // lane exp edits only inside this region
-  function cfgExp(x) {}
-  function preview() {}
+  // The server assigns each visitor a variant at the pageview (cfg.x, {key: variant}). Elements marked
+  // data-fd-exp="key" data-fd-variant="v" show only the assigned variant; with none, the page stays as written (the
+  // control is the element without hidden). ?fd_exp=key:variant previews a variant: shown here, never stored.
+  var xs = {}, pv = {}, xSeen = 0, xWait = [];
+  function cfgExp(x) {
+    xs = x || {};
+    for (var k in pv) xs[k] = pv[k];
+    xSeen = 1;
+    showExp();
+    while (xWait.length) xWait.shift()(xs);
+  }
+  function showExp() {
+    var els = d.querySelectorAll('[data-fd-exp]');
+    for (var i = 0; i < els.length; i++) {
+      var v = xs[els[i].getAttribute('data-fd-exp')];
+      if (v) els[i].hidden = els[i].getAttribute('data-fd-variant') !== v;
+    }
+  }
+  function preview() { // 1 on a preview: the server stores no exposure for this page load
+    var m = /[?&]fd_exp=([a-z0-9_]{1,40})(?::|%3[aA])([\w-]{1,40})/.exec(loc.search);
+    if (m) { pv[m[1]] = m[2]; xs[m[1]] = m[2]; showExp(); }
+    for (var k in pv) return 1;
+  }
+  cmds.flag = function (k) { return xs[k] || null; };
+  // flags(fn): fn(variants) once the server answered, or after 2 s with what is known (an ad blocker, an error).
+  cmds.flags = function (fn) {
+    if (xSeen) return fn(xs);
+    xWait.push(fn);
+    setTimeout(function () { var i = xWait.indexOf(fn); if (i >= 0) xWait.splice(i, 1)[0](xs); }, 2000);
+  };
   // ==== end of region experiments
 
   // (between regions)
