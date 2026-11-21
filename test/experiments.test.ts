@@ -380,7 +380,7 @@ for (const [name, code] of [['source', CODE], ['minified', MINIFIED]] as const) 
       expect(t.fd('flag', 'new_checkout')).toBeNull();
       await tick();
       expect(got).toEqual([{}, {}]);
-      expect(t.fd.attribution()).toEqual({});
+      expect((t.fd as any).attribution()).toEqual({});
     });
 
     it('runs flags calls queued before the script loaded', async () => {
