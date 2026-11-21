@@ -719,9 +719,10 @@ Round 6 folded six tools into views. The old names answer one more release with 
 
 ### Errors
 
-Every read tool refuses an argument it does not have. The error names the argument and lists the ones the tool takes,
-as in "Unknown argument key. get_overview takes period, from, to, site." The plan's write tools pass an unknown field on
-and name it in `ignored`. An argument that belongs to another view, report or action of the tool is
+Every tool refuses an argument it does not have. That includes the write tools `add_note`, `alert_rules`, `dashboards`
+and `mail`, in every action. The error names the argument and lists the ones the tool takes, as in "Unknown argument
+key. get_overview takes period, from, to, site." The plan's four write tools (`update_plan`, `update_tasks`,
+`log_session`, `add_plan_review`) are the exception: they save what they know and name an unknown field in `ignored`. An argument that belongs to another view, report or action of the tool is
 refused with the one it belongs to. Nothing is dropped, so a call never answers a wider question than the one asked.
 Some REST parameters have no MCP argument. For these, call the REST route: `funnel` and `step` of
 `GET /api/v1/recordings`, and `split`, `customers`, `interval` and `buckets` of `GET /api/v1/web/retention`.
