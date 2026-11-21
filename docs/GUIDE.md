@@ -365,7 +365,7 @@ number changes:
 | Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change, 0 for the same answer again that day. Each answer is 1 Worker request |
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on. `/js/survey.js` is 1 request, cached |
 | Cancel reason from a Stripe or Polar webhook | 1, plus 1 when the subscription has a visitor. The webhook request is already counted |
-| Web: click map of one page view ([Click maps](#click-maps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more. 0 with click maps off |
+| Web: click map of one page view ([Click maps](#click-maps-heatmaps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more. 0 with click maps off |
 | Web: scroll depth of one page load | 0, a column of the page speed row |
 | Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
 | Error issue (Pro) resolved, ignored or reopened | 1 |
@@ -2891,8 +2891,9 @@ are deleted after 90 days.
 Content has two views, **Pages** and **Paths**. Paths follows visits through the site one page at a time. It starts
 with the pages where visits begin. Click one, and it follows every visit that viewed that page, wherever the visit
 started. It shows the pages people went to next, with how many visits did, how many left right there and how many of
-those visitors paid later. Click a next page to add it as a step, up to 4
-steps: `/` > `/pricing` > `/signup`. A page that repeats in a row counts once.
+those visitors paid later. Click a next page to add it as a step. Paths follows up to 3 pages, such as `/` >
+`/pricing` > `/signup`, and lists the pages visits went to after the last one. A page that repeats in a row counts once.
+**Left there** is the share of visits that ended on that page.
 
 Each step has **Watch visits**, which opens the recorded visits that viewed that page, and a link to the page's
 Content detail. The URL keeps the steps (`/content/paths?seq=/,/pricing`), so you can share it with a teammate.
@@ -3493,20 +3494,26 @@ and Safari 16.4 or later. An older browser gets a `<style>` element inside the c
 
 [PRIVACY.md](PRIVACY.md#surveys) lists what is stored and for how long.
 
-## Click maps and scroll depth (Pro)
+## Click maps (heatmaps) and scroll depth (Pro)
 
-A page's Content detail has a **Clicks and scroll** card. It answers two questions: what do people click on this page,
-and how far down do they read it.
+A click map is a heatmap of the clicks on one page, drawn over the live page. A page's Content detail has a **Clicks
+and scroll** card. It answers two questions: what do people click on this page, and how far down do they read it. The
+card covers the last 28 days, whatever the period picker says.
 
 **Scroll depth** works for every site with page speed on. The tracker notes how far down the page the bottom of the
-screen got, in percent, and sends it with the page speed numbers. The card shows bars for the share of page loads that
-reached 25%, 50%, 75% and the end, and Content's page list has a **Scroll** column with the median. A page loaded by a
-single-page move inside your app gets a scroll depth only from click maps.
+screen got, in percent, and sends it with the page speed numbers. Click maps keep it too, for every mapped page view,
+including pages reached by a single-page move inside your app. A page with 30 or more page speed rows in the 28 days
+gets its numbers from those. Below that, the click map rows answer when there are more of them. The card names the
+source and the count ("Median 70%, from 410 page views"), shows bars for the share of page views that reached 25%,
+50%, 75% and the end, and Content's page list has a **Median scroll** column. All three read the same rows, so they
+agree.
 
 **Click maps** are off by default. Turn them on in Settings, Errors, maps and surveys, **Click maps**, or with the switch
 on the empty card. From the next visit on, the tracker sends each page view's clicks: where on the page, which element
 and its text. The card then lists the most clicked elements, with the share of page views that clicked each one and
-the rage clicks of recorded visits. Pages with a map get a map icon in Content's list.
+the rage clicks of recorded visits. Pages with a map get a **Click map** label in Content's list. Content lists the
+pages where visits start, so a page like `/checkout` may not be there. The Click maps card in Settings lists every
+page with a map in the last 28 days and links to each one's detail.
 
 **Open click map** shows the clicks on your real page. The dashboard opens your page in a frame, 1,280 px wide for
 desktop or 390 px for mobile, and draws the clicks over it:
@@ -3517,8 +3524,8 @@ desktop or 390 px for mobile, and draws the clicks over it:
 - lines at 25%, 50% and 75% of the page with the share of visitors that scrolled that far
 
 Many sites forbid other sites to frame them (`X-Frame-Options` or `frame-ancestors` in their Content-Security-Policy).
-Then the card says so and offers **Open on your site**, which opens the same view in a new tab. To see it inside the
-dashboard, allow your FounderData host to frame your pages:
+Then the card says so and offers **Open on your site**, which opens the same view in a new tab for 15 minutes. To see
+it inside the dashboard instead, allow your FounderData host to frame your pages:
 
 ```
 Content-Security-Policy: frame-ancestors 'self' https://founderdata.example.com
@@ -3532,7 +3539,9 @@ names a person with `data-fd-mask`.
 One row per page view: the path, the device type, the window width, the page height, the deepest scroll and up to 50
 clicks. A click keeps its position, the element's tag with its first class or id (`button.buy`), and its visible text up
 to 40 characters. It never keeps what someone typed, form fields, editable text, or text inside `data-fd-mask` or
-`data-fd-block`. A row has no visitor or session id, so a click map cannot follow a person. Pages on the never-record list
+`data-fd-block`. Emails, phone numbers and runs of 6 or more digits in that text become `[removed]`. A name in a link
+stays, so mark elements that show a person's name with `data-fd-mask`. A row has no visitor or session id, so a click
+map cannot follow a person, and erasing a person cannot remove a name that reached a label. Pages on the never-record list
 (Settings, Record visits) get no click map. Rows are deleted after 90 days ([PRIVACY.md](PRIVACY.md#click-maps-and-scroll)).
 
 ### What it costs
@@ -3542,10 +3551,19 @@ back to click more updates that row, 1 row more each time. Scroll depth writes n
 speed row. A site with 3,000 page views a day uses 3,000 of the free plan's 100,000 rows. The Click
 maps card has a share setting (100%, 50%, 25% or 10% of page views) for a busy site. Reading maps writes nothing.
 
+Reading costs rows too. Opening a page's card reads about 15 rows per mapped page view in its 28 days: 6,615 for a
+page with 400. A read takes the newest 2,000 mapped page views of the page at most, so one open reads about 30,000
+rows or fewer, and the overlay about the same again. The free plan allows 5 million rows read a day. When a page had
+more than 2,000 mapped page views, the card says it shows the newest 2,000. The Content list reads 1 row per page for
+its **Click map** label.
+
 ### For agents
 
-`get_content` with a `path` answers `scroll` and `clicks`, the 10 most clicked elements ([API.md](API.md#clicks-and-scroll-pro)).
-`get_web_vitals` answers `scroll` per page. The setup checklist has a row **Click maps arrive**: `off` while no site
+`get_content` with a `path` answers `scroll` with its `source`, and `clicks`, the 10 most clicked elements with their
+rage clicks ([API.md](API.md#clicks-and-scroll-pro)). Click positions show only in the dashboard overlay. Without a
+`path`, each page row has `scroll_median_pct` and `has_click_map`. A page with neither scroll nor clicks gets
+`click_maps`, which says whether the switch is on and what to check. `get_web_vitals` answers `scroll` per page from
+page speed rows only. The setup checklist has a row **Click maps arrive**: `off` while no site
 maps clicks, `ok` when every site with the switch on got a map in the last 7 days, `warn` otherwise.
 
 ## Mail (Pro)

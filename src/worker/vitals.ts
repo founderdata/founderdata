@@ -10,6 +10,7 @@
 import type { Context } from 'hono';
 import type { AppEnv, Site } from './env';
 import { normalizePath } from './collect';
+import { mapCutoffSql } from './page-maps';
 
 export const METRICS = ['lcp', 'inp', 'cls', 'ttfb', 'fcp'] as const;
 export type Metric = (typeof METRICS)[number];
@@ -168,28 +169,42 @@ const empty = (): GroupSummary => ({ page_loads: 0, ...(Object.fromEntries(METRI
 
 /** Below this many page loads with a scroll depth, the median and shares answer null with the count. */
 export const MIN_SCROLL_SAMPLE = 10;
+/**
+ * Page speed rows a page needs before its scroll depth comes from them (pickScroll). Below it the click map rows of the
+ * page answer when there are more of them: they also cover single-page moves.
+ */
+export const SCROLL_SPEED_MIN = 30;
+
+/** Where a scroll summary's numbers come from: the page speed rows (`vitals`) or the click map rows (`page_maps`). */
+export type ScrollSource = 'page_speed' | 'click_maps';
 
 export interface ScrollSummary {
-  /** Page loads that reported a scroll depth. */
+  /** Page views that reported a scroll depth. */
   samples: number;
-  /** The middle scroll depth, percent of the page height; null below MIN_SCROLL_SAMPLE. */
-  median: number | null;
-  /** Shares of those page loads whose screen bottom reached 25, 50, 75 and 100% of the page, 0 to 1. */
+  /** The middle scroll depth, percent of the page height (0 to 100); null below MIN_SCROLL_SAMPLE. */
+  median_pct: number | null;
+  /** Shares of those page views whose screen bottom reached 25, 50, 75 and 100% of the page, 0 to 1. */
   reached_25: number | null;
   reached_50: number | null;
   reached_75: number | null;
   reached_100: number | null;
+  /** The rows the numbers come from; null without samples. */
+  source: ScrollSource | null;
 }
 
 type ScrollRow = { g: string; n: number; median: number | null; r25: number; r50: number; r75: number; r100: number };
 
-/** One statement: the scroll summary per path (or one group), in D1. `limit` keeps the paths with the most samples. */
-export function scrollSql(byPath: boolean, pageFilter: boolean, topPages: boolean): string {
+/**
+ * One statement: the scroll summary of page speed rows per path (or one group), in D1. `pageFilter` binds one path as
+ * ?4; `topPages` keeps the ?5 paths with the most rows; `pathList` keeps the paths of the JSON array ?4; `device` binds
+ * one device as ?5 (not with topPages).
+ */
+export function scrollSql(byPath: boolean, pageFilter: boolean, topPages: boolean, pathList = false, device = false): string {
   return `WITH b AS (
       SELECT ${byPath ? 'path' : "''"} AS g, scroll FROM vitals
       WHERE site_id = ?1 AND ts >= ?2 AND ts < ?3 AND scroll IS NOT NULL${pageFilter ? ' AND path = ?4' : ''}${
-        topPages ? ` AND path IN (SELECT path FROM vitals WHERE site_id = ?1 AND ts >= ?2 AND ts < ?3 GROUP BY path ORDER BY COUNT(*) DESC, path LIMIT ?5)` : ''
-      }
+        pathList ? ' AND path IN (SELECT value FROM json_each(?4))' : ''
+      }${device ? ' AND device = ?5' : ''}${topPages ? ` AND path IN (SELECT path FROM vitals WHERE site_id = ?1 AND ts >= ?2 AND ts < ?3 GROUP BY path ORDER BY COUNT(*) DESC, path LIMIT ?5)` : ''}
     ),
     r AS (SELECT g, scroll, ROW_NUMBER() OVER (PARTITION BY g ORDER BY scroll) AS rn, COUNT(*) OVER (PARTITION BY g) AS n FROM b)
     SELECT g, MAX(n) AS n, MIN(CASE WHEN rn * 2 >= n THEN scroll END) AS median,
@@ -198,23 +213,161 @@ export function scrollSql(byPath: boolean, pageFilter: boolean, topPages: boolea
 }
 
 /** The summary of one scroll row, or the empty summary. */
-export function scrollSummary(r: ScrollRow | undefined): ScrollSummary {
-  const n = r?.n ?? 0;
-  if (!r || n < MIN_SCROLL_SAMPLE) return { samples: n, median: null, reached_25: null, reached_50: null, reached_75: null, reached_100: null };
+export function scrollSummary(r: ScrollRow | undefined, source: ScrollSource = 'page_speed'): ScrollSummary {
+  const n = Number(r?.n ?? 0);
+  if (!r || n < MIN_SCROLL_SAMPLE)
+    return { samples: n, median_pct: null, reached_25: null, reached_50: null, reached_75: null, reached_100: null, source: n ? source : null };
   return {
     samples: n,
-    median: r.median,
+    median_pct: r.median,
     reached_25: share(r.r25, n),
     reached_50: share(r.r50, n),
     reached_75: share(r.r75, n),
     reached_100: share(r.r100, n),
+    source,
   };
 }
 
-/** Scroll summaries per path for the given window, keyed by path. Reads only `vitals`. */
-export async function scrollByPath(db: D1Database, siteId: string, from: number, to: number, limit = 100): Promise<Map<string, ScrollSummary>> {
-  const { results } = await db.prepare(scrollSql(true, false, true)).bind(siteId, from, to, null, limit).all<ScrollRow>();
-  return new Map(results.map((r) => [r.g, scrollSummary(r)]));
+/**
+ * The scroll depth of one page: the page speed rows when they number SCROLL_SPEED_MIN or more, else the click map rows
+ * when there are more of those, else what the page speed rows have. The Content list, the page's "Clicks and scroll"
+ * card, GET /api/v1/content/page and get_content all pick this way, so they show one number for a page and window.
+ */
+export function pickScroll(speed: ScrollSummary, maps: ScrollSummary | null | undefined): ScrollSummary {
+  if (speed.samples >= SCROLL_SPEED_MIN || !maps || maps.samples <= speed.samples) return speed;
+  return maps;
+}
+
+/**
+ * The scroll summary of click map rows (page_maps) per path of the JSON array ?4, in D1, with each path's mapped page
+ * views. Each path reads at most its newest MAP_READ_CAP rows of the window (mapCutoffSql), so a busy page costs the
+ * same as one with 2,000 mapped views. ?5 is an optional device.
+ */
+export function mapScrollSql(device: boolean): string {
+  const dev = device ? ' AND m.device = ?5' : '';
+  // p is materialized so each path's cutoff runs once, and CROSS JOIN keeps it the outer loop, so each path reads its
+  // primary key range from the cutoff on.
+  return `WITH q AS (SELECT DISTINCT value AS path FROM json_each(?4)),
+    p AS MATERIALIZED (SELECT path, ${mapCutoffSql('q.path')} AS cut FROM q),
+    b AS (
+      SELECT m.path AS g, m.scroll FROM p CROSS JOIN page_maps m ON m.site_id = ?1 AND m.path = p.path AND m.ts >= p.cut AND m.ts < ?3${dev}
+    ),
+    r AS (SELECT g, scroll, ROW_NUMBER() OVER (PARTITION BY g ORDER BY scroll IS NULL, scroll) AS rn, COUNT(scroll) OVER (PARTITION BY g) AS n FROM b)
+    SELECT g, COUNT(*) AS views, MAX(n) AS n, MIN(CASE WHEN scroll IS NOT NULL AND rn * 2 >= n THEN scroll END) AS median,
+      SUM(scroll >= 25) AS r25, SUM(scroll >= 50) AS r50, SUM(scroll >= 75) AS r75, SUM(scroll >= 100) AS r100
+    FROM r GROUP BY g`;
+}
+
+/** Click map scroll summaries and mapped page views of these paths, keyed by path. Reads only `page_maps`. */
+export async function mapScrollByPath(
+  db: D1Database,
+  siteId: string,
+  paths: string[],
+  from: number,
+  to: number,
+  device: string | null = null,
+): Promise<Map<string, { views: number; scroll: ScrollSummary }>> {
+  if (!paths.length) return new Map();
+  const args: unknown[] = [siteId, from, to, JSON.stringify(paths)];
+  if (device) args.push(device);
+  const { results } = await db
+    .prepare(mapScrollSql(!!device))
+    .bind(...args)
+    .all<ScrollRow & { views: number }>();
+  return new Map(results.map((r) => [r.g, { views: Number(r.views), scroll: scrollSummary(r, 'click_maps') }]));
+}
+
+/**
+ * The scroll depth of one page in [from, to) by pickScroll, optionally of one device. `speed` is the page's page speed
+ * summary when the caller already read it (contentPage reads vitals anyway); the click map rows are read only when the
+ * page speed rows number fewer than SCROLL_SPEED_MIN.
+ */
+export async function pageScroll(
+  db: D1Database,
+  siteId: string,
+  path: string,
+  from: number,
+  to: number,
+  opts: { device?: string | null; speed?: ScrollSummary } = {},
+): Promise<ScrollSummary> {
+  const device = opts.device ?? null;
+  const speed =
+    opts.speed ??
+    scrollSummary(
+      (await db
+        .prepare(scrollSql(false, true, false, false, !!device))
+        .bind(...(device ? [siteId, from, to, path, device] : [siteId, from, to, path]))
+        .first<ScrollRow>()) ?? undefined,
+    );
+  if (speed.samples >= SCROLL_SPEED_MIN) return speed;
+  const maps = (await mapScrollByPath(db, siteId, [path], from, to, device)).get(path)?.scroll;
+  return pickScroll(speed, maps);
+}
+
+/**
+ * The scroll depth of many pages by pickScroll, and whether each has a click map in the window, keyed by path: the
+ * Content list's Scroll column and map label. Round trip 1 reads the page speed rows of these paths and 1 row per
+ * mapped path; round trip 2, only when some mapped path has fewer than SCROLL_SPEED_MIN page speed rows, reads those
+ * paths' click map rows (capped per path). Paths without either are left out.
+ */
+export async function scrollByPathPicked(
+  db: D1Database,
+  siteId: string,
+  paths: string[],
+  from: number,
+  to: number,
+): Promise<Map<string, { scroll: ScrollSummary; mapped: boolean }>> {
+  const list = [...new Set(paths)].slice(0, 500);
+  const out = new Map<string, { scroll: ScrollSummary; mapped: boolean }>();
+  if (!list.length) return out;
+  const json = JSON.stringify(list);
+  const [speedRes, mappedRes] = await db.batch([
+    db.prepare(scrollSql(true, false, false, true)).bind(siteId, from, to, json),
+    db
+      .prepare(
+        'SELECT p.value AS path FROM json_each(?4) p WHERE EXISTS (SELECT 1 FROM page_maps m WHERE m.site_id = ?1 AND m.path = p.value AND m.ts >= ?2 AND m.ts < ?3)',
+      )
+      .bind(siteId, from, to, json),
+  ]);
+  const speed = new Map((speedRes.results as ScrollRow[]).map((r) => [r.g, scrollSummary(r)]));
+  const mapped = new Set((mappedRes.results as { path: string }[]).map((r) => r.path));
+  const short = [...mapped].filter((p) => (speed.get(p)?.samples ?? 0) < SCROLL_SPEED_MIN);
+  const maps = await mapScrollByPath(db, siteId, short, from, to);
+  for (const p of list) {
+    const s = speed.get(p);
+    const m = maps.get(p)?.scroll;
+    if (!s && !m && !mapped.has(p)) continue;
+    out.set(p, { scroll: pickScroll(s ?? scrollSummary(undefined), m), mapped: mapped.has(p) });
+  }
+  return out;
+}
+
+/** Days the Content list's scroll column and map label cover, whatever the period: the click map card's window. */
+export const PAGE_SCROLL_DAYS = 28;
+
+/**
+ * The Content list with each row's `scroll_median_pct` (pickScroll's median over the last 28 days, null below 10
+ * samples or without any) and `has_click_map` (a click map row in those days): GET /api/v1/content, get_content without
+ * a path, and the Content tab. 1 or 2 round trips (scrollByPathPicked), whatever the period.
+ */
+export async function withPageScroll<R extends { page: string }, T extends { rows: R[] }>(
+  db: D1Database,
+  siteId: string,
+  out: T,
+  now = Date.now(),
+): Promise<Omit<T, 'rows'> & { scroll_days: number; rows: (R & { scroll_median_pct: number | null; has_click_map: boolean })[] }> {
+  const by = await scrollByPathPicked(
+    db,
+    siteId,
+    out.rows.map((r) => r.page),
+    now - PAGE_SCROLL_DAYS * DAY,
+    now,
+  );
+  return {
+    ...out,
+    scroll_days: PAGE_SCROLL_DAYS,
+    rows: out.rows.map((r) => ({ ...r, scroll_median_pct: by.get(r.page)?.scroll.median_pct ?? null, has_click_map: by.get(r.page)?.mapped ?? false })),
+  };
 }
 
 export interface VitalsReport {
@@ -227,7 +380,7 @@ export interface VitalsReport {
   min_sample: number;
   thresholds: typeof THRESHOLDS;
   overall: GroupSummary;
-  /** Scroll depth of the page loads in the window (all pages, or `path`). */
+  /** Scroll depth of the page loads in the window (all pages, or `path`), from page speed rows only. */
   scroll: ScrollSummary;
   devices: ({ device: string } & GroupSummary)[];
   /** Absent when `path` is set. Each page has its scroll depth too. */

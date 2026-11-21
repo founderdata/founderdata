@@ -7,8 +7,8 @@ import vm from 'node:vm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resetBudgetForTests } from '../src/worker/budget';
 import { forgetSite } from '../src/worker/env';
-import { mapConfig, mapStatement, parseMapPayload, skipPattern, MAX_MAP_CLICKS } from '../src/worker/page-maps';
-import { parseVitals } from '../src/worker/vitals';
+import { cleanLabel, mapConfig, mapStatement, parseMapPayload, skipPattern, MAP_READ_CAP, MAX_MAP_CLICKS } from '../src/worker/page-maps';
+import { mapScrollByPath, mapScrollSql, parseVitals, pickScroll, scrollSummary, withPageScroll, SCROLL_SPEED_MIN } from '../src/worker/vitals';
 import { pruneOldData } from '../src/worker/retention';
 import { isSkipped } from '../src/worker/recording';
 import { startWorker, type TestWorker } from './helpers/worker';
@@ -38,6 +38,35 @@ describe('click map payload', () => {
     // An id outside 0 to 2^31 - 1 or not whole is none; an age past 7 days or below 0 counts as 0.
     for (const i of [-1, 2 ** 31, 1.5, '7']) expect(parseMapPayload({ p: '/', s: 10, i }, '/')!.id).toBeNull();
     expect(parseMapPayload({ p: '/', s: 10, a: 8 * DAY }, '/')!.age).toBe(0);
+  });
+
+  it('scrubs labels as error messages are: emails, phone numbers and runs of 6 or more digits', () => {
+    const m = parseMapPayload(
+      {
+        p: '/account',
+        w: 1000,
+        c: [
+          [10, 10, 'a.me', 'Logged in as anna.mueller@example.de'],
+          [10, 10, 'span', 'Anna Müller'],
+          [10, 10, 'a', 'Invoice 20261104-9921 for 49 EUR'],
+          [10, 10, 'a', 'Call +49 30 1234 5678'],
+          [10, 10, 'a', 'Signed in as very.long.name@exam'],
+        ],
+      },
+      '/',
+    )!;
+    expect(m.clicks.map((c) => c[3])).toEqual([
+      'Logged in as [removed]',
+      // A name inside a link stays: data-fd-mask keeps it out (PRIVACY.md "Click maps and scroll").
+      'Anna Müller',
+      'Invoice [removed] for 49 EUR',
+      'Call [removed]',
+      // The tracker cut the email at 40 characters: a word with an @ goes too.
+      'Signed in as [removed]',
+    ]);
+    // Scrubbed before the cut, so an email that would pass 40 characters cannot leave half of itself.
+    expect(cleanLabel('Your account: some.person.with.a.long.name@example.com')).toBe('Your account: [removed]');
+    expect(cleanLabel('Plan 2026 costs 49')).toBe('Plan 2026 costs 49');
   });
 
   it('drops clicks out of range, broken hints and long labels', () => {
@@ -191,12 +220,12 @@ describe('click maps through the Worker', () => {
     const r = await w.fetch('/api/v1/vitals', { headers: { authorization: `Bearer ${key}` } });
     const body = await r.json<any>();
     const docs = body.pages.find((p: any) => p.path === '/docs');
-    expect(docs.scroll).toEqual({ samples: 12, median: 90, reached_25: 0.75, reached_50: 0.75, reached_75: 0.75, reached_100: 0 });
+    expect(docs.scroll).toEqual({ samples: 12, median_pct: 90, reached_25: 0.75, reached_50: 0.75, reached_75: 0.75, reached_100: 0, source: 'page_speed' });
     // Below 10 samples the numbers are null, with the count.
-    expect(body.pages.find((p: any) => p.path === '/rare').scroll).toMatchObject({ samples: 3, median: null, reached_50: null });
+    expect(body.pages.find((p: any) => p.path === '/rare').scroll).toMatchObject({ samples: 3, median_pct: null, reached_50: null, source: 'page_speed' });
     expect(body.scroll.samples).toBe(15);
     const one = await (await w.fetch('/api/v1/vitals?path=/docs', { headers: { authorization: `Bearer ${key}` } })).json<any>();
-    expect(one.scroll.median).toBe(90);
+    expect(one.scroll).toMatchObject({ median_pct: 90, source: 'page_speed' });
   });
 
   it('adds scroll to the content page answer, and with Pro the 10 most clicked elements', async () => {
@@ -210,23 +239,92 @@ describe('click maps through the Worker', () => {
     const r = await w.fetch('/api/v1/content/page?path=/docs', { headers: { authorization: `Bearer ${key}` } });
     expect(r.status).toBe(200);
     const body = await r.json<any>();
-    expect(body.scroll).toMatchObject({ samples: 12, median: 90 });
+    // 12 page speed rows and 12 map rows without a scroll: the page speed rows answer, with the window.
+    expect(body.scroll).toMatchObject({ days: 28, samples: 12, median_pct: 90, source: 'page_speed' });
     // The click report is Pro's (plan S1, the pageClicks hook): core answers null.
     expect(body.clicks).toEqual(
       isPro
         ? {
             days: 28,
             views: 12,
+            sampled: false,
             elements: [
-              { element: 'a.cta', label: 'Start', clicks: 18, views: 9, share: 0.75 },
-              { element: 'a.nav', label: 'Pricing', clicks: 3, views: 3, share: 0.25 },
+              { element: 'a.cta', label: 'Start', clicks: 18, views: 9, share: 0.75, rage: 0 },
+              { element: 'a.nav', label: 'Pricing', clicks: 3, views: 3, share: 0.25, rage: 0 },
             ],
           }
         : null,
     );
-    // A page with neither answers null for both.
+    expect(body.click_maps).toBeUndefined();
+    // A page with neither answers null for both, and says why: the switch and what to check.
     const none = await (await w.fetch('/api/v1/content/page?path=/nothing-here', { headers: { authorization: `Bearer ${key}` } })).json<any>();
     expect([none.scroll, none.clicks]).toEqual([null, null]);
+    expect(none.click_maps).toMatchObject({ on: true });
+    expect(none.click_maps.next_step).toContain('/nothing-here');
+    expect(none.click_maps.next_step).toContain(isPro ? 'Click maps are on' : 'FounderData Pro');
+  });
+
+  it('picks one scroll source for a page: page speed rows from 30, else the click map rows when there are more', async () => {
+    const now = Date.now();
+    const auth = { headers: { authorization: `Bearer ${key}` } };
+    // /spa: 3 page speed rows (a single-page app loads it once) and 20 mapped page views with a scroll.
+    for (let i = 0; i < 3; i++) await ping({ v: { l: 1000, p: '/spa', s: 10 } });
+    const rows: unknown[] = [];
+    for (let i = 0; i < 20; i++) rows.push(site.id, '/spa', now - i * 60_000, 500 + i, i < 15 ? 80 : 30);
+    await w.db
+      .prepare(`INSERT INTO page_maps (site_id, path, ts, id, scroll) VALUES ${Array(20).fill('(?, ?, ?, ?, ?)').join(', ')}`)
+      .bind(...rows)
+      .run();
+    const spa = await (await w.fetch('/api/v1/content/page?path=/spa', auth)).json<any>();
+    expect(spa.scroll).toEqual({ days: 28, samples: 20, median_pct: 80, reached_25: 1, reached_50: 0.75, reached_75: 0.75, reached_100: 0, source: 'click_maps' });
+    // get_web_vitals keeps the page speed rows only.
+    const speed = await (await w.fetch('/api/v1/vitals?path=/spa', auth)).json<any>();
+    expect(speed.scroll).toMatchObject({ samples: 3, median_pct: null, source: 'page_speed' });
+    // The rule on its own: 30 page speed rows win over any number of map rows; fewer lose to more map rows only.
+    const s = (n: number, source: 'page_speed' | 'click_maps') => ({ ...scrollSummary({ g: '', n, median: 50, r25: n, r50: n, r75: 0, r100: 0 }, source) });
+    expect(pickScroll(s(SCROLL_SPEED_MIN, 'page_speed'), s(400, 'click_maps')).source).toBe('page_speed');
+    expect(pickScroll(s(29, 'page_speed'), s(400, 'click_maps')).source).toBe('click_maps');
+    expect(pickScroll(s(29, 'page_speed'), s(12, 'click_maps')).source).toBe('page_speed');
+    expect(pickScroll(s(0, 'page_speed'), null).source).toBeNull();
+    // The Content list rows get the same median and the map flag, for any rows with a page.
+    const list = await withPageScroll(w.db, site.id, { truncated: false, rows: [{ page: '/spa', visitors: 3 }, { page: '/docs', visitors: 12 }, { page: '/rare', visitors: 3 }, { page: '/nothing', visitors: 1 }] });
+    expect(list.scroll_days).toBe(28);
+    expect(list.rows.map((r) => [r.page, r.scroll_median_pct, r.has_click_map])).toEqual([
+      ['/spa', 80, true],
+      ['/docs', 90, true],
+      ['/rare', null, false],
+      ['/nothing', null, false],
+    ]);
+  });
+
+  it('reads at most the newest 2,000 click map rows of a page for its scroll', async () => {
+    const now = Date.now();
+    // 2,100 rows, one a second: the oldest 100 scrolled 10%, the newest 2,000 scrolled 90%.
+    await w.db
+      .prepare(
+        `INSERT INTO page_maps (site_id, path, ts, id, scroll)
+         WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 2099)
+         SELECT ?1, '/busy', ?2 - (2100 - i) * 1000, i, CASE WHEN i < 100 THEN 10 ELSE 90 END FROM n`,
+      )
+      .bind(site.id, now)
+      .run();
+    const got = (await mapScrollByPath(w.db, site.id, ['/busy'], now - 28 * DAY, now + 1000)).get('/busy')!;
+    expect(MAP_READ_CAP).toBe(2000);
+    expect(got.views).toBe(MAP_READ_CAP);
+    expect(got.scroll).toMatchObject({ samples: 2000, median_pct: 90, reached_25: 1, source: 'click_maps' });
+    // The rows read do not grow with the window: 4,000 more older rows leave them as they were.
+    const read = async () => (await w.db.prepare(mapScrollSql(false)).bind(site.id, now - 28 * DAY, now + 1000, '["/busy"]').all()).meta.rows_read;
+    const before = await read();
+    await w.db
+      .prepare(
+        `INSERT INTO page_maps (site_id, path, ts, id, scroll)
+         WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 3999)
+         SELECT ?1, '/busy', ?2 - 3000000 - i * 1000, 10000 + i, 10 FROM n`,
+      )
+      .bind(site.id, now)
+      .run();
+    expect(await read()).toBeLessThanOrEqual(before + 10);
+    expect((await mapScrollByPath(w.db, site.id, ['/busy'], now - 28 * DAY, now + 1000)).get('/busy')!.scroll.median_pct).toBe(90);
   });
 
   it('removes rows after 90 days, and empties them with the site', async () => {
