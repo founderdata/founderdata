@@ -150,7 +150,8 @@ export function renderLabel(dim: string, row: Pick<BreakdownRow, 'label' | 'extr
       const by = tracked.map((t) => `${t.channel === 'Other' ? 'other channels' : t.channel} ${fmtNumber(t.visitors)}`).join(', ');
       return (
         <>
-          {text(row.name ?? DEFAULT_LABELS.heard_about[l ?? ''] ?? l)}
+          {/* The answer keeps its width; the channels truncate first. */}
+          <span className="min-w-0 max-w-[60%] shrink-0 truncate">{row.name ?? DEFAULT_LABELS.heard_about[l ?? ''] ?? l}</span>
           {tracked.length > 0 && (
             <span className="hidden min-w-0 shrink truncate text-xs text-stone-400 sm:inline" title={`The channel each of them first arrived by: ${by}`}>
               Tracked as {by}
@@ -232,7 +233,7 @@ function Columns({ cols, sort, onSort, dim, earns }: { cols: Sort[]; sort: Sort;
     perVisitor: { label: 'Per visitor', title: 'Revenue divided by visitors. The page that brings the most money per visit.' },
   };
   return (
-    <div className="flex shrink-0 items-center self-end pr-2.5 text-xs font-medium text-stone-400 sm:self-auto lg:self-end xl:self-auto">
+    <div className={`flex shrink-0 items-center self-end pr-2.5 text-xs font-medium text-stone-400 ${dim === 'heard_about' ? '' : 'sm:self-auto lg:self-end xl:self-auto'}`}>
       {cols.map((c) => {
         const m = meta[c];
         // Nothing earned in this view: the money columns dim, and keep their sort button.
@@ -500,7 +501,8 @@ export function Panel({ tabs }: { tabs: TabDef[] }) {
   return (
     <div className="card flex min-h-[220px] min-w-0 flex-col p-3">
       {/* Narrow screens: the column headers on a line of their own under the tabs. */}
-      <div className="flex flex-col gap-2 pb-2 sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-stretch xl:flex-row xl:items-center">
+      {/* The Heard about tab's wider column header sits under the tabs at every width. */}
+      <div className={`flex flex-col gap-2 pb-2 ${tab.dim === 'heard_about' ? '' : 'sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-stretch xl:flex-row xl:items-center'}`}>
         <TabRow className="min-w-0 overflow-x-auto [scrollbar-width:none]" activeKey={tab.dim} label="Breakdown">
           {tabs.map((t) => (
             <button key={t.dim} role="tab" aria-selected={t.dim === tab.dim} className={`tab whitespace-nowrap ${t.dim === tab.dim ? 'tab-active' : ''}`} onClick={() => setActive(t.dim)}>
