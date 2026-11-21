@@ -14,7 +14,7 @@ import { proHooks, type RecordConfig, type SurveyConfig } from './pro-hooks';
 import { exposureProps, exposureStatements } from './experiments';
 import { surveyStatements } from './surveys';
 import { mapConfig, mapStatement, type MapConfig } from './page-maps';
-import { errorsConfig, errorStatements } from './errors';
+import { errorsConfig, errorStatements, recordedActivity } from './errors';
 
 // Round 7 (plan 5.1): this file is the foundation's. The features live in experiments.ts, surveys.ts, page-maps.ts
 // and errors.ts; this file only calls them.
@@ -408,9 +408,10 @@ export async function ingest(
     stmts.push(...errorStatements(db, site, body.a, sid, path, ua, now));
     const map = mapStatement(db, site, body.h, path, device, now);
     if (map) stmts.push(map);
-    // The clicks and errors of the page that ended: 1 row more, only for a site that records visits.
+    // The clicks and errors of the page that ended: 1 row more, only for a recorded visit of a site that records visits
+    // (the script marks it; a visit that is not recorded sends its errors for the errors rows above only).
     // A page on the site's never-recorded list keeps its clicks and errors out too, whatever tracker version sent them.
-    const act = site.record_visits ? parseActivity(body.a) : null;
+    const act = site.record_visits && recordedActivity(body.a) ? parseActivity(body.a) : null;
     if (act && !isSkipped(act.path ?? path, skipList(site.record_skip))) {
       stmts.push(
         db

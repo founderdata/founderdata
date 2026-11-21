@@ -142,7 +142,10 @@ describe('errors: ingest', () => {
     const written = await rows(() =>
       ping('errsession0001', [ERR("TypeError: Cannot read properties of undefined (reading 'priceId')", k), ERR("TypeError: Cannot read properties of undefined (reading 'planId')", k), ERR('Email anna@example.com taken')]),
     );
-    expect(written).toBe(1 + 2);
+    // Two issues: an errors row each and each issue's first sighting (error_first).
+    expect(written).toBe(1 + 2 + 2);
+    const firsts = await w.db.prepare('SELECT fp, first_seen FROM error_first WHERE site_id = ?').bind(site.id).all<any>();
+    expect(firsts.results).toHaveLength(2);
     const got = await stored();
     expect(got).toHaveLength(2);
     expect(got[0]).toMatchObject({
@@ -151,11 +154,28 @@ describe('errors: ingest', () => {
     });
     expect(got[0].fp).toBe(fingerprint(got[0].message, got[0].source, got[0].stack));
     expect(got[1].message).toBe('Email [removed] taken');
+    expect(got[0].datacenter).toBe(0);
+    // The same errors again: 1 row each, the first sighting stays as it was.
+    expect(await rows(() => ping('errsession0001', [ERR("TypeError: Cannot read properties of undefined (reading 'priceId')", k), ERR('Email anna@example.com taken')]))).toBe(1 + 2);
+    expect((await w.db.prepare('SELECT fp, first_seen FROM error_first WHERE site_id = ?').bind(site.id).all<any>()).results).toEqual(firsts.results);
+  });
+
+  it('marks errors of a visit from a hosting network, which sets no first sighting', async () => {
+    await w.db.prepare("UPDATE sessions SET datacenter = 1 WHERE site_id = ? AND id = 'errsession0001'").bind(site.id).run();
+    try {
+      expect(await rows(() => ping('errsession0001', [ERR('Bot only error')]))).toBe(1 + 1);
+      const bot = (await stored()).find((r) => r.message === 'Bot only error');
+      expect(bot.datacenter).toBe(1);
+      expect(await w.db.prepare('SELECT COUNT(*) AS n FROM error_first WHERE site_id = ? AND fp = ?').bind(site.id, bot.fp).first('n')).toBe(0);
+    } finally {
+      await w.db.prepare("UPDATE sessions SET datacenter = 0 WHERE site_id = ? AND id = 'errsession0001'").bind(site.id).run();
+    }
   });
 
   it('keeps at most 5 rows a page view, skips never-recorded pages and pings of unknown visits', async () => {
     await w.db.prepare('DELETE FROM errors WHERE site_id = ?').bind(site.id).run();
     const many = Array.from({ length: 8 }, (_, i) => ERR(`Error ${'abcdefgh'[i]} broke`));
+    expect(await rows(() => ping('errsession0001', many))).toBe(1 + 5 + 5);
     expect(await rows(() => ping('errsession0001', many))).toBe(1 + 5);
     await set({ record_skip: '/account' });
     expect(await rows(() => ping('errsession0001', [ERR('Leaky')], '/account/billing'))).toBe(1);
@@ -163,11 +183,19 @@ describe('errors: ingest', () => {
     expect((await stored()).map((r) => r.message)).not.toContain('Leaky');
   });
 
-  it('catches errors on a site that records visits, and keeps the activity row as before', async () => {
+  it('catches errors on a site that records visits, and keeps the activity row for recorded visits only', async () => {
     await w.db.prepare('DELETE FROM errors WHERE site_id = ?').bind(site.id).run();
     await set({ errors_on: 0, record_visits: 1, record_skip: '' });
-    // The session update, the errors row, and the activity event (4 rows: the row, 2 index entries, the id counter).
-    expect(await rows(() => ping('errsession0001', [ERR('TypeError: y')]))).toBe(1 + 1 + 4);
+    const activityRows = () => w.db.prepare("SELECT COUNT(*) AS n FROM events WHERE site_id = ? AND type = 'activity'").bind(site.id).first<number>('n');
+    // A visit that is not recorded (no a.r, no clicks): the session update, the errors row and the issue's first
+    // sighting. No activity event: it would feed "Had trouble" and the recordings patterns for a visit with no recording.
+    expect(await rows(() => ping('errsession0001', [ERR('TypeError: y')]))).toBe(1 + 1 + 1);
+    expect(await activityRows()).toBe(0);
+    await w.db.prepare('DELETE FROM errors WHERE site_id = ?').bind(site.id).run();
+    // A recorded visit's page, marked by the script with r: 1: the errors row and the activity event (4 rows: the row,
+    // 2 index entries, the id counter).
+    expect(await rows(() => event({ t: 'ping', vid: 'errvisitor0001', sid: 'errsession0001', d: 1000, a: { p: '/checkout', s: Date.now() - 3000, e: [ERR('TypeError: y')], r: 1 } }))).toBe(1 + 1 + 4);
+    expect(await activityRows()).toBe(1);
     expect(await stored()).toHaveLength(1);
     const act = await w.db.prepare("SELECT props FROM events WHERE site_id = ? AND type = 'activity'").bind(site.id).first<{ props: string }>();
     expect(JSON.parse(act!.props).e[0].m).toBe('TypeError: y');
@@ -179,6 +207,21 @@ describe('errors: ingest', () => {
     const csv = res.body;
     expect(String(csv)).toContain('time,issue,message,source,stack,times,path,device,browser,session_id,visitor_id');
     expect(String(csv)).toContain('TypeError: y');
+  });
+
+  it('drops a first sighting once its issue has no errors row left', async () => {
+    const now = Date.now();
+    await w.db
+      .prepare("INSERT INTO error_first (site_id, fp, first_seen) VALUES (?, 'bbbbbbbbbbbb', ?), (?, 'cccccccccccc', ?), (?, 'dddddddddddd', ?)")
+      .bind(site.id, now - (ERRORS_DAYS + 5) * DAY, site.id, now - (ERRORS_DAYS + 5) * DAY, site.id, now - DAY)
+      .run();
+    // cccccccccccc still has a row inside the 90 days: its first sighting stays, older than 90 days as it is.
+    await w.db.prepare("INSERT INTO errors (site_id, ts, id, fp, message) VALUES (?, ?, 7, 'cccccccccccc', 'Still here')").bind(site.id, now - DAY).run();
+    await pruneOldData(w.db, now);
+    const left = (await w.db.prepare("SELECT fp FROM error_first WHERE site_id = ? AND fp IN ('bbbbbbbbbbbb', 'cccccccccccc', 'dddddddddddd') ORDER BY fp").bind(site.id).all<any>()).results;
+    // dddddddddddd is recent: kept even without rows (an erased person's issue keeps its first sighting).
+    expect(left.map((r) => r.fp)).toEqual(['cccccccccccc', 'dddddddddddd']);
+    await w.db.prepare("DELETE FROM errors WHERE site_id = ? AND id = 7").bind(site.id).run();
   });
 
   it('erases a person\'s errors and drops rows older than 90 days', async () => {
@@ -195,11 +238,12 @@ describe('errors: ingest', () => {
     expect((await stored()).map((r) => r.message)).toEqual(['Kept']);
   });
 
-  it('empties both tables when the site is deleted', async () => {
+  it('empties its tables when the site is deleted', async () => {
     await w.db.prepare("INSERT INTO error_issues (site_id, fp, status, changed_at) VALUES (?, 'aaaaaaaaaaaa', 'resolved', 1)").bind(site.id).run();
     expect((await w.admin(`/api/sites/${site.id}`, { method: 'DELETE' })).status).toBe(200);
     expect(await w.db.prepare('SELECT COUNT(*) AS n FROM errors WHERE site_id = ?').bind(site.id).first('n')).toBe(0);
     expect(await w.db.prepare('SELECT COUNT(*) AS n FROM error_issues WHERE site_id = ?').bind(site.id).first('n')).toBe(0);
+    expect(await w.db.prepare('SELECT COUNT(*) AS n FROM error_first WHERE site_id = ?').bind(site.id).first('n')).toBe(0);
   });
 });
 

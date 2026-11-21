@@ -3272,8 +3272,8 @@ a phone. Read 22% of it, opened /pricing and clicked "Compare plans" 3 times in 
 
 ### Costs
 
-Each distinct error of a page view writes 1 row, so a page view costs 0 to 5 rows. Resolving, ignoring or reopening an
-issue writes 1 row. A `new_error` rule writes 1 row when it fires, plus 1 row for the alert inbox. Reading issues
+Each distinct error of a page view writes 1 row, so a page view costs 0 to 5 rows. An issue seen for the first time
+writes 1 more row, its first sighting. Resolving, ignoring or reopening an issue writes 1 row. A `new_error` rule writes 1 row when it fires, plus 1 row for the alert inbox. Reading issues
 writes nothing.
 
 ## Experiments (Pro)

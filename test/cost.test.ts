@@ -119,8 +119,9 @@ describe('free-plan cost: D1 rows written per write path', () => {
     await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { record_visits: 1 } });
     forgetSite(site.id);
     const act = { p: '/pricing', s: Date.now(), c: [{ t: 900, l: 'Buy', k: 'button', n: 3, r: 1 }], e: [{ t: 1000, m: 'TypeError: x', s: 'app.js:1' }] };
-    // Its error is also an errors row (round 7, lane errors: a site that records visits catches errors): 1 more.
-    expect(await rows('web: ping with the page activity of a recorded visit', () => web({ t: 'ping', d: 30_000, a: act }))).toBe(6);
+    // Its error is also an errors row (round 7, lane errors: a site that records visits catches errors): 1 more, and 1 for
+    // the issue's first sighting (error_first), the first time that error appears.
+    expect(await rows('web: ping with the page activity of a recorded visit', () => web({ t: 'ping', d: 30_000, a: act }))).toBe(7);
     expect(await rows('web: ping of a recorded visit, page without clicks or errors', () => web({ t: 'ping', d: 30_000, a: { p: '/pricing', c: [] } }))).toBe(1);
     await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { record_visits: 0 } });
     forgetSite(site.id);
@@ -508,11 +509,24 @@ describe('round 7: errors', () => {
       await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { errors_on: 1 } });
       forgetSite(site.id);
       expect(await rows(() => ping([]))).toBe(1);
+      // A new issue: its errors row and its first sighting (error_first, migration 0098). After that, 1 row per error.
+      expect(await rows(() => ping(errs(1)))).toBe(1 + 1 + 1);
       expect(await rows(() => ping(errs(1)))).toBe(1 + 1);
       // The same error twice is one row with n = 2.
       expect(await rows(() => ping([...errs(1), ...errs(1)]))).toBe(1 + 1);
+      // a is known, b and c are new.
+      expect(await rows(() => ping(errs(3)))).toBe(1 + 3 + 2);
       expect(await rows(() => ping(errs(3)))).toBe(1 + 3);
+      // At most 5 a page view: the last 5 of 8 (d to h), all new.
+      expect(await rows(() => ping(errs(8)))).toBe(1 + 5 + 5);
       expect(await rows(() => ping(errs(8)))).toBe(1 + 5);
+      // A site that records visits catches errors on every visit (cfg.e). A visit that is not recorded sends its errors
+      // without the recorded mark (a.r) and without clicks: the errors row only, no activity events row.
+      await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { errors_on: 0, record_visits: 1 } });
+      forgetSite(site.id);
+      expect(await rows(() => ping(errs(1)))).toBe(1 + 1);
+      // A recorded visit's page (a.r = 1): the errors row and the activity row (itself, 2 index entries, the id counter).
+      expect(await rows(() => web({ t: 'ping', d: 30_000, a: { p: '/checkout', s: Date.now() - 1000, e: errs(1), r: 1 } }))).toBe(1 + 1 + 4);
     } finally {
       await w.dispose();
     }

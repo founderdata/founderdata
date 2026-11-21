@@ -2249,7 +2249,10 @@ frame's file and function, or the source file without a stack. A build hash in t
   where visitor ids that share a user id are one person. `sessions` counts visits.
 - `customers` are the people who paid at some point, by any of their visitor ids, and `mrr` is what their subscriptions
   pay each month now, in minor units of `currency`. Without `read:revenue`, `mrr` is `null` and `currency` is absent.
-- `first_seen` looks back 90 days, whatever the period. `new` is true when it is within the last 24 hours.
+- `first_seen` is the issue's first sighting, whatever the period, kept as long as the issue has errors from the last
+  90 days. `new` is true when it is within the last 24 hours.
+- Errors of visits from hosting networks and bots are left out, as in every other report, unless the site shows those
+  visits.
 - `status`: no decision is `open`. `resolved` turns into `regressed` when the issue happens after it was resolved.
 - `series` is the events per day of the last 14 days of the period, oldest first.
 - `watch_url` opens the newest recorded visit with this error 3 seconds before it; `null` when none was recorded.
@@ -2274,7 +2277,7 @@ frame's file and function, or the source file without a stack. A build hash in t
 ```
 
 `frames` are those of the newest error with a stack, top first. `messages` are the variants, at most 5. `affected` holds
-the people it hit, at most 20, customers first; `mrr` is `null` for someone who never paid. `recordings` are the
+the people it hit, at most 20, customers first, whenever in the period they hit it; `mrr` is `null` for someone who never paid. `recordings` are the
 recorded visits it hit, newest first, at most 10. `404` when the issue has no error in the period, with a line that
 says to ask for a wider period.
 
@@ -3310,9 +3313,9 @@ curl -X POST https://founderdata.example.com/api/v1/alerts/rules \
 
 | Field | Type | |
 | --- | --- | --- |
-| `metric` | string, required | `visitors`, `revenue`, `revenue_per_visitor`, `conversion_rate`, `ai_visits` (visits from ChatGPT, Claude, Perplexity and other AI assistants), `page_google_clicks`, `page_decay` (a page enters the SEO tab's Decaying pages), `site_google_clicks` and `site_google_impressions` (the whole site's Google clicks or impressions from `gsc_daily`, for a site-wide drop that no single page shows), `asa_spend` and `asa_roas` (Apple Search Ads), `meta_spend`, `meta_roas`, `meta_cpa` (cost per customer FounderData credited to an ad) and `meta_cac` (all ad spend, Meta's, Apple Search Ads and pushed channels, over every new customer from any source) for Meta ads; with spend and no customer, `meta_cpa` counts as Meta's whole spend and `meta_cac` as all ad spend, or `note_verdict` (a change's verdict turns worse). |
+| `metric` | string, required | `visitors`, `revenue`, `revenue_per_visitor`, `conversion_rate`, `ai_visits` (visits from ChatGPT, Claude, Perplexity and other AI assistants), `page_google_clicks`, `page_decay` (a page enters the SEO tab's Decaying pages), `site_google_clicks` and `site_google_impressions` (the whole site's Google clicks or impressions from `gsc_daily`, for a site-wide drop that no single page shows), `asa_spend` and `asa_roas` (Apple Search Ads), `meta_spend`, `meta_roas`, `meta_cpa` (cost per customer FounderData credited to an ad) and `meta_cac` (all ad spend, Meta's, Apple Search Ads and pushed channels, over every new customer from any source) for Meta ads; with spend and no customer, `meta_cpa` counts as Meta's whole spend and `meta_cac` as all ad spend, `note_verdict` (a change's verdict turns worse), or `new_error` (a JavaScript error issue first seen in the last 24 hours, see "Errors (Pro)"). |
 | `site_id` | string | `"*"` for a rule for all sites, also sites added later. It fires per site, and compares money in percent only. Other values are ignored: the key names the site. |
-| `path` | string or null | `page_google_clicks` and `page_decay` only. A page path such as `/blog/launch`, or `null` for any page. |
+| `path` | string or null | `page_google_clicks`, `page_decay` and `new_error` only. A page path such as `/blog/launch`, or `null` for any page. For `new_error` it is a prefix: `/checkout` also covers `/checkout/done`. |
 | `comparison` | string | Required for the metrics with a line: `falls_pct`, `rises_pct`, `drops_below` or `rises_above`. `note_verdict` is always `turns_worse`. |
 | `threshold` | number | A percent for `falls_pct` and `rises_pct` (`15` is 15%). For `drops_below` and `rises_above`, the metric's own unit: minor units for money, a fraction for `conversion_rate`, `asa_roas` and `meta_roas` (`0.5` is 50%), a count otherwise. |
 | `window` | string | `24h` or `7d`, the default; `28d` for the Search Console metrics (`page_google_clicks`, `page_decay`, `site_google_clicks`, `site_google_impressions`). The window ends at the start of the cron's hour and is compared with the same length before it. Search Console metrics use whole days that end on the last Search Console day. Search Ads use whole days in the site timezone up to yesterday, as Apple reports once a day. |
@@ -3332,7 +3335,8 @@ A rule needs at least one of `webhook_url`, `channels` and `push`. The answer is
 (`whsec_...`), the webhook's signing secret. It is shown this once; the dashboard can make a new one. A deployment
 keeps 50 rules at most. A new rule writes 2 rows.
 
-Two metrics have a fixed condition, and the body's `comparison`, `threshold`, `window` and `min_volume` are ignored:
+Three metrics have a fixed condition. For `page_decay` and `note_verdict` the body's `comparison`, `threshold`,
+`window` and `min_volume` are ignored; `new_error` keeps `min_volume`, the people an issue hit (default 1):
 
 - `page_decay` is the SEO tab's Decaying pages card: a page that lost over 30% of at least 10 clicks in the last 28
   Search Console days against the 28 before (`DECAY` in `src/shared/seo-insights.ts`). The payload adds `reason`, the
@@ -3343,6 +3347,9 @@ Two metrics have a fixed condition, and the body's `comparison`, `threshold`, `w
   first note. Its `crossed` holds the ids of the notes it judged. At most 5 are judged per run; the rest wait for the
   next one. An ads verdict can read 13 queries, so a run that is short of the cron's 50 subrequests also leaves
   the rest for the next hour.
+- `new_error` fires once for each error issue first seen in the last 24 hours on pages under `path` that hit at least
+  `min_volume` people. Ignored issues never fire. The payload adds `reason`, the message, and `issue`, the issue id. Its
+  `crossed` holds the issues already sent.
 
 ### `GET /api/v1/alerts/rules`
 
@@ -3407,7 +3414,8 @@ to the site currency. Apple's sales report, which arrives a day or more late, st
 first. A page rule leaves out notes aimed at another page. `verdict` is `better`, `worse` or `inconclusive` once the
 note's 7-day window has closed ([the verdict](#the-verdict)), and `measuring` until then.
 
-A rule for all sites sends one payload per site, with that site in `site`. A `page_decay` payload adds `reason`.
+A rule for all sites sends one payload per site, with that site in `site`. A `page_decay` payload adds `reason`, and a
+`new_error` payload adds `reason` and `issue`.
 A Search Ads payload has days in `from` and `to`, spend in minor units and ROAS as a fraction (`0.4` is 40%).
 
 **A verdict.** A `note_verdict` rule sends `"type": "alert.verdict"`, with the change in `note` (also the one entry
@@ -3792,8 +3800,10 @@ error has its message `m` (200 characters) and its source `s`, the file without 
 at most 30 clicks, the newest, and 5 errors, the first. When the body would pass 8 KB, the script drops the oldest
 clicks first. A page in `rec.x` sends no `a`.
 
-The server stores it as one `events` row with `type` `activity`, the page's `path`, and these `p`-less fields as
-`props`, only for a site with Record visits on and a visit it knows. Counts of pageviews, goals and visitors never
+A recorded visit's activity also carries `r: 1`. The server stores it as one `events` row with `type` `activity`, the
+page's `path`, and these `p`-less fields as `props`, only for a site with Record visits on, a visit it knows, and
+activity with `r: 1` or with clicks. A visit that is not recorded sends its errors without `r`, and they go to `errors`
+only (see "Errors"). Counts of pageviews, goals and visitors never
 include `activity` rows.
 
 ### Experiments in the tracker
@@ -3837,6 +3847,12 @@ row holds:
 | `source`, `stack` | `s` and `k` without queries. |
 | `path`, `device`, `browser` | The page, and the visitor's device and browser from the user agent. |
 | `session_id`, `visitor_id` | The visit and its visitor, so issues count people and link a recording. A ping of a visit the server does not know writes nothing. |
+| `datacenter` | `1` when the visit came from a hosting network (migration 0098), copied from the visit. Issues leave these rows out unless the site shows such visits. |
+
+The first time an issue appears, the ping also writes its first sighting to `error_first` (migration 0098): the issue
+and the time, nothing about the visitor. That is 1 more row for a new issue and none after, so a page view's errors
+cost 1 row each, plus 1 for each issue never seen before. A visit from a hosting network sets no first sighting. The
+nightly job deletes a first sighting once its issue has no `errors` row left.
 
 A page on the never-record list (`record_skip`) keeps its errors out, whichever version of the script sent them. Rows
 are kept 90 days, erased with the person (`POST /api/sites/<id>/erase`), and exported as `GET
@@ -3844,7 +3860,7 @@ are kept 90 days, erased with the person (`POST /api/sites/<id>/erase`), and exp
 `browser`, `session_id` and `visitor_id`. `PATCH /api/sites/<id>` takes `errors_on` as `1` or `0`. The issues, their
 status and the alert are Pro: see "Errors (Pro)".
 
-The stack frames added 150 bytes to the script: 5,668 to 5,818 bytes minified and gzipped.
+The stack frames and the recorded mark `r` added 156 bytes to the script: 5,668 to 5,824 bytes minified and gzipped.
 
 ## CSV export
 

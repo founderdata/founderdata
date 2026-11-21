@@ -174,14 +174,32 @@ export function errorStatements(db: D1Database, site: Site, a: unknown, sid: str
   const where = page.path ?? path;
   if (isSkipped(where, skipList(site.record_skip))) return [];
   const { device, browser } = parseUA(ua);
-  return page.errors.map((e) =>
+  return page.errors.flatMap((e) => [
     db
       .prepare(
-        `INSERT INTO errors (site_id, ts, id, fp, session_id, visitor_id, path, message, source, stack, n, device, browser)
-         SELECT ?1, ?2, ?3, ?4, ?5, visitor_id, ?6, ?7, ?8, ?9, ?10, ?11, ?12 FROM sessions WHERE site_id = ?1 AND id = ?5`,
+        `INSERT INTO errors (site_id, ts, id, fp, session_id, visitor_id, path, message, source, stack, n, device, browser, datacenter)
+         SELECT ?1, ?2, ?3, ?4, ?5, visitor_id, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datacenter FROM sessions WHERE site_id = ?1 AND id = ?5`,
       )
       .bind(site.id, e.ts, rowId(), e.fp, sid, where, e.message, e.source, e.stack, e.n, device, browser),
-  );
+    // The issue's first sighting (migration 0098): 1 row the first time, nothing after. Hosting networks do not set it.
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO error_first (site_id, fp, first_seen)
+         SELECT ?1, ?2, ?3 FROM sessions WHERE site_id = ?1 AND id = ?4 AND datacenter = 0`,
+      )
+      .bind(site.id, e.fp, e.ts, sid),
+  ]);
+}
+
+/**
+ * Whether the page activity of a ping belongs to a recorded visit, so collect.ts stores its `activity` row. The script
+ * marks it with `r: 1` once the visit records; clicks only ever go with a recording. A site with Record visits on sends
+ * errors for every visit (cfg.e), and those of a visit that is not recorded stay in `errors` only.
+ */
+export function recordedActivity(a: unknown): boolean {
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return false;
+  const x = a as { r?: unknown; c?: unknown };
+  return x.r === 1 || (Array.isArray(x.c) && x.c.length > 0);
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -204,8 +222,15 @@ const errorsExport: ExportTable = {
 
 /** errors and error_issues: deletion with the site, 90 days of rows, erase with the person, errors_on, export, definition. */
 export const errorsPart: CorePart = {
-  siteTables: ['errors', 'error_issues'],
-  retention: (db, cutoff, now) => [db.prepare('DELETE FROM errors WHERE ts < ?').bind(Math.max(cutoff, now - ERRORS_DAYS * DAY))],
+  siteTables: ['errors', 'error_issues', 'error_first'],
+  retention: (db, cutoff, now) => {
+    const cut = Math.max(cutoff, now - ERRORS_DAYS * DAY);
+    return [
+      db.prepare('DELETE FROM errors WHERE ts < ?').bind(cut),
+      // An issue's first sighting goes once none of its errors rows is left. The subquery runs once for the table.
+      db.prepare('DELETE FROM error_first WHERE first_seen < ? AND (site_id, fp) NOT IN (SELECT site_id, fp FROM errors)').bind(cut),
+    ];
+  },
   erase: (db, siteId, ids) => [
     db.prepare(`DELETE FROM errors WHERE site_id = ? AND visitor_id IN (${ids.map(() => '?').join(', ')})`).bind(siteId, ...ids),
   ],
@@ -217,6 +242,6 @@ export const errorsPart: CorePart = {
   exports: { errors: errorsExport },
   definitions: {
     errors:
-      'JavaScript errors (Pro, get_recordings views errors and error), caught on sites with Catch JavaScript errors or Record visits on. An issue is a fingerprint: the message with numbers, quoted text, URLs and hex ids taken out, plus the top stack frame\'s file and function, else the source file. events counts errors (one page view can count several), people distinct visitor ids, sessions distinct visits, customers the people who paid (stitched by user id), mrr their monthly revenue now. status: open, resolved, ignored, or regressed (resolved, then seen again after resolving). new: first seen in the last 24 hours, looking back 90 days. Messages keep 200 characters with emails, phone numbers and runs of 6 or more digits replaced; frames keep file, line, column and function, at most 3. Kept 90 days.',
+      'JavaScript errors (Pro, get_recordings views errors and error), caught on sites with Catch JavaScript errors or Record visits on. An issue is a fingerprint: the message with numbers, quoted text, URLs and hex ids taken out, plus the top stack frame\'s file and function, else the source file. events counts errors (one page view can count several), people distinct visitor ids, sessions distinct visits, customers the people who paid (stitched by user id), mrr their monthly revenue now. status: open, resolved, ignored, or regressed (resolved, then seen again after resolving). new: first seen in the last 24 hours (first_seen is kept while the issue has errors rows). Visits from hosting networks and bots are left out unless the site shows them. Messages keep 200 characters with emails, phone numbers and runs of 6 or more digits replaced; frames keep file, line, column and function, at most 3. Kept 90 days.',
   },
 };

@@ -314,6 +314,7 @@
     var a = { p: actPath, s: actAt };
     if (clicks.length && rec) a.c = clicks;
     if (errs.length && (rec || on.e)) a.e = errs;
+    if (rec) a.r = 1; // a recorded visit: the server keeps its activity row (errors-only pages of other visits do not get one)
     clicks = [];
     errs = [];
     lastEl = null;

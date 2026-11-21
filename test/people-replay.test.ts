@@ -299,8 +299,8 @@ describe('people and recordings in the Worker', () => {
     // The SPA moved on before the page was left: the row keeps the activity's own path.
     expect((await event({ t: 'ping', d: 5000, vid: 'actvisitor0001', sid: 'actsession0001', u: 'https://people.example/checkout', a: activity })).status).toBe(202);
     // The ping's 1, and the events row with its 2 index entries and the id counter: 4. The error is also an errors
-    // row (round 7): 1.
-    expect(w.takeRowsWritten()).toBe(6);
+    // row (round 7): 1, and its issue's first sighting: 1.
+    expect(w.takeRowsWritten()).toBe(7);
     const row = await w.db.prepare("SELECT * FROM events WHERE site_id = ? AND type = 'activity' AND session_id = 'actsession0001'").bind(site.id).first<any>();
     expect(row).toMatchObject({ visitor_id: 'actvisitor0001', path: '/pricing', name: null, datacenter: 0 });
     expect(JSON.parse(row.props)).toEqual({ s: activity.s, c: activity.c, e: activity.e });

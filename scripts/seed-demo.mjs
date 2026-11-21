@@ -1469,7 +1469,7 @@ const seoParts = (() => {
 // domain; and a failed module load, resolved 3 days ago and back since yesterday. A new_error rule on /checkout sent
 // one alert for the TypeError. `fp` is fingerprint(message, source, stack); test/errors.test.ts checks each one.
 {
-  out.push(`DELETE FROM errors WHERE site_id IN (${ids});`, `DELETE FROM error_issues WHERE site_id IN (${ids});`);
+  out.push(`DELETE FROM errors WHERE site_id IN (${ids});`, `DELETE FROM error_issues WHERE site_id IN (${ids});`, `DELETE FROM error_first WHERE site_id IN (${ids});`);
   out.push(`DELETE FROM alert_events WHERE id LIKE 'evt_demo_err%';`);
   const site = shipkit;
   const MIN = 60_000;
@@ -1590,6 +1590,8 @@ const seoParts = (() => {
   });
   late.push(`UPDATE sites SET errors_on = 1 WHERE id = ${q(site)};`);
   late.push(`UPDATE errors SET stack = replace(stack, '\\n', char(10)) WHERE site_id = ${q(site)} AND stack LIKE '%\\n%';`);
+  // Each issue's first sighting, as the ping writes it (migration 0098): the time of its oldest row.
+  late.push(`INSERT OR IGNORE INTO error_first (site_id, fp, first_seen) SELECT site_id, fp, MIN(ts) FROM errors WHERE site_id = ${q(site)} GROUP BY fp;`);
   late.push(`UPDATE alert_events SET text = replace(text, '\\n', char(10)) WHERE id = 'evt_demo_err1';`);
 }
 
