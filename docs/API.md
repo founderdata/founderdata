@@ -2206,7 +2206,44 @@ personal data (`VIEWER_PII`, `PHONE_PII`); otherwise `403`.
 
 ### Retention and lifecycle (Pro)
 
-<!-- r7 survey: written by lane survey -->
+People your website recognizes from one period to the next ([GUIDE.md](GUIDE.md#retention-and-lifecycle)). Both
+routes take a read key, the range (`period`, `from`, `to`) and:
+
+| Parameter | Values |
+| --- | --- |
+| `interval` | `day`, `week` (Monday weeks) or `month`, in the site's time zone. Without it: days for a range of 14 days or less, months past 200 days, else weeks. |
+| `scope` | `known` (default): visitors named by `identify()` or a payment, joined by user id, then email. `all`: every visitor id too, which means something only for sites with cookies or Remember visitors. |
+| `buckets` | 2 to 26. Lifecycle periods (default 12) or retention cohorts (default 8), ending with the period the range ends in. |
+| `customers` | `1`: only people with a payment. |
+| `split` | Retention only: `channel` groups people by the channel of their first visit. |
+
+`GET /api/v1/web/lifecycle`:
+
+```json
+{ "interval": "week", "scope": "known", "customers": false, "partial": true, "people": 214, "hasData": true,
+  "buckets": [ { "bucket": "2026-11-16", "new": 9, "returning": 31, "resurrecting": 4, "dormant": 12, "active": 44 } ],
+  "totals": { "new": 120, "returning": 301, "resurrecting": 37, "dormant": 140 }, "note": "..." }
+```
+
+`bucket` is the first day of the period. `new`: active for the first time; `returning`: active in this period and the
+one before; `resurrecting`: active, not in the one before, active earlier; `dormant`: active in the one before, not in
+this one. `partial` is true while the last period is still running. `people` counts everyone the scope could include,
+whenever they were active; `hasData: false` means nobody yet.
+
+`GET /api/v1/web/retention`:
+
+```json
+{ "interval": "week", "scope": "known", "split": null, "customers": false, "partial": true, "hasData": true,
+  "cohorts": [ { "cohort": "2026-10-05", "size": 18, "active": [18, 7, 5, 4], "retention": [1, 0.39, 0.28, 0.22] } ],
+  "average": [1, 0.35, 0.27, 0.2], "groups": null, "more": 0 }
+```
+
+A cohort is the people first active in that period. `active[k]` counts those active `k` periods later, and
+`retention[k]` is that over `size` (`null` for an empty cohort). `average` weighs each cohort by its size. With
+`split=channel`, `groups` holds the 5 largest channels, each with its own `cohorts` and `average`, and `more` counts the
+rest. The owner's dashboard reads the same at `/api/sites/<id>/web/lifecycle` and `/web/retention`. Each answer is one
+SQL statement and writes nothing. MCP: `get_app_funnel` with `report: "lifecycle"`, or `report: "retention"` and
+`platform: "web"`, both with the range only.
 
 ## Research log (Pro)
 
@@ -3792,6 +3829,26 @@ A podcast answer tracked as Direct is a visit your attribution could not see. Sh
 `GET /api/sites/<id>/export/survey_answers.csv` and `GET /api/v1/export/survey_answers` (a key with `read:rows`) give
 the rows of the range: `answered_at`, `survey`, `answer`, `text`, `via`, `visitor_id`, `session_id` and
 `subscription_id`. A key and a viewer login without `VIEWER_PII` get `text` empty, because visitors wrote it.
+
+**FounderData Pro.** `GET /api/surveys/<site id>` is public and cached for 5 minutes: the question and the answers, in
+order with their labels, of each survey that is on. `/js/survey.js` reads it; it holds no visitor data. The Surveys card
+in Settings reads `GET /api/sites/<id>/surveys` (dashboard login), per survey: `on`, `paths`, `question`, `answers`
+(count per key in the range, `skipped` left out), `answered`, `skipped`, `responseRate` (of the widget's answers and
+dismissals, the share that answered; `null` before any), `via`, and `recent`, the 10 newest texts marked
+`"untrusted": true` (empty for a login that hides personal data). `GET /api/v1/subscriptions` and the Subscriptions tab
+add `cancel_reasons` ([Subscriptions](#routes-for-agents-and-scripts)):
+
+```json
+{ "total": 15, "mrr_lost": 52300,
+  "reasons": [ { "reason": "too_expensive", "count": 5, "mrr_lost": 19500 } ],
+  "by_plan": [ { "plan": "shipkit_pro_monthly", "count": 9, "mrr_lost": 44100, "reasons": [ { "reason": "too_expensive", "count": 3 } ] } ],
+  "via": { "stripe": 15 },
+  "comments": [ { "at": 1795000000000, "reason": "unused", "plan": "shipkit_pro_monthly", "text": "Paused the project for now.", "via": "stripe", "untrusted": true } ] }
+```
+
+Each answer counts against the subscription the webhook named, else the newest subscription of the visitor who
+answered; `mrr_lost` is its MRR. The channel, source and campaign filters apply to that subscription. `null` when no
+customer gave a reason in the range.
 
 ### Click maps and scroll
 
