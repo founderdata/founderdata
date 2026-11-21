@@ -318,6 +318,22 @@ clicks and the size of the window. Recording sets no cookie and stores nothing i
 an id on the device without consent breaks Article 5(3) of the ePrivacy Directive in most of the EU, so turn it on only
 where your counsel says you may.
 
+## Experiments
+
+<!-- r7 exp: written by lane exp -->
+
+## Surveys
+
+<!-- r7 survey: written by lane survey -->
+
+## Click maps and scroll
+
+<!-- r7 pages: written by lane pages -->
+
+## Errors
+
+<!-- r7 errors: written by lane errors -->
+
 ## Meta ads
 
 The spend import sends nothing about visitors to Meta: the Worker only downloads your own ad account's numbers.

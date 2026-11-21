@@ -395,6 +395,12 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Recorded visit (Pro): the index row with its first chunk / each later chunk | 3 (the row and its 2 index entries) / 0. Each chunk is 1 Worker request and 1 R2 write |
 | Recorded visit (Pro): a chunk that carries a changed digest / the same digest | 1 (an update of a column with no index) / 0. A visit too short to save its first snapshot sends a stub chunk 0: 3, as any first chunk |
 | Recording health (Pro): a refused upload or a recorder that could not load | 1 at most once an hour per site and Worker instance |
+| Web: a running experiment (Pro) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
+| Experiment (Pro): created, changed, started or stopped | 2: its row and the site's list of running experiments |
+| Survey answer from the survey card or `founderdata('answer', ...)` / a cancel reason from a Stripe or Polar webhook | 2, or 1 when the visitor's trait did not change / 1, plus 1 when the subscription has a visitor |
+| Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample / 0 |
+| Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, 0 without errors |
+| Error issue (Pro) resolved, ignored or reopened / the new error alert rule | 1 / as any rule |
 | App: typical session of a known install | 36 |
 | App: a new install's first session / a relaunch the same day without consent. An install that Apple Search Ads attributes writes 2 rows more when Apple answers | 7 / 3 to 5 |
 | Payment from Stripe, the App Store or another provider | 5 to 9. A subscription event that cancels a paying subscription or fails its renewal adds 1 alert inbox row |

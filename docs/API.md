@@ -1756,6 +1756,10 @@ curl -H "Authorization: Bearer rtr_..." "https://founderdata.example.com/api/v1/
 
 The dashboard reads the same answer from `GET /api/sites/<id>/content/page?path=`, behind the login.
 
+#### Clicks and scroll (Pro)
+
+<!-- r7 pages: written by lane pages -->
+
 #### `GET /api/v1/seo/decay` (Pro)
 
 Pages whose Search Console clicks fell more than 30% in the last 28 days against the 28 before, from at least 10
@@ -2191,6 +2195,18 @@ deleted, or it expired. GET /api/v1/recordings lists the recordings that exist.`
 The dashboard reads the same answers with the login at `GET /api/sites/<id>/recordings`, `/recordings/patterns` and
 `/recordings/<session id>`, with names and emails for the owner. A viewer or a phone gets them only when it sees
 personal data (`VIEWER_PII`, `PHONE_PII`); otherwise `403`.
+
+### Errors (Pro)
+
+<!-- r7 errors: written by lane errors -->
+
+### Experiments (Pro)
+
+<!-- r7 exp: written by lane exp -->
+
+### Retention and lifecycle (Pro)
+
+<!-- r7 survey: written by lane survey -->
 
 ## Research log (Pro)
 
@@ -3621,8 +3637,8 @@ Where to call it, and how a single-page app on a subdomain joins the marketing s
 
 ### Tracker config
 
-The answer to a pageview can carry `cfg`, the site's tracker settings. Without Record visits and Remember visitors it
-is absent and nothing changes: cookieless mode answers `{ "vid", "sid" }`, cookie mode an empty `202`.
+The answer to a pageview can carry `cfg`, the site's tracker settings. With every switch below off it is absent and
+nothing changes: cookieless mode answers `{ "vid", "sid" }`, cookie mode an empty `202`.
 
 ```json
 { "vid": "…", "sid": "…", "cfg": { "rm": 1, "rec": { "mask": "[data-fd-mask]", "block": "[data-fd-block]" } } }
@@ -3634,6 +3650,10 @@ In cookie mode the answer is `{ "cfg": { … } }`.
 | --- | --- |
 | `rm` | Remember visitors is on. The script keeps the visitor in cookies as after `founderdata('consent', true)`, with `rt_consent=r`. When a later answer has no `rm`, the script removes cookies it kept this way. A page that called `founderdata('consent', false)` stays without cookies. |
 | `rec` | Record this visit (Pro). The server decides per visit, by the site's share and daily maximum. A visit from a hosting network (see "Datacenter visits" in docs/GUIDE.md) is never recorded. The object holds the recorder's settings: `mask` and `block` are CSS selectors, and Pro may add short keys of its own, such as `v` for the recorder's version. `c: 1` means the site waits for consent (`record_consent`): the script records only once the visitor consented to cookies, with `data-cookies="on"`, an earlier `rt_consent=1` or `founderdata('consent', true)`. Until then it loads nothing and sends no clicks or errors. Remember visitors (`rt_consent=r`) is not consent. `x` is the site's list of pages that are never recorded (`record_skip`, migration 0076), as path prefixes such as `["/dashboard", "/account"]`, and is absent when the list is empty. A page whose path is a prefix, or starts with a prefix and `/`, loads no recorder and sends no clicks or errors. When a single-page app moves to such a page, the recorder stops for the rest of the page load. |
+| `x` | The experiments this page view entered (Pro), as `{ "<key>": "<variant>" }`. The server stores the same map on the visit as the session properties `exp_<key>`. See "Experiments in the tracker". |
+| `e` | `1`: the site catches JavaScript errors, because Catch JavaScript errors or Record visits is on. The script sends the page's errors with its ping, also when the visit is not recorded. See "Errors". |
+| `m` | Click maps are on (Pro). `s` is the percent of page views that send a click map, as in `{ "s": 100 }`. See "Click maps and scroll". |
+| `sv` | Surveys (Pro). `on` lists the surveys that are on, and `show` names the one to show on this page. See "Survey answers". |
 
 The list behind `x` is the site setting `record_skip`. `GET /api/sites/<id>` returns it as text with one path per
 line, or `null`. It also returns `record_on_at`, when Record visits was last turned on (ms, `null` before), and
@@ -3687,6 +3707,22 @@ clicks first. A page in `rec.x` sends no `a`.
 The server stores it as one `events` row with `type` `activity`, the page's `path`, and these `p`-less fields as
 `props`, only for a site with Record visits on and a visit it knows. Counts of pageviews, goals and visitors never
 include `activity` rows.
+
+### Experiments in the tracker
+
+<!-- r7 exp: written by lane exp -->
+
+### Survey answers
+
+<!-- r7 survey: written by lane survey -->
+
+### Click maps and scroll
+
+<!-- r7 pages: written by lane pages -->
+
+### Errors
+
+<!-- r7 errors: written by lane errors -->
 
 ## CSV export
 

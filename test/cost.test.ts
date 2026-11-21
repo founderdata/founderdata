@@ -466,3 +466,20 @@ describe('free-plan cost: D1 rows written per write path', () => {
     expect(await rows('import: delete with 5 day-rows', () => w.admin(`/api/sites/${site.id}/imports/${id}`, { method: 'DELETE' }))).toBe(6);
   });
 });
+
+// Round 7 (plan 5.1): each lane pins its write paths inside its own block, with its own worker and site.
+describe('round 7: exp', () => {
+  it.todo('experiment exposure: 0 rows on a new visit, 1 on a running one, once');
+});
+
+describe('round 7: survey', () => {
+  it.todo('survey answer: 2 rows, 1 when the trait did not change; cancel reason from a webhook: 1 or 2');
+});
+
+describe('round 7: pages', () => {
+  it.todo('click map: 1 row per page view at the default sample; scroll depth: 0 rows');
+});
+
+describe('round 7: errors', () => {
+  it.todo('errors: 1 row per distinct error of a page view, at most 5');
+});

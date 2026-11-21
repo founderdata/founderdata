@@ -360,6 +360,17 @@ number changes:
 | Web: the ping when a page of a recorded visit is hidden or left, with its clicks, rage clicks and errors ([People and recordings](#people-and-recordings-pro)) | 4 more (one `activity` event: the row, its 2 index entries and the id counter), 0 when the page had none |
 | Recorded visit (Pro): the first chunk / each later chunk | 3 (its row in `replays` and 2 index entries) / 0. Each chunk is 1 Worker request, about one every 30 seconds of the visit, and 1 R2 write |
 | Web: the ping when a page is hidden, with that page load's Core Web Vitals ([Page speed](#page-speed)) | 2: the ping and 1 row in `vitals`. At a lower sample, 1 for the loads it skips |
+| Web: a running experiment ([Experiments](#experiments-pro)) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
+| Experiment (Pro): created, changed, started or stopped | 2: its row and the site's list of running experiments |
+| Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change. Each answer is 1 Worker request |
+| Survey card shown (Pro) | 0. It reads the visitor row on the survey's pages only. `/js/survey.js` is 1 request, cached |
+| Cancel reason from a Stripe or Polar webhook | 1, plus 1 when the subscription has a visitor. The webhook request is already counted |
+| Web: click map of one page view ([Click maps](#click-maps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, 0 with click maps off |
+| Web: scroll depth of one page load | 0, a column of the page speed row |
+| Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, 0 without errors |
+| Error issue (Pro) resolved, ignored or reopened | 1 |
+| New error alert rule (Pro), checked hourly | As any rule: 1 when it fires, plus 1 [inbox](#alert-inbox-pro) row per alert |
+| Reading lifecycle, retention, paths, experiment results, error issues or a click map (Pro) | 0 |
 | App: new install's first `session_start` | 7 (6 with a kept install id: consent or `.vendor`) |
 | App: relaunch on the same day without consent, `session_start` only | 3 within 30 minutes of the last activity (the session continues), 5 later |
 | App: screens and goals in one batch | 3 each, plus 2 per batch (the session update and the id counter) |
@@ -2875,6 +2886,10 @@ Each stored page load writes 1 D1 row with no visitor id ([PRIVACY.md](PRIVACY.m
 sample setting: 100% of page loads by default, or 50%, 25%, 10% or off. A busy site can lower it to save rows. The rows
 are deleted after 90 days.
 
+### Paths
+
+<!-- r7 pages: written by lane pages -->
+
 ## Email (Resend) (Pro)
 
 The Email panel at the bottom of a site's Overview counts the emails the site sent through Resend: sent, delivered,
@@ -3183,6 +3198,26 @@ The **Record visits** switch is all most sites need. **Advanced** holds the rest
 A job that runs every hour deletes recordings older than the days you picked. The bucket's 90-day rule deletes anything left behind.
 Erasing a person ([Erase one person](#erase-one-person)) deletes their recordings too. [PRIVACY.md](PRIVACY.md#recordings-pro)
 lists what a recording stores.
+
+### Retention and lifecycle
+
+<!-- r7 survey: written by lane survey -->
+
+## Errors (Pro)
+
+<!-- r7 errors: written by lane errors -->
+
+## Experiments (Pro)
+
+<!-- r7 exp: written by lane exp -->
+
+## Surveys
+
+<!-- r7 survey: written by lane survey -->
+
+## Click maps and scroll depth (Pro)
+
+<!-- r7 pages: written by lane pages -->
 
 ## Mail (Pro)
 

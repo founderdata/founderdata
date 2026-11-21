@@ -17,6 +17,15 @@
   Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
 
+# FounderData Pro's survey card and click map overlay (round 7), built from pro/js/survey.ts and pro/js/map.ts like the
+# recorder. The tracker loads survey.js only when a survey is on, and map.js only on a page opened with #fd-map=.
+/js/survey.js
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+/js/map.js
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
 /share/*
   X-Robots-Tag: noindex, nofollow
 

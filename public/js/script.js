@@ -167,7 +167,9 @@
       return u.toString();
     } catch (e) { return href; }
   }
+  var off = 0; // 1 while the page shows a click map (mapMode): nothing is sent
   function send(type, extra, beacon) {
+    if (off) return;
     var id = ids();
     if (id && !cookies) memAt = Date.now();
     var body = { w: siteId, t: type, u: cleanUrl(loc.href), sw: w.screen ? screen.width : 0 };
@@ -180,9 +182,9 @@
       if (fbp && /^fb\.\d\.\d{10,13}\.\d{1,20}$/.test(fbp)) body.fbp = fbp;
     }
     for (var k in extra) if (extra[k] !== undefined) body[k] = extra[k];
-    var json = JSON.stringify(body), a = body.a;
-    // The server takes 8 KB: drop the page's oldest clicks, then its oldest errors, until it fits.
-    while (json.length > 8000 && a && (a.c && a.c.length ? a.c.shift() : a.e && a.e.shift())) json = JSON.stringify(body);
+    var json = JSON.stringify(body), a = body.a, h = body.h;
+    // The server takes 8 KB: drop the click map's clicks, then the page's oldest clicks, then its oldest errors, until it fits.
+    while (json.length > 8000 && (h && h.c && h.c.length ? h.c.shift() : a && (a.c && a.c.length ? a.c.shift() : a.e && a.e.shift()))) json = JSON.stringify(body);
     // text/plain keeps this a "simple" request: no CORS preflight, works with sendBeacon.
     // Without ids the response carries them, so use fetch to read it.
     if (beacon && id && nav.sendBeacon) {
@@ -210,7 +212,8 @@
   // rec: record this visit. Load /js/replay.js once and hand it what it needs in window.founderdata._rec.
   // rec.c: wait for consent. Hold the recording until data-cookies="on" or founderdata('consent', true).
   // rec.x: pages that are never recorded. No recorder and no clicks or errors on a path that is one or starts with one + /.
-  var rec = null, cfgSeen = false, held = null;
+  // x, e, m, sv (round 7): experiments, catch errors, click map, surveys. Each lane's region below reads its own key.
+  var rec = null, cfgSeen = false, held = null, on = {};
   function skip(p) {
     return rec && (rec.x || []).some(function (x) { return p === x || p.indexOf(x.slice(-1) === '/' ? x : x + '/') === 0; });
   }
@@ -222,6 +225,10 @@
       ids();
     } else if (!cfg.rm && !dataCookies && readCookie(CONSENT) === 'r') consent(false);
     record(cfg.rec);
+    on.e = cfg.e;
+    cfgExp(cfg.x);
+    cfgSurvey(cfg.sv);
+    cfgMap(cfg.m);
   }
   function record(r) {
     var id = ids();
@@ -292,22 +299,25 @@
     if (visibleSince) { pending += Date.now() - visibleSince; visibleSince = d.visibilityState === 'visible' ? Date.now() : 0; }
     var v = beacon ? vitals() : undefined; // hidden: the vitals go now, even under a second
     var a = beacon || end ? activity() : undefined; // the page's clicks and errors, when it is hidden or left
-    if (pending >= 1000 || v || a) { send('ping', { d: Math.round(pending), v: v, a: a }, beacon); pending = 0; }
+    var h = mapPayload(beacon || end); // the page's click map, once
+    if (pending >= 1000 || v || a || h) { send('ping', { d: Math.round(pending), v: v, a: a, h: h }, beacon); pending = 0; }
   }
 
-  // ---- page activity of a recorded visit: clicks, rage clicks (3 or more on one element, each within 1 s of the
-  // last) and errors. Kept in memory until the server answers, then only when it records the visit. Sent with the
-  // ping, never alone. Labels are visible text, never what someone typed; [data-fd-mask] and [data-fd-block] hide it.
+  // ---- page activity: clicks and rage clicks (3 or more on one element, each within 1 s of the last) of a recorded
+  // visit, and errors of a recorded visit or of a site that catches errors (cfg.e). Kept in memory until the server
+  // answers, then only when it wants them. Sent with the ping, never alone. Labels are visible text, never what someone
+  // typed; [data-fd-mask] and [data-fd-block] hide it.
   var clicks = [], errs = [], actAt = Date.now(), actPath = loc.pathname, lastEl = null, lastAt = 0;
-  function watching() { return (rec || !cfgSeen) && !skip(loc.pathname); }
+  function wantClicks() { return (rec || !cfgSeen) && !skip(loc.pathname); }
+  function wantErrors() { return (rec || on.e || !cfgSeen) && !skip(loc.pathname); }
   function activity() {
-    var a = { p: actPath, s: actAt }, n = clicks.length + errs.length;
-    if (clicks.length) a.c = clicks;
-    if (errs.length) a.e = errs;
+    var a = { p: actPath, s: actAt };
+    if (clicks.length && rec) a.c = clicks;
+    if (errs.length && (rec || on.e)) a.e = errs;
     clicks = [];
     errs = [];
     lastEl = null;
-    return n && rec && !skip(actPath) ? a : undefined;
+    return (a.c || a.e) && !skip(actPath) ? a : undefined;
   }
   // The text of an element, without what stays hidden: [data-fd-mask], [data-fd-block], editable parts, form fields.
   // pro/js/lib/digest.ts visibleText reads it the same way, so a click's label matches in both.
@@ -333,19 +343,19 @@
     lastEl = el;
     lastAt = now;
   }
-  function noteError(m, src) {
+  function noteError(m, src, e) { // e: the error or rejection event, for stackOf (errors region)
     m = String(m || 'Error').slice(0, 200);
     if (errs.length < 5 && (!errs.length || errs[errs.length - 1].m !== m)) errs.push({ t: Date.now() - actAt, m: m, s: src.slice(-200) });
   }
   w.addEventListener('error', function (e) {
-    if (watching() && e.message) noteError(e.message, e.filename ? e.filename.split(/[?#]/)[0] + ':' + e.lineno : '');
+    if (wantErrors() && e.message) noteError(e.message, e.filename ? e.filename.split(/[?#]/)[0] + ':' + e.lineno : '', e);
   });
   w.addEventListener('unhandledrejection', function (e) {
-    if (watching()) noteError(e.reason && e.reason.message || e.reason, '');
+    if (wantErrors()) noteError(e.reason && e.reason.message || e.reason, '', e);
   });
   d.addEventListener('submit', function (e) {
     var el = e.submitter || e.target;
-    if (watching() && el && el.closest && !(el === lastEl && Date.now() - lastAt < 1000)) noteClick(el, 'submit');
+    if (wantClicks() && el && el.closest && !(el === lastEl && Date.now() - lastAt < 1000)) noteClick(el, 'submit');
   }, true);
   d.addEventListener('visibilitychange', function () {
     if (d.visibilityState === 'visible') visibleSince = Date.now();
@@ -355,6 +365,40 @@
   setInterval(function () {
     if (d.visibilityState === 'visible' && pings < 30) { pings++; flushTime(false); }
   }, 60000);
+
+  // ==== Round 7 regions (plan 5.1). Each lane edits only inside its own region; the three lines between two regions
+  // stay as they are, so the lanes' changes merge without conflicts. Commands go in cmds (public API below).
+  var cmds = {};
+
+  // ==== region experiments: flags and experiments (cfg.x, data-fd-exp, ?fd_exp=)
+  // lane exp edits only inside this region
+  function cfgExp(x) {}
+  function preview() {}
+  // ==== end of region experiments
+
+  // (between regions)
+
+  // ==== region surveys: the answer and survey commands, the survey loader (cfg.sv)
+  // lane survey edits only inside this region
+  function cfgSurvey(sv) {}
+  // ==== end of region surveys
+
+  // (between regions)
+
+  // ==== region click maps and scroll (cfg.m, #fd-map=)
+  // lane pages edits only inside this region
+  function cfgMap(m) {}
+  function mapPayload(end) {}
+  function mapMode() {}
+  function maxScroll() {}
+  // ==== end of region click maps and scroll
+
+  // (between regions)
+
+  // ==== region errors: stack frames of caught errors
+  // lane errors edits only inside this region
+  function stackOf(e) {}
+  // ==== end of region errors
 
   // ---- pageviews (including single-page-app navigation)
   var lastPage = null, firstView = true;
@@ -366,7 +410,7 @@
     actAt = Date.now();
     actPath = loc.pathname;
     pings = 0;
-    send('pageview', { r: firstView ? d.referrer : '' });
+    send('pageview', { r: firstView ? d.referrer : '', xp: preview() });
     firstView = false;
   }
   var hist = w.history;
@@ -450,7 +494,7 @@
   function onClick(e) {
     var el = e.target && e.target.closest ? e.target : null;
     if (!el) return;
-    var hit = e.type === 'click' && watching() && el.closest('a[href],button,[role=button],input[type=submit],input[type=button]');
+    var hit = e.type === 'click' && wantClicks() && el.closest('a[href],button,[role=button],input[type=submit],input[type=button]');
     if (hit) noteClick(hit, hit.tagName === 'A' ? 'link' : hit.type === 'submit' && hit.form ? 'submit' : 'button');
     // data-ml-goal is the minilytics attribute, kept for one release.
     var g = el.closest('[data-rt-goal],[data-ml-goal]');
@@ -478,7 +522,7 @@
   d.addEventListener('auxclick', onClick, true);
 
   // ---- public API
-  function api(cmd, a, b) {
+  function api(cmd, a, b, c) {
     if (cmd === 'goal' || cmd === 'track') goal(a, b);
     else if (cmd === 'identify' && a) {
       // user_id (or id), email and name name the person; other keys are traits (docs/API.md, "identify()").
@@ -491,6 +535,7 @@
     else if (cmd === 'pageview') { lastPage = null; pageview(); }
     else if (cmd === 'consent') consent(!!a);
     else if (cmd === 'marketing') setMarketing(!!a);
+    else if (cmds[cmd]) return cmds[cmd](a, b, c); // round 7's commands (regions above)
   }
   api.attribution = attribution;
   expose(api);
@@ -498,6 +543,7 @@
   // Consent queued before the script loaded applies to the first pageview too.
   var early = function (c) { return c === 'consent' || c === 'marketing'; };
   for (var q = 0; q < queued.length; q++) if (early(queued[q][0])) api.apply(null, queued[q]);
+  off = mapMode() ? 1 : 0; // #fd-map=: the page shows its click map and sends nothing
   pageview();
   for (q = 0; q < queued.length; q++) if (!early(queued[q][0])) api.apply(null, queued[q]);
 })();

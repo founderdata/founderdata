@@ -64,6 +64,9 @@ function insertSub(r) {
 }
 
 const out = [];
+// Round 7 (plan 5.1): statements that must run after every row is in, such as a site switch on the sites row the
+// flush writes (sites.exp_live, sites.surveys, maps_on, errors_on). Each lane's block below pushes into it.
+const late = [];
 // Rows wait here per table and column list, and leave as multi-row INSERTs of up to ~90 KB (D1 takes 100 KB per
 // statement). Some 1,500 statements load in seconds; one statement per row took minutes.
 const rowsByTarget = new Map();
@@ -1445,7 +1448,26 @@ const seoParts = (() => {
   }
 }
 
+// ---------- Round 7: experiments (lane exp)
+// A lane deletes its own table's demo rows here first (out.push of a DELETE ... WHERE site_id IN (ids)): the table
+// does not exist before its lane's migration, so the list at the top cannot name it.
+{
+}
+
+// ---------- Round 7: surveys, retention and lifecycle (lane survey)
+{
+}
+
+// ---------- Round 7: click maps, scroll depth and paths (lane pages)
+{
+}
+
+// ---------- Round 7: errors, recording filters and summaries (lane errors)
+{
+}
+
 flushInserts();
+out.push(...late);
 // ShipKit records visits (People and recordings). After the flush: the sites row is one of the rows it writes.
 out.push(`UPDATE sites SET record_visits = 1, record_on_at = ${now - 30 * DAY} WHERE id = ${q(shipkit)};`);
 // The snapshot parts go in after the rows above: each is one row, its text appended in chunks under the statement limit.
