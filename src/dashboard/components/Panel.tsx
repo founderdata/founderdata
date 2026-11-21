@@ -151,7 +151,7 @@ export function renderLabel(dim: string, row: Pick<BreakdownRow, 'label' | 'extr
       return (
         <>
           {/* The answer keeps its width; the channels truncate first. */}
-          <span className="min-w-0 max-w-[60%] shrink-0 truncate">{row.name ?? DEFAULT_LABELS.heard_about[l ?? ''] ?? l}</span>
+          <span className="min-w-0 truncate sm:max-w-[60%] sm:shrink-0">{row.name ?? DEFAULT_LABELS.heard_about[l ?? ''] ?? l}</span>
           {tracked.length > 0 && (
             <span className="hidden min-w-0 shrink truncate text-xs text-stone-400 sm:inline" title={`The channel each of them first arrived by: ${by}`}>
               Tracked as {by}
@@ -207,7 +207,7 @@ type Sort = 'visitors' | 'revenue' | 'perVisitor';
 
 /** The number columns of a panel: their header and each row use the same widths, so the numbers line up. */
 const COL = { visitors: 'w-[64px]', revenue: 'w-[76px]', perVisitor: 'w-[84px]' } as const;
-/** The Heard about tab counts people who answered, under a wider header. */
+/** The Heard about tab counts people who answered, under a wider header. Rows keep COL: both align on the right. */
 const colW = (c: Sort, dim: string) => (c === 'visitors' && dim === 'heard_about' ? 'w-[136px]' : COL[c]);
 /** Under this many answers a row's share moves a lot with one more answer (the dot beside its count). */
 const FEW_ANSWERS = 20;
@@ -325,7 +325,7 @@ function Bars({ rows, dim, tab, sort, cols, limit, onPick, earns }: { rows: Brea
                 </span>
               )}
               {cols.map((c) => (
-                <span key={c} className={`${colW(c, dim)} text-right ${c === 'visitors' ? 'font-medium' : 'text-stone-500'}`}>
+                <span key={c} className={`${COL[c]} text-right ${c === 'visitors' ? 'font-medium' : 'text-stone-500'}`}>
                   {c === 'visitors' ? (
                     special ? (
                       dash
