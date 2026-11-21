@@ -267,6 +267,18 @@ describe('page state in the URL', () => {
     expect(readQuery(searchWithFilter('?period=7d', 'utm_campaign', '123')).filters).toEqual({ utm_campaign: '123' });
   });
 
+  it('opens the Heard about tab from ?tab=heard_about, also with a period (critique shared-11)', () => {
+    // Checked in a browser on the seeded demo: a direct load, a load through the login page and the Settings > Surveys
+    // link all open Heard about. These pin the two pieces that decide it: the tab state and the first request.
+    const channel = BREAKDOWN_CARDS[0].map((t) => t.dim);
+    expect(channel).toContain('heard_about');
+    expect(tabFrom('heard_about', channel)).toBe('heard_about');
+    const route = matchRoute('/site/demo0001');
+    expect(route).toBeTruthy();
+    const urls = dataOf(route!, '?tab=heard_about&period=30d');
+    expect(urls.some((u) => u.includes('/breakdown?') && u.includes('dim=heard_about') && u.includes('period=30d'))).toBe(true);
+  });
+
   it('keeps one ?tab= list for every card, with each card\'s first tab as no entry', () => {
     const channel = BREAKDOWN_CARDS[0].map((t) => t.dim);
     const pages = BREAKDOWN_CARDS[1].map((t) => t.dim);
