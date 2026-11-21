@@ -485,7 +485,8 @@ describe('tracker: config from the server', () => {
     ]);
     expect(ping.a.e).toEqual([
       { t: expect.any(Number), m: 'TypeError: x is undefined', s: 'https://example.com/app.js:12' },
-      { t: expect.any(Number), m: 'fetch failed', s: '' },
+      // The rejection's Error has a stack, so its frames go as k (errors region, test/errors.test.ts).
+      { t: expect.any(Number), m: 'fetch failed', s: '', k: expect.stringMatching(/:\d+:\d+/) },
     ]);
     // Sent once: the next hide carries engaged time only.
     t.show();

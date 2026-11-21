@@ -119,7 +119,8 @@ describe('free-plan cost: D1 rows written per write path', () => {
     await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { record_visits: 1 } });
     forgetSite(site.id);
     const act = { p: '/pricing', s: Date.now(), c: [{ t: 900, l: 'Buy', k: 'button', n: 3, r: 1 }], e: [{ t: 1000, m: 'TypeError: x', s: 'app.js:1' }] };
-    expect(await rows('web: ping with the page activity of a recorded visit', () => web({ t: 'ping', d: 30_000, a: act }))).toBe(5);
+    // Its error is also an errors row (round 7, lane errors: a site that records visits catches errors): 1 more.
+    expect(await rows('web: ping with the page activity of a recorded visit', () => web({ t: 'ping', d: 30_000, a: act }))).toBe(6);
     expect(await rows('web: ping of a recorded visit, page without clicks or errors', () => web({ t: 'ping', d: 30_000, a: { p: '/pricing', c: [] } }))).toBe(1);
     await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { record_visits: 0 } });
     forgetSite(site.id);
@@ -481,5 +482,39 @@ describe('round 7: pages', () => {
 });
 
 describe('round 7: errors', () => {
-  it.todo('errors: 1 row per distinct error of a page view, at most 5');
+  it('errors: 1 row per distinct error of a page view, at most 5; 0 without errors or with the switch off', async () => {
+    resetBudgetForTests(Infinity);
+    const w = await startWorker();
+    try {
+      const site = await w.createSite({ domain: 'errors-cost.example' });
+      const web = (payload: Record<string, unknown>) =>
+        w.fetch('/api/event', {
+          method: 'POST',
+          headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.31' },
+          body: JSON.stringify({ w: site.id, u: 'https://errors-cost.example/checkout', vid: 'costerrvid0001', sid: 'costerrsid0001', ...payload }),
+        });
+      const rows = async (fn: () => Promise<unknown>) => {
+        w.takeRowsWritten();
+        await fn();
+        await w.flush();
+        return w.takeRowsWritten();
+      };
+      const errs = (n: number) => Array.from({ length: n }, (_, i) => ({ t: 10 * i, m: `Error ${'abcdefgh'[i]} broke`, s: 'https://errors-cost.example/app.js:1', k: 'https://errors-cost.example/app.js:1:1 go' }));
+      const ping = (e: unknown[]) => web({ t: 'ping', d: 30_000, a: { p: '/checkout', s: Date.now() - 1000, e } });
+      await web({ t: 'pageview' });
+      await w.flush();
+      // The switch off: the ping's session update only.
+      expect(await rows(() => ping(errs(2)))).toBe(1);
+      await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { errors_on: 1 } });
+      forgetSite(site.id);
+      expect(await rows(() => ping([]))).toBe(1);
+      expect(await rows(() => ping(errs(1)))).toBe(1 + 1);
+      // The same error twice is one row with n = 2.
+      expect(await rows(() => ping([...errs(1), ...errs(1)]))).toBe(1 + 1);
+      expect(await rows(() => ping(errs(3)))).toBe(1 + 3);
+      expect(await rows(() => ping(errs(8)))).toBe(1 + 5);
+    } finally {
+      await w.dispose();
+    }
+  });
 });

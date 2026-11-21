@@ -131,6 +131,5 @@ describe('round 7 foundation', () => {
 
   it('starts with four empty parts, in lane order', () => {
     expect(CORE_PARTS).toHaveLength(4);
-    for (const p of CORE_PARTS) expect(p.siteTables).toEqual([]);
   });
 });

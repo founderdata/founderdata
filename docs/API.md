@@ -3722,7 +3722,41 @@ include `activity` rows.
 
 ### Errors
 
-<!-- r7 errors: written by lane errors -->
+A site catches JavaScript errors when Catch JavaScript errors (`errors_on`, migration 0090) or Record visits is on. The
+pageview answer then carries `cfg.e: 1`, and the script sends each page's errors with its ping in `a.e`, as in "Page
+activity", also when the visit is not recorded. Clicks still go only with a recording. Each error gains `k`, its stack:
+
+```json
+{ "t": 9300, "m": "TypeError: Cannot read properties of undefined (reading 'priceId')",
+  "s": "https://acme.example/assets/index-B3kZ9a1x.js:120",
+  "k": "https://acme.example/assets/index-B3kZ9a1x.js:120:14 handleCheckout\nhttps://acme.example/assets/index-B3kZ9a1x.js:88:3" }
+```
+
+`k` holds the top 3 frames of `error.stack`, one per line, as `file:line:column function`. Files lose their query and
+hash. A frame without a function name has none. It is cut at 300 characters, and absent when the browser gives no
+stack. An error from a script on another domain reaches the page as `Script error.` with no file, line or stack. Load
+such scripts with `crossorigin="anonymous"` and serve them with `Access-Control-Allow-Origin` to get the real one.
+
+The server writes one `errors` row (migration 0094) per distinct error of a page view, so a page costs at most 5 rows and
+a page without errors costs none. Errors that repeat on one page view become one row with `n`, the number of times. A
+row holds:
+
+| Column | Value |
+| --- | --- |
+| `ts` | When it happened: the page's `s` plus the error's `t`, or the time the ping arrived when that is not within the last day. |
+| `fp` | The issue, 12 hex characters. The message with numbers, quoted text, URLs and hex ids taken out, plus the top frame's file and function, or the source file without a frame. A build hash in a file name such as `index-B3kZ9a1x.js` does not count, so a rebuild keeps the issue. |
+| `message` | 200 characters. Emails, phone numbers and runs of 6 or more digits become `[removed]`. Chrome's `Uncaught ` in front is dropped. |
+| `source`, `stack` | `s` and `k` without queries. |
+| `path`, `device`, `browser` | The page, and the visitor's device and browser from the user agent. |
+| `session_id`, `visitor_id` | The visit and its visitor, so issues count people and link a recording. A ping of a visit the server does not know writes nothing. |
+
+A page on the never-record list (`record_skip`) keeps its errors out, whichever version of the script sent them. Rows
+are kept 90 days, erased with the person (`POST /api/sites/<id>/erase`), and exported as `GET
+/api/sites/<id>/export/errors` with the columns `time`, `issue`, `message`, `source`, `stack`, `times`, `path`, `device`,
+`browser`, `session_id` and `visitor_id`. `PATCH /api/sites/<id>` takes `errors_on` as `1` or `0`. The issues, their
+status and the alert are Pro: see "Errors (Pro)".
+
+The stack frames added 150 bytes to the script: 5,668 to 5,818 bytes minified and gzipped.
 
 ## CSV export
 
