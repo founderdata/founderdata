@@ -527,10 +527,11 @@ function nextStep(res: Response, msg: string): string {
 const FIRST_MODEL_DIMS = FIRST_TOUCH_DIM_NAMES;
 
 async function callTool(app: App, c: Context<AppEnv>, tool: Tool, a: Args) {
-  // An argument the tool's schema does not name is refused by name, never dropped: a dropped key or filter would answer
-  // a different question than the one asked.
+  // A read tool refuses an argument its schema does not name, by name, never dropped: a dropped key or filter would
+  // answer a different question than the one asked. Write tools pass unknown fields on, and the plan's routes name them
+  // in `ignored`.
   const known = (tool.inputSchema as { properties?: Record<string, unknown>; additionalProperties?: boolean });
-  if (known.additionalProperties === false) {
+  if (known.additionalProperties === false && tool.annotations?.readOnlyHint === true) {
     // site works on every tool: a key for several sites names the site with it, and the route refuses it where it does not apply.
     const extra = Object.keys(a).filter((k) => k !== 'site' && !(k in (known.properties ?? {})));
     if (extra.length) {

@@ -719,8 +719,9 @@ Round 6 folded six tools into views. The old names answer one more release with 
 
 ### Errors
 
-Every tool refuses an argument it does not have, by name, with the arguments it takes ("Unknown argument key.
-get_overview takes period, from, to, site."). An argument that belongs to another view, report or action of the tool is
+Every read tool refuses an argument it does not have, by name, with the arguments it takes ("Unknown argument key.
+get_overview takes period, from, to, site."). The plan's write tools pass an unknown field on and name it in
+`ignored`. An argument that belongs to another view, report or action of the tool is
 refused with the one it belongs to. Nothing is dropped, so a call never answers a wider question than the one asked.
 Some REST parameters have no MCP argument. For these, call the REST route: `funnel` and `step` of
 `GET /api/v1/recordings`, and `split`, `customers`, `interval` and `buckets` of `GET /api/v1/web/retention`.
