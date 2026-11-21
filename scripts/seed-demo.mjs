@@ -1475,6 +1475,9 @@ const seoParts = (() => {
 
   // Extra visitors on /pricing in the window, alternating versions. b's buyers pick bigger licenses.
   const PRICE = { control: [4900, 9900, 9900, 9900], b: [9900, 16900, 16900, 29900] };
+  // Each named extra person gets a first and last name pair of their own (20 x 16 pairs), so two people in the arms'
+  // customer lists never share a name.
+  let named = 0;
   for (let i = 0; i < 920; i++) {
     const arm = i % 2 ? 'b' : 'control';
     const vid = hex(), sid = hex();
@@ -1485,8 +1488,8 @@ const seoParts = (() => {
     const [browser, os, device] = at(DEVICES)[0];
     const signs = r() < 0.12;
     const buys = r() < 0.06;
-    const nm = `${at(FIRST)} ${at(LAST)}`;
-    const who = signs || buys ? { name: nm, email: `${nm.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com` } : null;
+    const nm = signs || buys ? `${FIRST[named % FIRST.length]} ${LAST[Math.floor(named++ / FIRST.length) % LAST.length]}` : '';
+    const who = signs || buys ? { name: nm, email: `${nm.toLowerCase().replace(/[^a-z]+/g, '.')}.exp@example.com` } : null;
     const events = [
       { ts: t0, type: 'pageview', path: '/pricing' },
       { ts: t0 + 500, type: 'goal', name: 'paywall_view', path: '/pricing', props: { source: 'pricing' } },
@@ -1507,17 +1510,19 @@ const seoParts = (() => {
       });
     }
   }
-  // Every other visit that saw /pricing in a run gets its version by the first character of its visitor id, as a hash
-  // would split them: the arms then add up to the visitors of /pricing in the window.
-  const tag = (key, from, to, variants, chars) =>
+  // Every other visit that saw /pricing in a run gets its version from its visitor id: the parity of the code points of
+  // its last two characters, an even split for any id format (the demo's ids are not all hex, so a split by the first
+  // character gave b 55%). The Worker's FNV hash cannot run in SQL. The arms then add up to the visitors of /pricing in
+  // the window and pass the split check (critique 1, shared-3).
+  const tag = (key, from, to, variants) =>
     // One line: the loaders split seed.sql into statements by line.
     late.push(
-      `UPDATE sessions SET props = json_set(COALESCE(props, '{}'), '$.exp_${key}', CASE WHEN instr('${chars}', substr(visitor_id, 1, 1)) > 0 THEN '${variants[0]}' ELSE '${variants[1]}' END)` +
+      `UPDATE sessions SET props = json_set(COALESCE(props, '{}'), '$.exp_${key}', CASE WHEN (unicode(substr(visitor_id, -1)) + unicode(substr(visitor_id, -2, 1))) % 2 = 0 THEN '${variants[0]}' ELSE '${variants[1]}' END)` +
         ` WHERE site_id = ${q(shipkit)} AND datacenter = 0 AND json_extract(COALESCE(props, '{}'), '$.exp_${key}') IS NULL` +
         ` AND id IN (SELECT session_id FROM events WHERE site_id = ${q(shipkit)} AND type = 'pageview' AND (path = '/pricing' OR path LIKE '/pricing/%') AND ts >= ${from} AND ts < ${to});`,
     );
-  tag('pricing_headline', start, now + DAY, ['control', 'b'], '01234567');
-  tag('new_checkout', flagFrom, flagTo, ['off', 'on'], '02468ace');
+  tag('pricing_headline', start, now + DAY, ['control', 'b']);
+  tag('new_checkout', flagFrom, flagTo, ['off', 'on']);
   late.push(`UPDATE sites SET exp_live = ${q(JSON.stringify([{ k: 'pricing_headline', v: [['control', 50], ['b', 50]], p: ['/pricing'] }]))} WHERE id = ${q(shipkit)};`);
 }
 
