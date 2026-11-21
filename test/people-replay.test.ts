@@ -142,7 +142,6 @@ describe('people and recordings in the Worker', () => {
 
   beforeAll(async () => {
     w = await startWorker({ REPLAY_BUCKET: bucket });
-    site = await w.createSite({ domain: 'people.example' });
     fake = {
       ...(before ?? {}),
       recordDecision: (...a) => decide!(...a),
@@ -153,6 +152,9 @@ describe('people and recordings in the Worker', () => {
       },
     };
     installPro(fake);
+    // Created with Pro installed, so the site starts with Record visits and Remember visitors on. The first case turns
+    // both off again for the rest.
+    site = await w.createSite({ domain: 'people.example' });
   });
   afterAll(async () => {
     installPro(before);
@@ -164,11 +166,31 @@ describe('people and recordings in the Worker', () => {
 
   it('stores the new site settings with their defaults, and says whether the bucket is bound', async () => {
     const got = (await w.admin(`/api/sites/${site.id}`)).body;
-    expect(got).toMatchObject({ record_visits: 0, record_sample: 100, record_keep_days: 30, record_daily_max: 1000, record_only_active: 0, record_consent: 0, remember_visitors: 0, replay_bucket: true });
+    expect(got).toMatchObject({ record_visits: 1, record_sample: 100, record_keep_days: 30, record_daily_max: 1000, record_only_active: 0, record_consent: 0, remember_visitors: 1, replay_bucket: true });
+    await setSite({ record_visits: 0, remember_visitors: 0 });
     expect((await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { record_keep_days: 3 } })).status).toBe(400);
     const patched = await setSite({ record_sample: 50, record_keep_days: 7 });
     expect(patched).toMatchObject({ record_sample: 50, record_keep_days: 7, replay_bucket: true });
     await setSite({ record_sample: 100, record_keep_days: 30 });
+  });
+
+  it('starts a site with a website with Record visits and Remember visitors on, and only with Pro', async () => {
+    const created = (await w.admin('/api/sites', { method: 'POST', json: { domain: 'fresh.example' } })).body;
+    expect(created).toMatchObject({ record_visits: 1, remember_visitors: 1 });
+    expect(await w.db.prepare('SELECT record_visits, remember_visitors FROM sites WHERE id = ?').bind(created.id).first()).toEqual({ record_visits: 1, remember_visitors: 1 });
+    // An app with a website gets both too.
+    expect((await w.admin('/api/sites', { method: 'POST', json: { domain: 'fresh-app.example', app_bundle_id: 'com.example.fresh2' } })).body).toMatchObject({ record_visits: 1, remember_visitors: 1 });
+    // An app without a website, an extension and a newsletter start with both off.
+    for (const json of [{ app_bundle_id: 'com.example.fresh' }, { domain: 'fresh-ext.example', type: 'extension' }, { domain: 'fresh-news.example', type: 'newsletter' }]) {
+      expect((await w.admin('/api/sites', { method: 'POST', json })).body).toMatchObject({ record_visits: 0, remember_visitors: 0 });
+    }
+    // Core has no switch for either, so a core site starts with both off.
+    installPro(null);
+    try {
+      expect((await w.admin('/api/sites', { method: 'POST', json: { domain: 'fresh-core.example' } })).body).toMatchObject({ record_visits: 0, remember_visitors: 0 });
+    } finally {
+      installPro(fake);
+    }
   });
 
   it('stores the pages that are never recorded on the site row, and an empty list as null', async () => {
@@ -231,7 +253,7 @@ describe('people and recordings in the Worker', () => {
   it('records nothing without the bucket binding or without Pro', async () => {
     const bare = await startWorker();
     try {
-      const s = await bare.createSite({ domain: 'nobucket.example', record_visits: 1 });
+      const s = await bare.createSite({ domain: 'nobucket.example', record_visits: 1, remember_visitors: 0 });
       expect((await bare.admin(`/api/sites/${s.id}`)).body.replay_bucket).toBe(false);
       const r = await bare.fetch('/api/event', {
         method: 'POST',

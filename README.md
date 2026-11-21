@@ -160,9 +160,9 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
   crawler hits (GPTBot, ClaudeBot, PerplexityBot) for a count per bot and page ([guide](docs/AI-VISIBILITY.md)).
 - People and recordings. A People tab lists everyone you know: signed in, paid, remembered or using your app. Each person
   gets one story, from the first visit to the payment, across their devices, once your site calls `identify()` at
-  sign-in ([Identify people](docs/GUIDE.md#identify-people)). Turn on Record visits and you can watch a visit to your
-  website like a video, with its clicks, rage clicks and errors marked. Recording is off by default and never covers
-  the iPhone app. Every input is masked, and `data-fd-mask` and `data-fd-block` hide more. The recordings sit in an R2
+  sign-in ([Identify people](docs/GUIDE.md#identify-people)). With Record visits you can watch a visit to your website
+  like a video, with its clicks, rage clicks and errors marked. Pro turns it on for each new site with a website, together with
+  Remember visitors, and it never covers the iPhone app. Every input is masked, and `data-fd-mask` and `data-fd-block` hide more. The recordings sit in an R2
   bucket on your own account that `npm run setup -- --replay` creates. See
   [People and recordings](docs/GUIDE.md#people-and-recordings-pro).
 - An iPhone app with widgets and a push notification for every payment.
