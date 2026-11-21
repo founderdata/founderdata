@@ -46,7 +46,8 @@ describe('Core Web Vitals', () => {
       ['/', 'Mobile', 3000, null, null, 400, 900],
       ['/pricing', 'Desktop', 1200, null, 0.02, 150, 600],
     ]);
-    expect(Object.keys(rows[0]).sort()).toEqual(['cls', 'device', 'fcp', 'id', 'inp', 'lcp', 'path', 'site_id', 'ts', 'ttfb']);
+    // scroll (migration 0090): the deepest scroll of the page load, a number on the same anonymous row.
+    expect(Object.keys(rows[0]).sort()).toEqual(['cls', 'device', 'fcp', 'id', 'inp', 'lcp', 'path', 'scroll', 'site_id', 'ts', 'ttfb']);
   });
 
   it('answers null with the count below the minimum sample, never a made-up p75', async () => {
