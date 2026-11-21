@@ -1475,7 +1475,7 @@ const seoParts = (() => {
 
   // Extra visitors on /pricing in the window, alternating versions. b's buyers pick bigger licenses.
   const PRICE = { control: [4900, 9900, 9900, 9900], b: [9900, 16900, 16900, 29900] };
-  for (let i = 0; i < 620; i++) {
+  for (let i = 0; i < 920; i++) {
     const arm = i % 2 ? 'b' : 'control';
     const vid = hex(), sid = hex();
     const t0 = start + Math.floor(r() * (now - start - 3600_000));
