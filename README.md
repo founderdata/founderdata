@@ -388,6 +388,9 @@ and D1 queries together) and a tick with nothing to do wrote no D1 rows except t
 one about 750 and a tick before 05:00 UTC with nothing new about 950, so the 288 ticks of a day read about 0.5 million of Free's 5 million. Once a site has nothing left to post
 for the UTC day, its ticks skip the scan of its keywords and pairs. Reads still grow with the pairs and keywords you track.
 
+Opening a page's click map (Pro) reads about 15 rows per mapped page view, the newest 2,000 at most (about 30,000
+rows), and the overlay about the same again.
+
 The hourly jobs never share a tick: phone pushes and alert rules run at minute 0, the weekly report at 07:05 on Mondays,
 the X poll at minute 15, the mail health check at minute 20, the Search Console sync at minute 30, the Meta ads import at minute 45, next actions at
 minute 50 (3 sites a tick) and the AI answer counts at minute 55. The Meta Conversions API sends what is pending on every
@@ -422,7 +425,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on |
 | Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more / 0 |
 | Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
-| Error issue (Pro) resolved, ignored or reopened / the new error alert rule | 1 / as any rule |
+| Error issue (Pro) resolved, ignored or reopened / the first new error alert rule / a later one | 1 / 3: the rule's 2 rows plus 1 for the dashboard address its alerts link to / 2 |
 | App: typical session of a known install | 36 |
 | App: a new install's first session / a relaunch the same day without consent. An install that Apple Search Ads attributes writes 2 rows more when Apple answers | 7 / 3 to 5 |
 | Payment from Stripe, the App Store or another provider | 5 to 9. A subscription event that cancels a paying subscription or fails its renewal adds 1 alert inbox row |

@@ -344,7 +344,7 @@ prompt** button: paste the prompt into Claude Code or Cursor and it does the ins
 | --- | --- |
 | 100,000 Worker requests/day | One request per web event (pageview, goal, outbound click, engaged-time ping) and one per app batch of up to 50 events. The script and dashboard files are static and don't count. |
 | 100,000 D1 rows written/day | The binding limit. See the table below: about 3,100 typical web visits a day, or 2,700 app sessions, or a mix. |
-| 5M D1 rows read/day | A dashboard load reads roughly 10 times the sessions in the range, so with 10k visitors/month that's hundreds of loads a day |
+| 5M D1 rows read/day | A dashboard load reads roughly 10 times the sessions in the range, so with 10k visitors/month that's hundreds of loads a day. Opening a page's click map (Pro) reads about 15 rows per mapped page view, the newest 2,000 at most (about 30,000 rows), and the overlay about the same again |
 | 5 GB D1 storage | Years of data at side-project traffic |
 
 D1 counts each index entry it writes as a row. These are the rows each write path costs, measured on local D1 by
@@ -369,7 +369,7 @@ number changes:
 | Web: scroll depth of one page load | 0, a column of the page speed row |
 | Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
 | Error issue (Pro) resolved, ignored or reopened | 1 |
-| New error alert rule (Pro), checked hourly | As any rule: 1 when it fires, plus 1 [inbox](#alert-inbox-pro) row per alert |
+| New error alert rule (Pro): the first one / a later one / checked hourly | 3 (the rule's 2 rows plus 1 for the dashboard address its alerts link to) / 2 / 1 when it fires, plus 1 [inbox](#alert-inbox-pro) row per alert |
 | Reading lifecycle, retention, paths, experiment results, error issues or a click map (Pro) | 0 |
 | App: new install's first `session_start` | 7 (6 with a kept install id: consent or `.vendor`) |
 | App: relaunch on the same day without consent, `session_start` only | 3 within 30 minutes of the last activity (the session continues), 5 later |
@@ -3330,8 +3330,9 @@ is built from what the recorder saw, never from a guess about why.
 ### Costs
 
 Each distinct error of a page view writes 1 row, so a page view costs 0 to 5 rows. An issue seen for the first time
-writes 1 more row, its first sighting. Resolving, ignoring or reopening an issue writes 1 row. A `new_error` rule writes 1 row when it fires, plus 1 row for the alert inbox. Reading issues
-writes nothing.
+writes 1 more row, its first sighting. Resolving, ignoring or reopening an issue writes 1 row. Making the first `new_error` rule writes 3 rows: the rule's 2 and 1 for the dashboard address its alerts
+link to. A later one writes 2. A `new_error` rule writes 1 row when it fires, plus 1 row for the alert inbox. Reading
+issues writes nothing.
 
 ## Experiments (Pro)
 
