@@ -135,6 +135,7 @@ export const BREAKDOWN_DIMS = [
   'channel', 'source', 'referrer', 'campaign', 'keyword', 'utm_source', 'utm_medium', 'utm_content', 'ref',
   'country', 'region', 'city', 'browser', 'os', 'device', 'platform', 'app_version', 'hostname',
   'page', 'entry_page', 'exit_page', 'goal', 'exit_link', 'x_post', 'referrer_domain', 'click_network', 'language',
+  'heard_about',
 ];
 export const NOTE_VIEWS = ['list', 'actors'];
 /** get_overview and get_portfolio: the numbers, or the next actions (pro/worker/actions.ts). */

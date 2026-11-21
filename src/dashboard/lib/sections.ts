@@ -8,8 +8,10 @@ export const SECTION_LABELS = {
   overview: 'Overview',
   people: 'People',
   recordings: 'Recordings',
+  errors: 'Errors',
   content: 'Content',
   dropoff: 'Drop-off',
+  experiments: 'Experiments',
   app: 'App',
   seo: 'SEO',
   ai: 'AI visibility',
@@ -33,7 +35,7 @@ export const SECTION_SHORT_LABELS: Record<View, string> = { ...SECTION_LABELS, p
 export const SECTION_GROUPS: { id: 'agent' | 'analytics' | 'organic' | 'paid' | 'revenue'; label: string; views: View[] }[] = [
   // The growth plan the owner's AI agent runs for the site. First in the row; a site still opens on the Overview.
   { id: 'agent', label: 'Agent', views: ['plan'] },
-  { id: 'analytics', label: 'Analytics', views: ['overview', 'people', 'recordings', 'content', 'dropoff', 'app'] },
+  { id: 'analytics', label: 'Analytics', views: ['overview', 'people', 'recordings', 'errors', 'content', 'dropoff', 'experiments', 'app'] },
   { id: 'organic', label: 'Organic', views: ['seo', 'ai', 'aso'] },
   { id: 'paid', label: 'Paid', views: ['paid', 'ads', 'asa'] },
   { id: 'revenue', label: 'Revenue', views: ['subscriptions', 'appstore'] },
@@ -82,8 +84,12 @@ export function sectionState(site: Site, v: View): { muted: boolean; setup: Sect
     case 'people':
     // The plan needs no website or app: an agent can make one for any site.
     case 'plan':
+    // Experiments list web and app experiments: an app-only site sees the ones its iOS app sends.
+    case 'experiments':
       return { muted: false, setup: null };
     case 'content':
+    // JavaScript errors come from the website's pages.
+    case 'errors':
     // Recordings are of website visits: the iPhone app is never recorded.
     case 'recordings':
     case 'seo':
@@ -131,10 +137,14 @@ export const sectionPath = (siteId: string, v: View) => `/site/${siteId}${v === 
 
 /**
  * Query parameters that belong to one section (a breakdown tab, a sub-view, an open visitor, the filters of Recordings
- * and the second a recording opens at). They stay behind when
- * you change section, so a tab picked on the Overview does not follow you to SEO.
+ * and Errors, the second a recording opens at, the click map device, a Paths sequence, the retention scope and split).
+ * They stay behind when you change section, so a tab picked on the Overview does not follow you to SEO.
  */
-export const SECTION_PARAMS = ['tab', 'view', 'visitor', 'page', 'exit', 'signal', 'outcome', 'device', 'sort', 't'];
+export const SECTION_PARAMS = [
+  'tab', 'view', 'visitor', 'page', 'exit', 'signal', 'outcome', 'device', 'sort', 't',
+  // Round 7: Errors (issue, status), Recordings (exp, funnel, step, channel, customer), Content (map, seq), People (scope, split).
+  'issue', 'exp', 'status', 'map', 'seq', 'scope', 'split', 'funnel', 'step', 'channel', 'customer',
+];
 
 /** The search part a section link keeps: the period and filters, not the section's own state. */
 export function carriedSearch(search: string): string {

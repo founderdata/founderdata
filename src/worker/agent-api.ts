@@ -31,6 +31,7 @@ import { canRead, LEGACY_SCOPES, SCOPE_TEXT, type Scope } from './keys';
 import { compactSources, siteTrust, trustForKey, type SiteTrust } from './sources';
 import { vitalsRoute } from './vitals';
 import { proHooks } from './pro-hooks';
+import { partDefinitions } from './core-parts';
 import { VERSION } from '../shared/product';
 
 /** The range parameters every ranged route takes; `cacheKey` keeps only the parameters a route names. */
@@ -287,7 +288,7 @@ async function definitions(c: Context<AppEnv>) {
   const tok = tokenOf(c);
   const showRevenue = !!tok.show_revenue;
   const head = { show_revenue: showRevenue, scopes: scopesOf(tok), data_location: dataLocation(c.env) };
-  const tail = { definitions: DEFINITIONS, docs: 'https://github.com/founderdata/founderdata/blob/main/docs/API.md' };
+  const tail = { definitions: { ...DEFINITIONS, ...partDefinitions() }, docs: 'https://github.com/founderdata/founderdata/blob/main/docs/API.md' };
   const many = allSitesOf(c);
   if (many) {
     const trust = await siteTrust(c.env, many);

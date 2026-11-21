@@ -47,6 +47,9 @@ export const Views: Record<Exclude<View, 'overview'>, Preloadable<ComponentType<
   plan: proView('plan'),
   people: proView('people'),
   recordings: proView('recordings'),
+  // Round 7 (plan 5.1): filled by lanes errors and exp in pro/dashboard/components/errors/ and experiments/.
+  errors: proView('errors'),
+  experiments: proView('experiments'),
 };
 
 /** The command palette loads when it first opens (App.tsx); this is its chunk. */

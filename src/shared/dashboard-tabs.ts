@@ -19,6 +19,8 @@ export const BREAKDOWN_CARDS: BreakdownTab[][] = [
     { label: 'Referrer', dim: 'source', filter: 'source' },
     { label: 'Campaign', dim: 'campaign', filter: 'utm_campaign' },
     { label: 'Keyword', dim: 'keyword', filter: 'utm_term' },
+    // The heard_about survey's answers (src/worker/surveys.ts). Not a session column, so a row is no filter.
+    { label: 'Heard about', dim: 'heard_about' },
   ],
   [
     { label: 'Page', dim: 'page', filter: 'page' },

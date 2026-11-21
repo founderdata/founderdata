@@ -10,6 +10,7 @@ import { pruneAlertEvents } from './alert-events';
 import { LOGIN_FAILURE_MS } from './auth';
 import type { Env } from './env';
 import { VITALS_DAYS } from './vitals';
+import { partRetention } from './core-parts';
 
 /** Days of AI visibility runner answers kept: the longest report window (90 days) and the one before it, with a margin. */
 export const AIV_KEEP_DAYS = 200;
@@ -98,6 +99,8 @@ export async function pruneOldData(db: D1Database, now = Date.now(), opts: Reten
     // The alert inbox (alert-events.ts): 90 days. Next actions of a site that was deleted.
     pruneAlertEvents(db, now),
     db.prepare('DELETE FROM action_items WHERE site_id NOT IN (SELECT id FROM sites)'),
+    // Round 7's tables (core-parts.ts): survey answers, click maps, errors. Last, so the indexes above stay put.
+    ...partRetention(db, cutoff, now),
   ]);
   // Visitors (which can hold an identify()'d email) go once nothing recent or paid points at them.
   const visitors = await db

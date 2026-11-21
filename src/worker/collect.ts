@@ -10,12 +10,19 @@ import { overCap, rowsWritten, spend } from './budget';
 import { creditedVisitSql } from './payments';
 import { isSkipped, skipList } from './recording';
 import { insertVitals, parseVitals, vitalsPath } from './vitals';
-import { proHooks, type RecordConfig } from './pro-hooks';
+import { proHooks, type RecordConfig, type SurveyConfig } from './pro-hooks';
+import { exposureProps, exposureStatements } from './experiments';
+import { surveyStatements } from './surveys';
+import { mapConfig, mapStatement, type MapConfig } from './page-maps';
+import { errorsConfig, errorStatements } from './errors';
 
-const TYPES = new Set(['pageview', 'goal', 'outbound', 'ping', 'identify']);
+// Round 7 (plan 5.1): this file is the foundation's. The features live in experiments.ts, surveys.ts, page-maps.ts
+// and errors.ts; this file only calls them.
+const TYPES = new Set(['pageview', 'goal', 'outbound', 'ping', 'identify', 'survey']);
 const MAX_PING_MS = 10 * 60_000;
 
-interface Payload {
+/** One tracker event as it arrives (docs/API.md, "Events"). */
+export interface TrackerPayload {
   w: string;
   t: string;
   u: string;
@@ -33,14 +40,27 @@ interface Payload {
   m?: number;
   /** The Meta browser id (_fbp cookie), sent only with marketing consent. */
   fbp?: string;
-  /** Page activity (clicks, rage clicks, errors) of the page that ended, on its ping. Only for recorded visits. */
+  /** Page activity (clicks, rage clicks, errors) of the page that ended, on its ping. Clicks only for recorded visits. */
   a?: unknown;
+  /** The click map of the page that ended, on its ping (page-maps.ts). Only with `cfg.m`. */
+  h?: unknown;
+  /** 1 on a pageview that previews an experiment variant (?fd_exp=): no exposure is stored. */
+  xp?: number;
 }
+type Payload = TrackerPayload;
 
 const clip = (s: unknown, n = 255): string | null =>
   typeof s === 'string' && s.trim() ? s.trim().slice(0, n) : null;
 
 const isId = (s: unknown): s is string => typeof s === 'string' && /^[\w-]{8,64}$/.test(s);
+
+/**
+ * The SQL expression of a visitor's traits after merging the JSON object bound at `param` into them: past 20 keys the
+ * new traits replace the stored ones. identify() and survey answers (surveys.ts) share it.
+ */
+export const traitsPatchSql = (param = '?6') => `CASE WHEN ${param} IS NULL THEN traits
+                          WHEN (SELECT COUNT(*) FROM json_each(json_patch(COALESCE(traits, '{}'), ${param}))) <= ${MAX_TRAITS} THEN json_patch(COALESCE(traits, '{}'), ${param})
+                          ELSE json(${param}) END`;
 
 /** identify() keys that are columns of the visitor row, not traits. */
 const IDENTITY_KEYS = new Set(['user_id', 'id', 'email', 'name']);
@@ -154,6 +174,8 @@ export interface RequestFacts {
   language: string | null;
   /** 1 = from a hosting network (src/worker/datacenter.ts). */
   datacenter: 0 | 1;
+  /** The experiments this pageview entered, {key: variant} (pro-hooks.ts experimentDecision); absent for none. */
+  props?: Record<string, string> | null;
 }
 
 export function normalizePath(pathname: string): string {
@@ -215,10 +237,13 @@ export async function handleEvent(c: Context<AppEnv>) {
   }
   const cf = (c.req.raw as { cf?: IncomingRequestCfProperties }).cf;
   const facts: RequestFacts = { language: languageOf(c.req.header('accept-language')), datacenter: datacenterOf(cf?.asn, (n) => c.req.header(n), trustsForwardedFor(c.env.TRUST_FORWARDED_FOR)) };
+  // Experiments (plan S3, S4): Pro assigns from the cached site row, before the write, so a new visit's INSERT carries
+  // the variants. A preview (?fd_exp=) and a visit from a hosting network get none.
+  if (body.t === 'pageview' && body.xp !== 1 && !facts.datacenter) facts.props = experimentsOf(site, body.vid, normalizePath(url.pathname));
   // A pageview asks Pro whether to record this visit while it writes, so the answer costs no extra round trip.
   const [written, cfg] = await Promise.all([
     ingest(c.env.DB, site, body, url, ua, geoOf(c), now, facts),
-    body.t === 'pageview' ? trackerConfig(c.env, site, body.sid, now, facts) : null,
+    body.t === 'pageview' ? trackerConfig(c.env, site, body.sid, now, { ...facts, vid: body.vid, path: normalizePath(url.pathname) }) : null,
   ]);
   c.executionCtx.waitUntil(spend(c.env.DB, site, written, now));
   // The tracker keeps the ids in memory (never in storage) so later events and attribution() use them. `cfg` is there
@@ -227,12 +252,32 @@ export async function handleEvent(c: Context<AppEnv>) {
   return cfg ? c.json({ cfg }, 202) : c.body(null, 202);
 }
 
+/** The running experiments a pageview enters, from Pro's experimentDecision; null without Pro, on none or on an error. */
+function experimentsOf(site: Site, vid: string, path: string): Record<string, string> | null {
+  const decide = proHooks()?.experimentDecision;
+  if (!decide || !site.exp_live) return null;
+  try {
+    const x = decide(site, vid, path);
+    return x && Object.keys(x).length ? x : null;
+  } catch {
+    return null;
+  }
+}
+
 /** What the pageview answer tells the tracker (docs/API.md, "Tracker config"). Absent keys are off. */
 export interface TrackerConfig {
   /** Record this visit: load /js/replay.js with these settings (FounderData Pro's recordDecision). */
   rec?: RecordConfig;
   /** Remember visitors: keep the visitor id in first-party cookies, as after founderdata('consent', true). */
   rm?: 1;
+  /** The experiments this pageview entered, {key: variant} (experiments.ts). */
+  x?: Record<string, string>;
+  /** Catch JavaScript errors on this page (errors.ts). */
+  e?: 1;
+  /** Send a click map of this page (page-maps.ts). */
+  m?: MapConfig;
+  /** The surveys that are on, and the one to show here (FounderData Pro's surveyDecision). */
+  sv?: SurveyConfig;
 }
 
 /**
@@ -245,19 +290,35 @@ export async function trackerConfig(
   site: Site,
   sid: string,
   now: number,
-  facts: Pick<RequestFacts, 'datacenter'> = { datacenter: 0 },
+  facts: Pick<RequestFacts, 'datacenter' | 'props'> & { vid?: string; path?: string } = { datacenter: 0 },
 ): Promise<TrackerConfig | null> {
   const cfg: TrackerConfig = {};
   if (site.remember_visitors) cfg.rm = 1;
-  const decide = site.record_visits && env.REPLAY_BUCKET && !facts.datacenter ? proHooks()?.recordDecision : undefined;
-  if (decide) {
-    const rec = await Promise.resolve()
-      .then(() => decide(env, site, sid, now))
-      .catch(() => null);
-    // Wait for consent: the tracker holds the recording until the visitor consents to cookies (migration 0075).
-    if (rec) cfg.rec = site.record_consent ? { ...rec, c: 1 } : rec;
-  }
-  return cfg.rm || cfg.rec ? cfg : null;
+  const pro = proHooks();
+  const decide = site.record_visits && env.REPLAY_BUCKET && !facts.datacenter ? pro?.recordDecision : undefined;
+  // Surveys: asked only when the site has one on, and not for a visit from a hosting network.
+  const survey = site.surveys && facts.vid && !facts.datacenter ? pro?.surveyDecision : undefined;
+  const [rec, sv] = await Promise.all([
+    decide
+      ? Promise.resolve()
+          .then(() => decide(env, site, sid, now))
+          .catch(() => null)
+      : null,
+    survey
+      ? Promise.resolve()
+          .then(() => survey(env, site, facts.vid!, facts.path ?? '/', now))
+          .catch(() => null)
+      : null,
+  ]);
+  // Wait for consent: the tracker holds the recording until the visitor consents to cookies (migration 0075).
+  if (rec) cfg.rec = site.record_consent ? { ...rec, c: 1 } : rec;
+  if (sv) cfg.sv = sv;
+  if (facts.props && Object.keys(facts.props).length) cfg.x = facts.props;
+  const e = errorsConfig(site);
+  if (e) cfg.e = e;
+  const m = mapConfig(site);
+  if (m) cfg.m = m;
+  return Object.keys(cfg).length ? cfg : null;
 }
 
 export interface Geo {
@@ -339,9 +400,14 @@ export async function ingest(
       ...consentUpdate(db, site, body, sid, ua),
     ];
     // The ping sent when the page is hidden carries the page load's Core Web Vitals: 1 row more, no visitor id.
+    const device = parseUA(ua, Number(body.sw) || undefined).device;
     const vitals = parseVitals(body.v);
-    const insert = vitals && insertVitals(db, site, vitals, vitalsPath(body.v, path), parseUA(ua, Number(body.sw) || undefined).device, now);
+    const insert = vitals && insertVitals(db, site, vitals, vitalsPath(body.v, path), device, now);
     if (insert) stmts.push(insert);
+    // Round 7: the page's errors (errors.ts, a row per distinct error) and its click map (page-maps.ts, 1 row).
+    stmts.push(...errorStatements(db, site, body.a, sid, path, ua, now));
+    const map = mapStatement(db, site, body.h, path, device, now);
+    if (map) stmts.push(map);
     // The clicks and errors of the page that ended: 1 row more, only for a site that records visits.
     // A page on the site's never-recorded list keeps its clicks and errors out too, whatever tracker version sent them.
     const act = site.record_visits ? parseActivity(body.a) : null;
@@ -365,9 +431,7 @@ export async function ingest(
     // Traits (?6) merge into the stored ones; past 20 keys the call's own traits replace them. They ride on the identity
     // update when that runs. Alone they go in a second update that sets traits only, so the identity indexes are not
     // rewritten: 1 row. After the first update has run, the second finds nothing to change.
-    const traits = `CASE WHEN ?6 IS NULL THEN traits
-                          WHEN (SELECT COUNT(*) FROM json_each(json_patch(COALESCE(traits, '{}'), ?6))) <= ${MAX_TRAITS} THEN json_patch(COALESCE(traits, '{}'), ?6)
-                          ELSE json(?6) END`;
+    const traits = traitsPatchSql('?6');
     const args = [clip(p.user_id, 128), clip(p.email, 200)?.toLowerCase() ?? null, clip(p.name, 128), site.id, vid, traitsOf(p)];
     const r = await db.batch([
       db.prepare('INSERT OR IGNORE INTO visitors (site_id, id, first_seen) VALUES (?, ?, ?)').bind(site.id, vid, now),
@@ -383,6 +447,12 @@ export async function ingest(
         : []),
     ]);
     return rowsWritten(r);
+  }
+
+  if (t === 'survey') {
+    // A survey answer (surveys.ts): the answer row and the visitor's trait. Writes no session or event.
+    const stmts = surveyStatements(db, site, body, path, now);
+    return stmts.length ? rowsWritten(await db.batch(stmts)) : 0;
   }
 
   const existing = await db
@@ -444,6 +514,8 @@ export async function ingest(
           .prepare('UPDATE sessions SET pageviews = pageviews + 1, exit_page = ?, last_seen_at = ? WHERE site_id = ? AND id = ?')
           .bind(path, now, site.id, sid),
       );
+      // A running visit that reaches an experiment's pages: 1 row per experiment, the first time only.
+      stmts.push(...exposureStatements(db, site.id, sid, facts.props));
     }
     stmts.push(insertEvent(db, site.id, sid, vid, now, 'pageview', null, path, null, dc));
     stmts.push(...claimPayment(db, site.id, vid, url, now));
@@ -608,8 +680,8 @@ function newSession(
         `INSERT OR IGNORE INTO sessions (site_id, id, visitor_id, started_at, last_seen_at, pageviews, hostname, entry_page, exit_page,
           referrer, referrer_domain, source, channel, utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref,
           country, region, city, lat, lon, browser, os, device, fbclid, fbclid_at, ad_id, click_ua, consent, fbp,
-          click_network, click_id, click_at, language, datacenter)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          click_network, click_id, click_at, language, datacenter, props)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         site.id,
@@ -649,6 +721,8 @@ function newSession(
         other ? now : null,
         facts.language,
         facts.datacenter,
+        // The experiments the first pageview entered (plan S3): 0 rows more.
+        body.t === 'pageview' ? exposureProps(facts.props) : null,
       ),
     // Separate statement so concurrent first events (pageview + goal racing) never double count.
     ...(pageviews

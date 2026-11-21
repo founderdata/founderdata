@@ -15,6 +15,15 @@ export const PRO_SECTIONS: Partial<Record<View, { title: string; body: string; c
     title: 'Recordings',
     body: 'Watch visits to your website like a video. A list of what to fix comes first: buttons people click that do nothing, errors, forms they leave. Your AI agent reads the same list.',
   },
+  errors: {
+    title: 'Errors',
+    body: 'JavaScript errors on your site, grouped into issues. Each issue lists the people and paying customers it hit and links to a recording of the moment. A new error on your checkout can send you an alert.',
+  },
+  experiments: {
+    title: 'Experiments',
+    body: 'Show two versions of a page and see which one brings more revenue per visitor, with the goal you pick judged beside it. Experiments from your iOS app sit in the same list.',
+    collected: 'Core already stores the experiments your iOS app sends, so the list shows them the day you switch.',
+  },
   content: {
     title: 'Content',
     body: 'Every page with its visitors, Google clicks and position, the revenue it brought, and the pages losing traffic.',

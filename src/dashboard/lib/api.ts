@@ -74,6 +74,16 @@ export interface Site {
   record_skip?: string | null;
   /** Remember visitors: 1 = the tracker keeps the visitor id in first-party cookies. */
   remember_visitors?: number;
+  /** Catch JavaScript errors without recording (migration 0090): 1 = on. */
+  errors_on?: number;
+  /** Click maps (migration 0090): 1 = on. */
+  maps_on?: number;
+  /** Percent of page views that send a click map, 1 to 100. */
+  map_sample?: number;
+  /** The two surveys as JSON (migration 0090); null = both off. */
+  surveys?: string | null;
+  /** The running experiments as compact JSON (migration 0090); null = none. */
+  exp_live?: string | null;
   /** GET and PATCH /api/sites/:id: the REPLAY_BUCKET binding exists (`npm run setup -- --replay`). */
   replay_bucket?: boolean;
   /** GET /api/sites/:id only: today's rows against the cap. */

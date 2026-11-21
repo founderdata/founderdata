@@ -7,6 +7,7 @@ import type { AppEnv, Site } from './env';
 import { apiKeyOf } from './keys';
 import { cleanNote, handlerOf, logErasure } from './privacy';
 import { proHooks } from './pro-hooks';
+import { partErase } from './core-parts';
 
 /** Visitor ids per batch: each statement binds them all, and D1 allows 100 bound parameters. */
 const IDS_PER_BATCH = 50;
@@ -84,6 +85,8 @@ export async function eraseVisitors(db: D1Database, site: Site, ids: string[], e
       // Recorded visits' index rows that FounderData Pro's eraseRecordings left, or that remain without Pro. Their R2
       // chunks go with Pro's hook, or with the bucket's 90-day lifecycle rule.
       db.prepare(`DELETE FROM replays WHERE site_id = ? AND visitor_id IN (${inList})`).bind(site.id, ...chunk),
+      // Round 7's rows of these visitors (core-parts.ts): survey answers, errors. Last, so the indexes above stay put.
+      ...partErase(db, site.id, chunk),
     ]);
     // The erased visitor's own payments and subscriptions are cleared first, so the by-visit updates count only others'.
     out.events += res[0].meta.changes;

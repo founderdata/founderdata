@@ -8,6 +8,7 @@ import { proHooks } from './pro-hooks';
 import { importFilter, importInfo, importInfoOf, importedSpan, importedTotals, withImported, type ImportInfoRow, type ImportedTotals } from './imports';
 import { goalCounts, siteGoal } from './primary-goal';
 import { countedSql } from './datacenter';
+import { heardAboutRows } from './surveys';
 import { APPLE_PAYMENT, appStoreLayer, appStoreLayerPlan, appleNet, appleSplitColumns, dayBucket, KEPT_CREDIT, noSourceAmount, revenueBasis, type AppStoreLayer, type AscPrefetch, type LayerPlan } from './revenue';
 
 export { REAL };
@@ -800,6 +801,8 @@ export async function nativeBreakdown(ctx: Ctx, dim: string, limit = 100): Promi
 
   // Which post paid is Pro's (x-posts.ts); without it the dimension has no rows.
   if (dim === 'x_post') return (await proHooks()?.xPostRows?.(ctx, lim)) ?? [];
+  // How visitors say they heard about you: the heard_about survey's answers (surveys.ts).
+  if (dim === 'heard_about') return heardAboutRows(ctx, lim);
 
   if (dim === 'page') {
     const f = filterSql(ctx.filters);

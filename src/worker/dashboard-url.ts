@@ -16,6 +16,16 @@ interface Target {
 
 const overview = (tab?: string): Target => ({ path: '', params: tab ? { tab } : undefined });
 
+/** The request's own values of these parameters, for a screen that reads them from its URL; undefined for none. */
+function pick(q: URLSearchParams, keys: string[]): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const k of keys) {
+    const v = q.get(k);
+    if (v) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** By route, the part after /api/v1/. A route missing here (keys, research, definitions) gets no link. */
 function targetOf(route: string, q: URLSearchParams): Target | null {
   if (route.startsWith('app/')) return { path: '/app' };
@@ -23,6 +33,13 @@ function targetOf(route: string, q: URLSearchParams): Target | null {
   // Recordings (FounderData Pro): the list, the patterns, and one recording's player.
   if (route === 'recordings' || route === 'recordings/patterns') return { path: '/recordings' };
   if (/^recordings\/[\w-]+$/.test(route)) return { path: `/recordings/${route.slice('recordings/'.length)}` };
+  // Round 7 (FounderData Pro): error issues, experiments, web retention and lifecycle, paths.
+  if (route === 'errors') return { path: '/errors', params: pick(q, ['status']) };
+  if (/^errors\/[\w-]+$/.test(route)) return { path: `/errors/${route.slice('errors/'.length)}` };
+  if (route === 'experiments') return { path: '/experiments' };
+  if (/^experiments\/[\w-]+$/.test(route)) return { path: `/experiments/${route.slice('experiments/'.length)}` };
+  if (route === 'web/retention' || route === 'web/lifecycle') return { path: '/people/retention', params: pick(q, ['scope', 'split']) };
+  if (route === 'paths') return { path: '/content/paths', params: pick(q, ['seq']) };
   switch (route) {
     case 'stats/overview':
     case 'stats/timeseries':

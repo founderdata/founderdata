@@ -85,8 +85,9 @@ describe('section row', () => {
     expect(ALL_VIEWS).toEqual(all);
     expect(SECTION_GROUPS.find((g) => g.id === 'paid')!.views).toEqual(['paid', 'ads', 'asa']);
     expect(SECTION_GROUPS.find((g) => g.id === 'organic')!.views).toEqual(['seo', 'ai', 'aso']);
-    // Recordings sit in Analytics right after People (pro/docs/recordings-agents-plan.md, R6).
-    expect(SECTION_GROUPS.find((g) => g.id === 'analytics')!.views).toEqual(['overview', 'people', 'recordings', 'content', 'dropoff', 'app']);
+    // Recordings sit in Analytics right after People (pro/docs/recordings-agents-plan.md, R6); Errors after Recordings and
+    // Experiments before App (round 7, plan section 3).
+    expect(SECTION_GROUPS.find((g) => g.id === 'analytics')!.views).toEqual(['overview', 'people', 'recordings', 'errors', 'content', 'dropoff', 'experiments', 'app']);
   });
 
   it('links each section to a path that opens it, Apple Search Ads at /ads/asa next to Meta ads at /ads', () => {
@@ -105,7 +106,7 @@ describe('section row', () => {
     // A website without Meta, an app or subscriptions: those sections are muted, not gone.
     const muted = (s: Site) => ALL_VIEWS.filter((v) => sectionState(s, v).muted);
     expect(muted(webOnly)).toEqual(['app', 'aso', 'paid', 'ads', 'asa', 'subscriptions', 'appstore']);
-    expect(muted(appOnly)).toEqual(['recordings', 'content', 'seo', 'ai', 'paid', 'ads', 'asa']);
+    expect(muted(appOnly)).toEqual(['recordings', 'errors', 'content', 'seo', 'ai', 'paid', 'ads', 'asa']);
     expect(muted(both)).toEqual([]);
     // Apple Search Ads without the deployment's ASA_* secrets is muted but opens its own setup steps.
     expect(sectionState({ ...both, has_asa: false }, 'asa')).toEqual({ muted: true, setup: null });
@@ -120,8 +121,10 @@ describe('section row', () => {
     expect(sectionState(appOnly, 'seo').setup).toMatchObject({ title: 'This section needs a website', settings: 'general' });
     expect(sectionState(webOnly, 'subscriptions').setup).toMatchObject({ settings: 'payments' });
     expect(sectionState(webOnly, 'overview')).toEqual({ muted: false, setup: null });
-    expect(viewsFor(webOnly)).toEqual(['plan', 'overview', 'people', 'recordings', 'content', 'dropoff', 'seo', 'ai', 'paid', 'ads']);
-    expect(viewsFor(appOnly)).toEqual(['plan', 'overview', 'people', 'dropoff', 'app', 'aso', 'paid', 'asa', 'subscriptions', 'appstore']);
+    expect(viewsFor(webOnly)).toEqual(['plan', 'overview', 'people', 'recordings', 'errors', 'content', 'dropoff', 'experiments', 'seo', 'ai', 'paid', 'ads']);
+    // Experiments list the app's experiments too, so an app-only site has the section; Errors need a website.
+    expect(viewsFor(appOnly)).toEqual(['plan', 'overview', 'people', 'dropoff', 'experiments', 'app', 'aso', 'paid', 'asa', 'subscriptions', 'appstore']);
+    expect(sectionState(appOnly, 'errors').setup).toMatchObject({ title: 'This section needs a website' });
     // The plan needs neither a website nor an app.
     expect(sectionState(appOnly, 'plan')).toEqual({ muted: false, setup: null });
     expect(sectionState(webOnly, 'plan')).toEqual({ muted: false, setup: null });
@@ -132,6 +135,10 @@ describe('section row', () => {
     expect(carriedSearch(search)).toBe('?period=7d&filters=%7B%22country%22%3A%22DE%22%7D');
     // The filters of Recordings and the second a recording opens at stay on Recordings too.
     expect(carriedSearch('?period=7d&page=%2Fpricing&exit=%2Fpricing&signal=dead&outcome=none&device=mobile&sort=newest&t=27')).toBe('?period=7d');
+    // Round 7: the filters of Errors and Recordings, the click map device, a Paths sequence, the retention scope and split.
+    expect(
+      carriedSearch('?period=7d&issue=a1b2c3d4e5f6&exp=pricing%3Ab&status=open&map=mobile&seq=%2F%2C%2Fpricing&scope=known&split=channel&funnel=f1&step=2&channel=Direct&customer=1'),
+    ).toBe('?period=7d');
     expect(sectionUrl('s1', 'seo', search)).toBe('/site/s1/seo?period=7d&filters=%7B%22country%22%3A%22DE%22%7D');
     expect(sectionUrl('s1', 'overview', '')).toBe('/site/s1');
   });
@@ -153,7 +160,7 @@ describe('section row on the page', () => {
   };
   const nav = (html: string) => html.slice(html.indexOf('<nav aria-label="Sections"'), html.indexOf('</nav>', html.indexOf('<nav aria-label="Sections"')));
 
-  it('draws all 15 sections on every page of every kind of site, the open one marked and the unset ones muted', async () => {
+  it('draws all 17 sections on every page of every kind of site, the open one marked and the unset ones muted', async () => {
     for (const s of [webOnly, appOnly, both]) {
       for (const view of ALL_VIEWS) {
         const html = nav(await render(s, view));
@@ -422,6 +429,23 @@ describe('dashboard_url', () => {
       const link = new URL(u(p)!);
       expect(matchRoute(link.pathname, false), p).toMatchObject({ page: 'dashboard', siteId: 'SITE' });
     }
+  });
+
+  it('links round 7\'s read routes: errors, experiments, web retention and lifecycle, paths', () => {
+    const o = 'https://founderdata.example.com';
+    const u = (p: string) => dashboardUrl(`${o}/api/v1/${p}`, 'SITE');
+    expect(u('errors?status=open&period=7d')).toBe(`${o}/site/SITE/errors?period=7d&status=open`);
+    expect(u('errors/a1b2c3d4e5f6')).toBe(`${o}/site/SITE/errors/a1b2c3d4e5f6`);
+    expect(u('experiments?platform=web')).toBe(`${o}/site/SITE/experiments`);
+    expect(u('experiments/pricing_headline')).toBe(`${o}/site/SITE/experiments/pricing_headline`);
+    expect(u('web/retention?scope=known&split=channel')).toBe(`${o}/site/SITE/people/retention?scope=known&split=channel`);
+    expect(u('web/lifecycle?period=90d')).toBe(`${o}/site/SITE/people/retention?period=90d`);
+    expect(u('paths?seq=/,/pricing')).toBe(`${o}/site/SITE/content/paths?seq=%2F%2C%2Fpricing`);
+    expect(matchRoute('/site/SITE/errors', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'errors' });
+    expect(matchRoute('/site/SITE/errors/a1b2c3d4e5f6', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'errors' });
+    expect(matchRoute('/site/SITE/experiments/new', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'experiments' });
+    expect(matchRoute('/site/SITE/content/paths', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'content' });
+    expect(matchRoute('/site/SITE/people/retention', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'people' });
   });
 
   it('puts the field first in a JSON object and leaves arrays alone', () => {
