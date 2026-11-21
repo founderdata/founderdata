@@ -457,6 +457,9 @@ describe('dashboard_url', () => {
     expect(u('recordings?funnel=f1&step=2&customer=1')).toBe(`${o}/site/SITE/recordings?customer=1&funnel=f1&step=2`);
     expect(u('web/retention?scope=known&split=channel')).toBe(`${o}/site/SITE/people/retention?scope=known&split=channel`);
     expect(u('web/lifecycle?period=90d')).toBe(`${o}/site/SITE/people/retention?period=90d`);
+    // app/retention on a site with no app answers web retention (critique 2 int-4), so it links to the web grid.
+    expect(dashboardUrl(`${o}/api/v1/app/retention?period=90d&scope=all`, 'SITE', false)).toBe(`${o}/site/SITE/people/retention?period=90d&scope=all`);
+    expect(dashboardUrl(`${o}/api/v1/app/retention?period=90d`, 'SITE', true)).toBe(`${o}/site/SITE/app?period=90d`);
     expect(u('paths?seq=/,/pricing')).toBe(`${o}/site/SITE/content/paths?seq=%2F%2C%2Fpricing`);
     expect(matchRoute('/site/SITE/errors', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'errors' });
     expect(matchRoute('/site/SITE/errors/a1b2c3d4e5f6', false)).toEqual({ page: 'dashboard', siteId: 'SITE', view: 'errors' });

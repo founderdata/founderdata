@@ -711,7 +711,7 @@ Three rules hold for all of them:
 | `GET /api/v1/app/onboarding-purchase` (Pro) | range, `limit` | `GET /api/sites/<id>/app/onboarding-purchase`, the headline funnel, with `limit` values per group |
 | `GET /api/v1/app/screens` (Pro) | range | `GET /api/sites/<id>/app/screens`, the screen flow |
 | `GET /api/v1/app/properties` (Pro) | range | `GET /api/sites/<id>/app/properties`, the session property values in use |
-| `GET /api/v1/app/retention` (Pro) | range, `scope` | `GET /api/sites/<id>/app/retention`. A site with no app bundle id gets web retention instead, as `GET /api/v1/web/retention` answers it, with `platform: "web"`; `scope` works there only. On a site with an app, `scope` answers `400`. |
+| `GET /api/v1/app/retention` (Pro) | range, `scope` | `GET /api/sites/<id>/app/retention`. A site with no app bundle id gets web retention instead, as `GET /api/v1/web/retention` answers it, with `platform: "web"`; `scope` works there only. Its `dashboard_url` then opens People > Retention, not the App tab. On a site with an app, `scope` answers `400`. |
 | `GET /api/v1/app/sources` (Pro) | range, `dim` (`channel` by default; an unknown one gets `400`) | `GET /api/sites/<id>/app/sources` |
 | `GET /api/v1/app/versions` (Pro) | range, `series` (`true` adds sessions per version over time) | `GET /api/sites/<id>/app/versions` |
 | `GET /api/v1/dropoff` (Pro) | range, `platform` (`all`, `web`, `app`), `split` (`platform`, `app_version`, `user_state`, `prop:<key>`), `include_test`, `limit` | `GET /api/sites/<id>/dropoff`, with `limit` groups and `groups_total`. A property value that holds an email address groups as `"(email)"`. |
