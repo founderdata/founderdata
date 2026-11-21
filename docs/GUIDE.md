@@ -3241,15 +3241,22 @@ Agents read the same numbers with `get_app_funnel`, `report: "lifecycle"` or `re
 
 ## Errors (Pro)
 
+Stack frames are what the browser gives, not mapped back to your source, so a minified build shows functions named `t`
+or `e`. Only uncaught browser errors and unhandled promise rejections arrive: no errors your code catches, no server
+errors, no releases and no breadcrumbs.
+
 The Errors section shows the JavaScript errors visitors hit on your website, grouped into issues. An issue is one bug:
-the same message with other numbers, ids or quoted text, from the same function. Each row says how often it happened,
+the same message with other numbers, ids or quoted text, from the same function. The function name counts, so the same
+message thrown in two functions makes two issues. Each row says how often it happened,
 how many people it hit and how many of them pay you, with their monthly revenue in coral. Issues that cost money come
 first.
 
 ### Turn it on
 
 Open **Errors** and turn on **Catch JavaScript errors**, or use the card in Settings, group "Errors, maps and surveys".
-A site that records visits catches errors already. Nothing changes in your code: the tracking script catches uncaught
+A site that records visits catches errors already. With Wait for consent on, those errors arrive only with a
+recording, after the visitor consents. Catch JavaScript errors sends them from the first page view, without consent,
+with the visit and visitor id. Nothing changes in your code: the tracking script catches uncaught
 errors and rejected promises, at most 5 per page view, each with its message, file, line and the top 3 stack frames.
 Errors show up about a minute after they happen. [PRIVACY.md](PRIVACY.md#errors) lists what a row keeps.
 

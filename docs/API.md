@@ -3897,9 +3897,9 @@ In cookie mode the answer is `{ "cfg": { … } }`.
 | Key | Meaning |
 | --- | --- |
 | `rm` | Remember visitors is on. The script keeps the visitor in cookies as after `founderdata('consent', true)`, with `rt_consent=r`. When a later answer has no `rm`, the script removes cookies it kept this way. A page that called `founderdata('consent', false)` stays without cookies. |
-| `rec` | Record this visit (Pro). The server decides per visit, by the site's share and daily maximum. A visit from a hosting network (see "Datacenter visits" in docs/GUIDE.md) is never recorded. The object holds the recorder's settings: `mask` and `block` are CSS selectors, and Pro may add short keys of its own, such as `v` for the recorder's version. `c: 1` means the site waits for consent (`record_consent`): the script records only once the visitor consented to cookies, with `data-cookies="on"`, an earlier `rt_consent=1` or `founderdata('consent', true)`. Until then it loads nothing and sends no clicks or errors. Remember visitors (`rt_consent=r`) is not consent. `x` is the site's list of pages that are never recorded (`record_skip`, migration 0076), as path prefixes such as `["/dashboard", "/account"]`, and is absent when the list is empty. A page whose path is a prefix, or starts with a prefix and `/`, loads no recorder and sends no clicks or errors. When a single-page app moves to such a page, the recorder stops for the rest of the page load. |
+| `rec` | Record this visit (Pro). The server decides per visit, by the site's share and daily maximum. A visit from a hosting network (see "Datacenter visits" in docs/GUIDE.md) is never recorded. The object holds the recorder's settings: `mask` and `block` are CSS selectors, and Pro may add short keys of its own, such as `v` for the recorder's version. `c: 1` means the site waits for consent (`record_consent`): the script records only once the visitor consented to cookies, with `data-cookies="on"`, an earlier `rt_consent=1` or `founderdata('consent', true)`. Until then it loads nothing and sends no clicks, and no errors unless Catch JavaScript errors is on (`e`). Click maps (`m`) and experiments (`x`) do not wait for consent either: a click map holds no visitor or visit id, and the server picks a visitor's version at the pageview. Remember visitors (`rt_consent=r`) is not consent. `x` is the site's list of pages that are never recorded (`record_skip`, migration 0076), as path prefixes such as `["/dashboard", "/account"]`, and is absent when the list is empty. A page whose path is a prefix, or starts with a prefix and `/`, loads no recorder and sends no clicks or errors. When a single-page app moves to such a page, the recorder stops for the rest of the page load. |
 | `x` | The experiments this page view entered (Pro), as `{ "<key>": "<variant>" }`. The server stores the same map on the visit as the session properties `exp_<key>`. See "Experiments in the tracker". |
-| `e` | `1`: the site catches JavaScript errors, because Catch JavaScript errors or Record visits is on. The script sends the page's errors with its ping, also when the visit is not recorded. See "Errors". |
+| `e` | `1`: the script sends the page's errors with its ping, also when the visit is not recorded. Set when Catch JavaScript errors is on, or Record visits is on without Wait for consent. These errors do not wait for consent and carry the visit and visitor id. Absent for a visit from a hosting network. See "Errors". |
 | `m` | Click maps are on (Pro). `s` is the percent of page views that send a click map, as in `{ "s": 100 }`. See "Click maps and scroll". |
 | `sv` | Surveys (Pro). `on` lists the surveys that are on and that this visitor has not answered or closed, and `show` names the one to show on this page. Absent when there is none. See "Survey answers". |
 
@@ -4169,7 +4169,13 @@ A page opened with `#fd-map=<token>` in its URL sends nothing: no pageview and n
 
 A site catches JavaScript errors when Catch JavaScript errors (`errors_on`, migration 0090) or Record visits is on. The
 pageview answer then carries `cfg.e: 1`, and the script sends each page's errors with its ping in `a.e`, as in "Page
-activity", also when the visit is not recorded. Clicks still go only with a recording. Each error gains `k`, its stack:
+activity", also when the visit is not recorded. Clicks still go only with a recording. Each error gains `k`, its stack.
+
+With Record visits and Wait for consent on and Catch JavaScript errors off, there is no `cfg.e`. Errors then
+leave only with a recording, after the visitor consents. With Catch JavaScript errors on, errors are sent from the first
+page view, without consent, with the visit and visitor id. A visit from a hosting network gets no `cfg.e`.
+
+An error as the script sends it:
 
 ```json
 { "t": 9300, "m": "TypeError: Cannot read properties of undefined (reading 'priceId')",
@@ -4189,8 +4195,8 @@ row holds:
 | Column | Value |
 | --- | --- |
 | `ts` | When it happened: the page's `s` plus the error's `t`, or the time the ping arrived when that is not within the last day. |
-| `fp` | The issue, 12 hex characters. The message with numbers, quoted text, URLs and hex ids taken out, plus the top frame's file and function, or the source file without a frame. A build hash in a file name such as `index-B3kZ9a1x.js` does not count, so a rebuild keeps the issue. |
-| `message` | 200 characters. Emails, phone numbers and runs of 6 or more digits become `[removed]`. Chrome's `Uncaught ` in front is dropped. |
+| `fp` | The issue, 12 hex characters: a hash of the message as sent and the top frame's file and function, or the source file without a frame. From the message, URLs and quoted text are taken out, then ids (UUIDs, emails, prefixed ids such as `pi_3Nx4k9a2eZvKYlo2`, codes such as `ORD-8841-AB`, words of 6 or more letters and digits mixed), then numbers of any length. A build hash in a file name does not count, so a rebuild keeps the issue: a part after `-` or `.` and before the extension with 6 or more characters and a digit, or 8 or more with upper and lower case letters, as in `index-B3kZ9a1x.js` or `index-DkLmNoPq.js`. |
+| `message` | 200 characters. Emails, phone numbers, runs of 6 or more digits and runs of 16 or more letters and digits mixed (tokens, keys) become `[removed]`. Chrome's `Uncaught ` in front is dropped. |
 | `source`, `stack` | `s` and `k` without queries. |
 | `path`, `device`, `browser` | The page, and the visitor's device and browser from the user agent. |
 | `session_id`, `visitor_id` | The visit and its visitor, so issues count people and link a recording. A ping of a visit the server does not know writes nothing. |
