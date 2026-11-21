@@ -372,7 +372,7 @@ function fakeEl(tag: string, text: string, cls?: string, hidden = false) {
   return e;
 }
 
-function browser(o: { href?: string; cfg?: unknown; perf?: boolean } = {}) {
+function browser(o: { href?: string; cfg?: unknown; perf?: boolean; storage?: Record<string, string>; webdriver?: boolean } = {}) {
   const requests: any[] = [];
   const beacons: any[] = [];
   const scripts: any[] = [];
@@ -392,7 +392,7 @@ function browser(o: { href?: string; cfg?: unknown; perf?: boolean } = {}) {
   const hist: any = { pushState() {}, replaceState() {} };
   const win: any = {
     location: new URL(o.href ?? 'https://example.com/pricing'),
-    navigator: { webdriver: false, sendBeacon: (_u: string, b: Blob) => (beacons.push(b.text().then(JSON.parse)), true) },
+    navigator: { webdriver: !!o.webdriver, sendBeacon: (_u: string, b: Blob) => (beacons.push(b.text().then(JSON.parse)), true) },
     screen: { width: 1440 },
     history: hist,
     innerWidth: 1000,
@@ -417,7 +417,7 @@ function browser(o: { href?: string; cfg?: unknown; perf?: boolean } = {}) {
     const cfg = body.t === 'pageview' && o.cfg ? { cfg: o.cfg } : {};
     return Response.json({ vid: 'v'.repeat(32), sid: 's'.repeat(32), ...cfg }, { status: 202 });
   };
-  const ctx = vm.createContext({ window: win, screen: win.screen, document: doc, localStorage: { getItem: () => null, setItem() {}, removeItem() {} }, fetch, URL, URLSearchParams, Blob, Response, setTimeout, setInterval: () => 0, crypto: globalThis.crypto });
+  const ctx = vm.createContext({ window: win, screen: win.screen, document: doc, localStorage: { getItem: (k: string) => o.storage?.[k] ?? null, setItem() {}, removeItem() {} }, fetch, URL, URLSearchParams, Blob, Response, setTimeout, setInterval: () => 0, crypto: globalThis.crypto });
   vm.runInContext(CODE, ctx);
   const fire = (type: string, e: unknown = {}) => {
     for (const l of listeners) if (l.type === type) l.fn(e);
@@ -546,5 +546,23 @@ describe('tracker: click maps and scroll', () => {
     expect(await Promise.all(t.beacons)).toEqual([]);
     expect(t.scripts.map((s) => s.src)).toEqual(['https://stats.example/js/map.js']);
     expect(t.win.founderdata._map).toEqual({ token: 'abc.123', host: 'https://stats.example', site: 'site123' });
+  });
+
+  // err-3 (critique 2): the founder opens the map in the browser where they ignore their own visits.
+  it('shows the map in a browser that ignores itself (rt_ignore) and still sends nothing', async () => {
+    const t = browser({ href: 'https://example.com/pricing#fd-map=abc.123', storage: { rt_ignore: '1' } });
+    await tick();
+    t.hide();
+    expect(t.requests).toEqual([]);
+    expect(await Promise.all(t.beacons)).toEqual([]);
+    expect(t.scripts.map((s) => s.src)).toEqual(['https://stats.example/js/map.js']);
+    expect(t.win.founderdata._map).toEqual({ token: 'abc.123', host: 'https://stats.example', site: 'site123' });
+    // Without the hash, that browser stays quiet and loads nothing.
+    const quiet = browser({ href: 'https://example.com/pricing', storage: { rt_ignore: '1' } });
+    await tick();
+    quiet.hide();
+    expect(quiet.requests).toEqual([]);
+    expect(quiet.scripts).toEqual([]);
+    expect(quiet.win.founderdata._map).toBeUndefined();
   });
 });

@@ -1875,8 +1875,10 @@ The dashboard reads more behind the login:
   too.
 - `GET /api/map/<site id>?path=/pricing&device=Desktop&t=<token>` is public and answers the overlay's data: the answer
   above without `devices`, for the token's page only. It sends CORS headers for the site's domain and its subdomains, so
-  only your own pages can read it. A missing or wrong token gets `401`, an expired one `401` with `"expired": true`, a
-  token for another page `403`. It reads the same newest 2,000 page views as the card.
+  only your own pages can read it. A browser page reads it only from `https://` at the site's domain or a subdomain,
+  any port, so a local copy or a page on plain `http://` gets `403`, with an error that names the page's origin. A
+  missing or wrong token gets `401`, an expired one `401` with `"expired": true`, a token for another page `403`. It
+  reads the same newest 2,000 page views as the card.
 
 Opening a page's card reads about 15 D1 rows per mapped page view it covers: 6,615 rows for the demo's `/pricing`
 with 400, and 30,023 for a page capped at 2,000. The overlay reads about the same again. The free plan allows 5
@@ -2461,13 +2463,16 @@ The alert rule metric `new_error` (see "Alert rules") fires once for each issue 
 pages under the rule's `path`, that hit at least `min_volume` people (default 1). Ignored issues never fire. The
 payload's `path` is the page, `reason` the message, `issue` the issue id, `issue_url` its page, `customers` and `mrr`
 the paying customers it hit and their monthly revenue, and `current` the people so far. The rule's `crossed` holds the
-issues already sent.
+issues already sent. A rule sends at most 5 alerts each hourly run, most people first; the rest go out in the next
+runs. `issue_url` is `null` until the deployment knows the dashboard's address ("Alert rules", `POST`).
 
 A resolved issue that happens again fires the same rule once more, as "back again". It fires when the issue has errors
 in the last 24 hours after it was resolved, and none in the day before them. The title reads "Resolved error is back
 on ShipKit /dashboard". The payload has the same fields plus `regressed: true`, `resolved_at` (when it was resolved)
 and `first_seen`. Its `from` is when it came back, and `current` and `customers` count from then. Each resolve fires
 once: `crossed` holds `<issue>:back:<resolved at, ms>`. After a whole day without the error, a return fires again.
+An error from a visitor whose browser still runs the old bundle, right after the deploy that fixed it, counts as a
+return too. Set the rule's `min_volume` to 2 or more to wait until more than one person hits it.
 
 ### Experiments (Pro)
 
@@ -3662,8 +3667,10 @@ keeps 50 rules at most. A new rule writes 2 rows.
   `"secret": null`, and nothing is written.
 - `ignored` lists the fields the body sent that the metric does not read, such as `["comparison", "threshold"]` for
   `new_error`. The stored rule keeps the metric's fixed condition.
-- A `new_error` rule also saves the dashboard's address, the origin of the request (1 row the first time, none after),
-  so the hourly check can link the issue (`issue_url`).
+- A `new_error` alert links its issue (`issue_url`) through the dashboard's address, which the deployment saves from
+  the origin of a request. In the dashboard, making or changing a `new_error` rule and opening the Errors list save
+  it: 1 row the first time or when the address moved, 0 when it stayed. A `new_error` rule made with an API key saves
+  its origin only when no address is saved yet, so a script on another host does not move the links.
 
 Three metrics have a fixed condition. For `page_decay` and `note_verdict` the body's `comparison`, `threshold`,
 `window` and `min_volume` are ignored; `new_error` keeps `min_volume`, the people an issue hit (default 1):
@@ -3679,9 +3686,10 @@ Three metrics have a fixed condition. For `page_decay` and `note_verdict` the bo
   the rest for the next hour.
 - `new_error` fires once for each error issue first seen in the last 24 hours on pages under `path` that hit at least
   `min_volume` people. Ignored issues never fire. Rules run once an hour, so an alert arrives up to an hour after the
-  error. The payload adds `reason` (the message), `issue` (the issue id), `issue_url` (its page in the dashboard, `null`
-  until a `new_error` rule was made through the dashboard or the API, which saves the address), `customers` (the
-  people it hit who paid) and `mrr` (what they pay a month now, minor units). `from` is the first sighting and `to` the
+  error. A rule sends at most 5 alerts a run, the issues that hit the most people first. The rest go out in later runs,
+  while they are within 24 hours of their first sighting or return. The payload adds `reason` (the message), `issue`
+  (the issue id), `issue_url` (its page in the dashboard, or `null` while no address is saved; the alert's text then
+  says to open it from the Errors page), `customers` (the people it hit who paid) and `mrr` (what they pay a month now, minor units). `from` is the first sighting and `to` the
   newest error or the check's hour, whichever is later, so `to` is never before `from`. Its `crossed` holds the issues
   already sent. A resolved issue that comes back fires once per resolve, as "back again": `regressed: true`,
   `resolved_at`, `first_seen`, and `from` set to its return (see "Errors (Pro)").
@@ -3761,6 +3769,8 @@ A rule for all sites sends one payload per site, with that site in `site`. A `pa
 ```
 
 `current` is the people the issue hit so far. The rule's sample payload (`sample` in the rule) has the same fields.
+A test send (`POST /api/v1/alerts/rules/<id>/test`) with no saved address links the issue with the test request's own
+origin, and saves nothing.
 A returning issue reads `"text": "Resolved error is back on ShipKit /dashboard"`, `"regressed": true`,
 `"resolved_at": "2026-11-01T10:00:00.000Z"` and `"first_seen": "2026-10-20T08:12:00.000Z"`.
 A Search Ads payload has days in `from` and `to`, spend in minor units and ROAS as a fraction (`0.4` is 40%).
@@ -4454,7 +4464,8 @@ page views (a whole percent from 1 to 100).
 
 A page opened with `#fd-map=<token>` in its URL sends nothing: no pageview and no ping. The script loads
 `/js/map.js` from the FounderData host, which draws the clicks over the page. It hands over the token as
-`founderdata._map = { token, host, site }`. The dashboard makes the token ("Clicks and scroll (Pro)").
+`founderdata._map = { token, host, site }`. The dashboard makes the token ("Clicks and scroll (Pro)"). The map
+loads in a browser that ignores its own visits (`?rt_ignore=true`) too, and still sends nothing.
 
 ### Errors
 
@@ -4486,8 +4497,8 @@ row holds:
 | Column | Value |
 | --- | --- |
 | `ts` | When it happened: the page's `s` plus the error's `t`, or the time the ping arrived when that is not within the last day. |
-| `fp` | The issue, 12 hex characters: a hash of the message as sent and the top frame's file and function, or the source file without a frame. From the message, URLs and quoted text are taken out, then ids (UUIDs, emails, prefixed ids such as `pi_3Nx4k9a2eZvKYlo2`, codes such as `ORD-8841-AB`, words of 6 or more letters and digits mixed), then numbers of any length. A build hash in a file name does not count, so a rebuild keeps the issue: a part after `-` or `.` and before the extension with 6 or more characters and a digit, or 8 or more with upper and lower case letters, as in `index-B3kZ9a1x.js` or `index-DkLmNoPq.js`. |
-| `message` | 200 characters. Emails, phone numbers, runs of 6 or more digits and runs of 16 or more letters and digits mixed (tokens, keys) become `[removed]`. Chrome's `Uncaught ` in front is dropped. |
+| `fp` | The issue, 12 hex characters: a hash of the message as sent and the top frame's file and function, or the source file without a frame. From the message, URLs and quoted text are taken out, then ids (UUIDs, emails, prefixed ids such as `pi_3Nx4k9a2eZvKYlo2`, codes such as `ORD-8841-AB`, words of 6 or more letters and digits mixed), then numbers of any length. A build hash in a file name does not count, so a rebuild keeps the issue: a part after `-` or `.` and before the extension with 6 or more characters and a digit, or 8 or more with upper and lower case letters, as in `index-B3kZ9a1x.js` or `index-DkLmNoPq.js`. A minified function name does not count either: when the last part of the name has 1 to 3 characters (`Jt`, `HTMLButtonElement.Qe`, `async e`), the file alone stands for the frame. |
+| `message` | 200 characters. A URL in it keeps its scheme, host and path and loses its query and hash. Emails, phone numbers, runs of 6 or more digits and runs of 16 or more letters and digits mixed (tokens, keys) become `[removed]`. Chrome's `Uncaught ` in front is dropped. |
 | `source`, `stack` | `s` and `k` without queries. |
 | `path`, `device`, `browser` | The page, and the visitor's device and browser from the user agent. |
 | `session_id`, `visitor_id` | The visit and its visitor, so issues count people and link a recording. A ping of a visit the server does not know writes nothing. |

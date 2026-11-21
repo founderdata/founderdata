@@ -3269,8 +3269,8 @@ errors, no releases and no breadcrumbs.
 
 The Errors section shows the JavaScript errors visitors hit on your website, grouped into issues. An issue is one bug:
 the same message with other numbers, ids or quoted text, from the same function. The function name counts, so the same
-message thrown in two functions makes two issues. Each row says how often it happened,
-how many people it hit and how many of them pay you, with their monthly revenue in coral. Issues that cost money come
+message thrown in two functions makes two issues. A minified name of 1 to 3 characters, such as `Jt`, does not count:
+the next build renames it, and the bug stays one issue. Each row says how often it happened, how many people it hit and how many of them pay you, with their monthly revenue in coral. Issues that cost money come
 first.
 
 ### Turn it on
@@ -3307,7 +3307,9 @@ Open an issue for:
 - **Resolve**, **Ignore** and **Copy AI prompt**. The prompt gives your coding assistant the message, frames, pages,
   browsers and counts, and tells it to read more with `get_recordings` and log the fix with `add_note`
 
-Resolve an issue once the fix is live. If it happens again, it comes back to Open as Back again. Ignore an issue you
+Resolve an issue once the fix is live. If it happens again, it comes back to Open as Back again. Right after a deploy,
+a visitor whose browser still runs the old bundle can bring it back too. Set the alert rule's **Minimum people** to 2,
+and it waits for a second person before it alerts. Ignore an issue you
 will not fix, such as "ResizeObserver loop completed with undelivered notifications", which browsers raise for layout
 code that works. Ignored issues never send an alert.
 
@@ -3322,8 +3324,11 @@ the page and every page under it, sent to your notification channels and the iPh
 the alert arrives up to an hour after the error. It fires once for each issue first seen in the last 24 hours, so the
 same bug does not alert twice. An issue you resolved that happens again fires once more, titled "Resolved error is
 back", with when you resolved it and when it came back. It fires again only if you resolve it again, or after a whole
-day without it. The alert names the message and the page, how many people it hit, how many of them pay you and what
-they pay a month, and links to the issue. Settings, Alert rules lists it,
+day without it. A rule sends at most 5 alerts an hour, the issues that hit the most people first; the rest follow in
+the next hours. The alert names the message and the page, how many people it hit, how many of them pay you and what
+they pay a month, and links to the issue. The link needs your dashboard's address, which FounderData saves when you
+open the Errors page or make the rule there. Until then the alert says to open the issue from the Errors page.
+Settings, Alert rules lists it,
 and the preset "A new error on the checkout" makes the same rule there. An AI agent reads the alert's issue with
 `get_recordings`, `view` `error`.
 
@@ -3350,8 +3355,9 @@ is built from what the recorder saw, never from a guess about why.
 ### Costs
 
 Each distinct error of a page view writes 1 row, so a page view costs 0 to 5 rows. An issue seen for the first time
-writes 1 more row, its first sighting. Resolving, ignoring or reopening an issue writes 1 row. Making the first `new_error` rule writes 3 rows: the rule's 2 and 1 for the dashboard address its alerts
-link to. A later one writes 2. A `new_error` rule writes 1 row when it fires, plus 1 row for the alert inbox. Reading
+writes 1 more row, its first sighting. Resolving, ignoring or reopening an issue writes 1 row. Opening the Errors page saves the dashboard address alerts
+link to: 1 row the first time or when the address changed, 0 after. Making the first `new_error` rule before that
+writes 3 rows, the rule's 2 and 1 for the address. A later one writes 2. A `new_error` rule writes 1 row when it fires, plus 1 row for the alert inbox. Reading
 issues writes nothing.
 
 ## Experiments (Pro)
@@ -3582,6 +3588,18 @@ desktop or 390 px for mobile, and draws the clicks over it:
 - amber rings on elements people clicked 3 times in a row
 - the click count on each of the 10 most clicked elements
 - lines at 25%, 50% and 75% of the page with the share of visitors that scrolled that far
+
+The map draws on your live site only: a page on `https://` at the site's domain or one of its subdomains. A local
+copy or a page on plain `http://` cannot load it, because FounderData sends the clicks to no other address. The page
+needs:
+
+- the FounderData tracking script
+- your FounderData host in `script-src` (for `/js/map.js`) and in `connect-src` (for the clicks), if your site sends a
+  Content-Security-Policy. The tracking script needs both already.
+- your FounderData host in `frame-ancestors`, only to see the map inside the dashboard. **Open on your site** works
+  without it.
+
+The map also shows in a browser where you ignore your own visits with `?rt_ignore=true`, and it sends nothing.
 
 Many sites forbid other sites to frame them (`X-Frame-Options` or `frame-ancestors` in their Content-Security-Policy).
 Then the card says so and offers **Open on your site**, which opens the same view in a new tab for 15 minutes. To see

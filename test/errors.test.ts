@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resetBudgetForTests } from '../src/worker/budget';
 import { forgetSite } from '../src/worker/env';
-import { catchesErrors, cleanMessage, ERRORS_DAYS, errorsConfig, fileKey, fingerprint, normalizeMessage, pageErrors, parseFrames, scrub } from '../src/worker/errors';
+import { catchesErrors, cleanMessage, ERRORS_DAYS, errorsConfig, fileKey, fingerprint, normalizeMessage, noUrlQuery, pageErrors, parseFrames, scrub, stableFn } from '../src/worker/errors';
 import { pruneOldData } from '../src/worker/retention';
 import { startWorker, type TestWorker } from './helpers/worker';
 
@@ -74,6 +74,29 @@ describe('errors: fingerprint', () => {
     expect(long.fp).toBe(page.errors[0].fp);
   });
 
+  // err-1 (critique 2): a rebuild renames minified functions; the issue must stay one.
+  it('leaves out a minified top-frame function name of 1 to 3 characters, and keeps longer names', () => {
+    const m = 'TypeError: Cannot read properties of undefined (reading \'id\')';
+    const table: [string, string, boolean][] = [
+      // [frame of build A, frame of build B, one issue?]
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:131:2 Qe', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 HTMLButtonElement.Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 HTMLButtonElement.e', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 async Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 Qe/<', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 Jt', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1', true],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 checkout', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 render', false],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 checkout', 'https://shop.example/assets/index-Zk3mPq7r.js:9:1 Qe', false],
+      ['https://shop.example/assets/index-B3kZ9a1x.js:120:14 Jt', 'https://shop.example/assets/vendor-Zk3mPq7r.js:9:1 Qe', false],
+    ];
+    for (const [a, b, same] of table) {
+      const fa = fingerprint(m, null, a);
+      const fb = fingerprint(m, null, b);
+      if (same) expect(fa, `${a} / ${b}`).toBe(fb);
+      else expect(fa, `${a} / ${b}`).not.toBe(fb);
+    }
+    expect([stableFn('Jt'), stableFn('e'), stableFn('Object.Qe'), stableFn('new Ab'), stableFn(null)]).toEqual([null, null, null, null, null]);
+    expect([stableFn('render'), stableFn('App.render'), stableFn('handleCheckout')]).toEqual(['render', 'App.render', 'handleCheckout']);
+  });
+
   it('parses at most 3 frames and drops their queries', () => {
     expect(parseFrames('https://a.example/x.js?v=3:10:5 load\nhttps://a.example/y.js:2:1\nnot a frame\nz.js:1:1 a\nw.js:9:9 b')).toEqual([
       { file: 'https://a.example/x.js', line: 10, col: 5, fn: 'load' },
@@ -95,6 +118,22 @@ describe('errors: scrub', () => {
     expect(scrub('payment failed for user token abc123def456abc123')).toBe('payment failed for user token [removed]');
     expect(scrub('Bad key sk_live_51HxYzAbCdEfGhIjKl')).toBe('Bad key sk_live_[removed]');
     expect(scrub('HTMLButtonElementConstructor failed in v2 at ES2017')).toBe('HTMLButtonElementConstructor failed in v2 at ES2017');
+  });
+
+  // err-2 (critique 2): a URL in a message keeps its scheme, host and path, not its query or hash.
+  it('stores a quoted URL without its query and hash, and keeps the issue', () => {
+    const sent = 'Failed to fetch https://api.shipkit.example.com/v1/users?name=Anna%20Mueller&city=Berlin&sid=a1b2c3';
+    expect(cleanMessage(sent)).toBe('Failed to fetch https://api.shipkit.example.com/v1/users');
+    expect(cleanMessage('TypeError: Failed to fetch dynamically imported module: https://a.example/assets/x.js?v=2#top')).toBe(
+      'TypeError: Failed to fetch dynamically imported module: https://a.example/assets/x.js',
+    );
+    expect(noUrlQuery('Load failed (https://a.example/p?q=1) and "http://b.example/#x"')).toBe('Load failed (https://a.example/p) and "http://b.example/"');
+    expect(noUrlQuery('What? No #1 here')).toBe('What? No #1 here');
+    const now = Date.now();
+    const row = pageErrors({ p: '/', s: now - 1000, e: [{ t: 1, m: sent }] }, now).errors[0];
+    expect(row.message).toBe('Failed to fetch https://api.shipkit.example.com/v1/users');
+    expect(row.message).not.toMatch(/Anna|Berlin|sid/);
+    expect(row.fp).toBe(fingerprint('Failed to fetch https://api.shipkit.example.com/v1/users', null, null));
   });
 
   it('places each error at the page start plus its offset, and groups repeats', () => {
