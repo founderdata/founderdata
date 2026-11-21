@@ -7,6 +7,7 @@ import { resetKeysForTests } from '../src/worker/keys';
 import { pruneOldData } from '../src/worker/retention';
 import { normalizeAnswer, scrubText } from '../src/worker/surveys';
 import { startWorker, type TestWorker } from './helpers/worker';
+import { isPro } from './helpers/edition';
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129 Safari/537.36';
 const STRIPE_SECRET = 'whsec_survey_test_secret';
@@ -26,6 +27,9 @@ describe('surveys: text and answers', () => {
     expect(normalizeAnswer('heard_about', 'other', 'Hacker News')).toEqual({ answer: 'other', text: 'Hacker News' });
     expect(normalizeAnswer('heard_about', 'hacker_news', null)).toEqual({ answer: 'other', text: 'hacker_news' });
     expect(normalizeAnswer('cancel_reason', 'skipped', 'x')).toEqual({ answer: 'skipped', text: null });
+    // A cancel reason keeps the customer's words with any key; heard_about keeps text for other only.
+    expect(normalizeAnswer('cancel_reason', 'too_expensive', 'Too pricey at 99 a year')).toEqual({ answer: 'too_expensive', text: 'Too pricey at 99 a year' });
+    expect(normalizeAnswer('cancel_reason', 'unused', null)).toEqual({ answer: 'unused', text: null });
     expect(normalizeAnswer('heard_about', '', null)).toBeNull();
     expect(normalizeAnswer('heard_about', 3, null)).toBeNull();
   });
@@ -85,18 +89,31 @@ describe('surveys: ingest, webhooks, breakdown', () => {
   });
   afterAll(() => w.dispose());
 
-  it('stores an answer and its trait: 2 rows, 1 when the trait already holds it', async () => {
+  it('stores an answer and its trait: 2 rows; a repeat the same day writes nothing', async () => {
     await visit('svy-anna-0001');
     expect(await rows(() => answer('svy-anna-0001', 'heard_about', 'podcast'))).toBe(2);
     expect(await traits('svy-anna-0001')).toEqual({ heard_about: 'podcast' });
     const [row] = await answers("visitor_id = 'svy-anna-0001'");
     expect(row).toMatchObject({ survey: 'heard_about', answer: 'podcast', text: null, via: 'js', session_id: 'svy-anna-0001-s', subscription_id: null });
-    expect(await rows(() => answer('svy-anna-0001', 'heard_about', 'podcast'))).toBe(1);
+    // The id is the visitor and the UTC day, so 30 repeats are still one row.
+    expect(row.id).toBe(`svy-anna-0001:${Math.floor(row.ts / 86_400_000)}`);
+    for (let i = 0; i < 3; i++) expect(await rows(() => answer('svy-anna-0001', 'heard_about', 'podcast'))).toBe(0);
+    expect(await answers("visitor_id = 'svy-anna-0001'")).toHaveLength(1);
   });
 
-  it('keeps an answer when a later widget is dismissed, and marks a first dismissal as skipped', async () => {
-    expect(await rows(() => answer('svy-anna-0001', 'heard_about', 'skipped', undefined, 1))).toBe(1);
+  it('replaces the day\'s answer when the visitor changes it, and keeps it when a later widget is dismissed', async () => {
+    await visit('svy-fred-0001');
+    await answer('svy-fred-0001', 'heard_about', 'google');
+    await w.flush();
+    // A different answer the same day: the row and the trait change, 1 row each.
+    expect(await rows(() => answer('svy-fred-0001', 'heard_about', 'reddit'))).toBe(2);
+    expect((await answers("visitor_id = 'svy-fred-0001'")).map((r: any) => r.answer)).toEqual(['reddit']);
+    expect(await traits('svy-fred-0001')).toEqual({ heard_about: 'reddit' });
+    await w.db.prepare("DELETE FROM survey_answers WHERE visitor_id = 'svy-fred-0001'").run();
+    await w.db.prepare("UPDATE visitors SET traits = NULL WHERE id = 'svy-fred-0001'").run();
+    expect(await rows(() => answer('svy-anna-0001', 'heard_about', 'skipped', undefined, 1))).toBe(0);
     expect(await traits('svy-anna-0001')).toEqual({ heard_about: 'podcast' });
+    expect((await answers("visitor_id = 'svy-anna-0001'")).map((r: any) => r.answer)).toEqual(['podcast']);
     await visit('svy-skip-0001');
     expect(await rows(() => answer('svy-skip-0001', 'heard_about', 'skipped', undefined, 1))).toBe(2);
     expect(await traits('svy-skip-0001')).toEqual({ heard_about: 'skipped' });
@@ -111,6 +128,14 @@ describe('surveys: ingest, webhooks, breakdown', () => {
     await w.flush();
     expect((await answers("visitor_id = 'svy-ben-00001'"))[0]).toMatchObject({ answer: 'other', text: 'Call me on [removed], found you on Hacker News' });
     expect(await traits('svy-ben-00001')).toEqual({ plan: 'pro', heard_about: 'other' });
+  });
+
+  it('keeps the text sent with a known cancel key', async () => {
+    await visit('svy-jona-0001');
+    await answer('svy-jona-0001', 'cancel_reason', 'too_expensive', 'Too pricey at 99 a year');
+    await w.flush();
+    expect((await answers("visitor_id = 'svy-jona-0001'"))[0]).toMatchObject({ survey: 'cancel_reason', answer: 'too_expensive', text: 'Too pricey at 99 a year', via: 'js' });
+    await w.db.prepare("DELETE FROM survey_answers WHERE visitor_id = 'svy-jona-0001'").run();
   });
 
   it('refuses an unknown survey, a missing answer and a body without p, writing nothing', async () => {
@@ -226,6 +251,33 @@ describe('surveys: ingest, webhooks, breakdown', () => {
     expect((await w.admin(`/api/sites/${site.id}/breakdown?dim=heard_about&period=custom&from=2020-01-01&to=2020-01-31`)).body).toEqual([]);
   });
 
+  it('counts answers given in the period, words rows as the site does, and adds the rest of the channels as Other', async () => {
+    // Gus answered three days ago and visits today: today's tab does not count him, as the Surveys card does not.
+    await visit('svy-gus-00001');
+    await w.db
+      .prepare("INSERT INTO survey_answers (site_id, survey, ts, id, visitor_id, answer, via) VALUES (?, 'heard_about', ?, 'svy-gus-old', 'svy-gus-00001', 'youtube', 'js')")
+      .bind(site.id, Date.now() - 3 * 86_400_000)
+      .run();
+    // Five people say X, arriving by five channels: the top 3 by name, the other 2 as Other.
+    const from = ['', 'https://www.google.com/', 'https://t.co/abc', 'https://chatgpt.com/', 'https://news.example/?utm_medium=email'];
+    for (const [i, r] of from.entries()) {
+      await visit(`svy-x-${i}-00001`, r);
+      await answer(`svy-x-${i}-00001`, 'heard_about', 'x');
+    }
+    await w.flush();
+    await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { surveys: { heard_about: { on: 1, l: { podcast: 'Ein Podcast' } } } } });
+    const all = (await w.admin(`/api/sites/${site.id}/breakdown?dim=heard_about&period=today`)).body as any[];
+    expect(all.find((r) => r.label === 'youtube')).toBeUndefined();
+    expect(all.find((r) => r.label === 'podcast')).toMatchObject({ answer: 'podcast', name: 'Ein Podcast' });
+    expect(all.find((r) => r.label === 'google')).toMatchObject({ name: 'Google or another search engine' });
+    const x = all.find((r) => r.label === 'x');
+    expect(x.visitors).toBe(5);
+    expect(x.tracked).toHaveLength(4);
+    expect(x.tracked[3]).toEqual({ channel: 'Other', visitors: 2 });
+    expect(x.tracked.reduce((n: number, t: any) => n + t.visitors, 0)).toBe(5);
+    await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { surveys: null } });
+  });
+
   it('serves the dimension to a read key, not to a share link', async () => {
     const key = (await w.admin('/api/v1/keys', { method: 'POST', json: { name: 'agent', scopes: ['read'], sites: [site.id] } })).body.key;
     const res = await w.fetch('/api/v1/stats/breakdown?dim=heard_about&period=today', { headers: { authorization: `Bearer ${key}`, cookie: '' } });
@@ -233,9 +285,18 @@ describe('surveys: ingest, webhooks, breakdown', () => {
     const body = await res.json<any>();
     const rowsOf = Array.isArray(body) ? body : body.rows;
     const podcast = rowsOf.find((r: any) => r.value === 'podcast');
-    expect(podcast).toMatchObject({ visitors: 2, tracked: [{ channel: 'Direct', visitors: 2 }] });
+    expect(podcast).toMatchObject({ label: 'A podcast', visitors: 2, tracked: [{ channel: 'Direct', visitors: 2 }] });
     // A read key without read:revenue gets no money.
     expect(podcast.revenue).toBeUndefined();
+    // How many answered against the period's visitors; the rows add up to answered.
+    expect(body.answered).toBe(rowsOf.reduce((n: number, r: any) => n + r.visitors, 0));
+    expect(body.visitors).toBeGreaterThan(body.answered);
+    expect(body.answer_share).toBe(Math.round((body.answered / body.visitors) * 1000) / 1000);
+    expect(body.next_step).toBeUndefined();
+    // An empty answer says whether the survey is on and what to do next.
+    const empty = await (await w.fetch('/api/v1/stats/breakdown?dim=heard_about&period=custom&from=2020-01-01&to=2020-01-31', { headers: { authorization: `Bearer ${key}`, cookie: '' } })).json<any>();
+    expect(empty).toMatchObject({ rows: [], answered: 0, survey: { on: false, pages: [] } });
+    expect(empty.next_step).toMatch(isPro ? /Settings > Surveys: http.*\/settings#surveys$/ : /founderdata\('answer', 'heard_about', key\)/);
     const link = (await w.admin(`/api/sites/${site.id}/share`, { method: 'POST', json: { kind: 'link', label: 'Public' } })).body;
     expect((await w.fetch(`/api/share/${link.token}/breakdown?dim=heard_about&period=today`, { headers: { cookie: '' } })).status).toBe(400);
   });

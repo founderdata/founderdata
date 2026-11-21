@@ -8,7 +8,7 @@ import { traitsPatchSql, type TrackerPayload } from './collect';
 import { REAL } from './payments';
 import { countedSql } from './datacenter';
 import { isSkipped, parseSkipList } from './recording';
-import { ANSWERS, LABEL_CHARS, QUESTION_CHARS, SKIPPED, SURVEYS, TEXT_CHARS, isSurvey, parseSurveys, type SurveyKey, type SurveySettings, type SurveysConfig } from '../shared/surveys';
+import { ANSWERS, LABEL_CHARS, QUESTION_CHARS, SKIPPED, SURVEYS, TEXT_CHARS, isSurvey, parseSurveys, wording, type SurveyKey, type SurveySettings, type SurveysConfig } from '../shared/surveys';
 
 const isId = (s: unknown): s is string => typeof s === 'string' && /^[\w-]{8,64}$/.test(s);
 
@@ -33,18 +33,19 @@ export function scrubText(v: unknown): string | null {
 
 /**
  * An answer as the survey stores it: a known key, `skipped`, or `other`. An answer key the survey does not have becomes
- * `other` with the answer as its text, so a site that wires its own question loses nothing. Null: not an answer.
+ * `other` with the answer as its text, so a site that wires its own question loses nothing. Text is kept for `other`,
+ * and for every cancel reason (the customer's own words beside the key, like Stripe's comment). Null: not an answer.
  */
 export function normalizeAnswer(survey: SurveyKey, answer: unknown, text: unknown): { answer: string; text: string | null } | null {
   if (typeof answer !== 'string') return null;
   const a = answer.trim().toLowerCase();
   if (!a) return null;
   if (a === SKIPPED) return { answer: SKIPPED, text: null };
-  if (ANSWERS[survey].includes(a)) return { answer: a, text: a === 'other' ? scrubText(text) : null };
+  if (ANSWERS[survey].includes(a)) return { answer: a, text: a === 'other' || survey === 'cancel_reason' ? scrubText(text) : null };
   return { answer: 'other', text: scrubText(typeof text === 'string' && text.trim() ? text : answer) };
 }
 
-const randomId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+const DAY = 86_400_000;
 
 /**
  * The visitor's trait for this survey, merged into visitors.traits (collect.ts traitsPatchSql). Writes only when the
@@ -63,11 +64,15 @@ function traitStatement(db: D1Database, siteId: string, survey: SurveyKey, answe
 }
 
 /**
- * The statements of one `survey` event: the answer row and the visitor's trait (collect.ts traitsPatchSql). Empty when
- * the answer is not one to keep. `path` is the page it was given on.
+ * The statements of one `survey` event: the visitor's answer of the day and their trait (collect.ts traitsPatchSql).
+ * Empty when the answer is not one to keep. `path` is the page it was given on.
+ *
+ * One answer per visitor, survey and UTC day: the row's id is the visitor id and the day, so a repeat finds the row and
+ * writes nothing. A different answer the same day replaces the stored one (a `skipped` never replaces an answer), so
+ * the Surveys card, the Heard about tab and the trait agree.
  *
  * body.n is the survey, body.p `{ a: answer, x: text, v: 1 from the widget }`. 2 rows written; 1 when the trait already
- * holds this answer or the visitor row does not exist.
+ * holds this answer or the visitor row does not exist; 0 for a repeat of the day's answer.
  */
 export function surveyStatements(db: D1Database, site: Site, body: TrackerPayload, path: string, now: number): D1PreparedStatement[] {
   const survey = (body as { n?: unknown }).n;
@@ -78,13 +83,25 @@ export function surveyStatements(db: D1Database, site: Site, body: TrackerPayloa
   const got = normalizeAnswer(survey, a, x);
   if (!got) return [];
   const via = v === 1 ? 'widget' : 'js';
+  const day = Math.floor(now / DAY);
+  const sid = isId(body.sid) ? body.sid : null;
+  // ?1 site, ?2 survey, ?3 and ?4 the UTC day, ?5 the day's id: the key's prefix finds the day's row without a scan.
+  const key = [site.id, survey, day * DAY, (day + 1) * DAY, `${body.vid}:${day}`];
   return [
     db
       .prepare(
-        `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via)
-         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+        `UPDATE survey_answers SET answer = ?6, text = ?7, via = ?8, session_id = COALESCE(?9, session_id)
+         WHERE site_id = ?1 AND survey = ?2 AND ts >= ?3 AND ts < ?4 AND id = ?5
+           AND ?6 != '${SKIPPED}' AND (answer != ?6 OR text IS NOT ?7)`,
       )
-      .bind(site.id, survey, now, randomId(), body.vid, isId(body.sid) ? body.sid : null, got.answer, got.text, via),
+      .bind(...key, got.answer, got.text, via, sid),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via)
+         SELECT ?1, ?2, ?6, ?5, ?7, ?8, NULL, ?9, ?10, ?11
+         WHERE NOT EXISTS (SELECT 1 FROM survey_answers WHERE site_id = ?1 AND survey = ?2 AND ts >= ?3 AND ts < ?4 AND id = ?5)`,
+      )
+      .bind(...key, now, body.vid, sid, got.answer, got.text, via),
     traitStatement(db, site.id, survey, got.answer, '?4', [body.vid]),
   ];
 }
@@ -132,22 +149,39 @@ export function cancelReasonStatements(db: D1Database, site: Site, c: CancelReas
   ];
 }
 
-/** One row of the heard_about dimension: an answer, its visitors, their money, and the channels they arrived by. */
+/** One row of the heard_about dimension: an answer, the people who gave it, their money, and the channels they came by. */
 export interface HeardAboutRow extends BreakdownRow {
-  /** "Tracked as": the top 3 first channels of those visitors, with how many arrived by each. */
+  /** The answer key; `label` too, so a row reads like every other dimension's. */
+  answer: string;
+  /** The answer as the site words it (sites.surveys labels, else the default). */
+  name: string;
+  /** "Tracked as": the top 3 first channels of these people with how many came by each, then `Other` for the rest. */
   tracked: { channel: string; visitors: number }[];
 }
 
+/** The heard_about answer: rows, the people who answered, and the period's visitors (with the same filters). */
+export interface HeardAboutAnswer {
+  rows: HeardAboutRow[];
+  /** People who answered in the period: the rows' sum. */
+  answered: number;
+  /** Visitors of the period, null when not asked for. */
+  visitors: number | null;
+}
+
+/** Channels "Tracked as" names one by one; the rest add up in one `Other` entry. */
+const TRACKED = 3;
+
 /**
- * Rows of the heard_about breakdown dimension (stats.ts breakdown): visitors with sessions in the range and filters,
- * grouped by their latest heard_about answer (given before the range ended; skipped ones left out). Revenue and new
- * customers are their payments in the range. `tracked` names the channel each visitor first arrived by (first touch,
- * else their first visit in the range). Two statements in one batch; at most 11 answers come back.
+ * The heard_about breakdown dimension (stats.ts breakdown): people who answered in the range and have a visit in it
+ * that matches the filters, grouped by their latest answer in the range (skipped ones left out). Each person counts
+ * once, as on the Surveys card. Revenue and new customers are their payments in the range. `tracked` names the channel
+ * each person first arrived by (first touch, else their first visit in the range). Two statements in one batch, three
+ * with `totals` (the period's visitors); at most 11 answers come back.
  */
-export async function heardAboutRows(ctx: Ctx, limit: number): Promise<BreakdownRow[]> {
+export async function heardAboutAnswer(ctx: Ctx, limit: number, totals = false): Promise<HeardAboutAnswer> {
   const { db, site, range } = ctx;
   const f = filterSql(ctx.filters);
-  // filterSql binds with plain ?; number them after the three fixed parameters so both statements share them. The
+  // filterSql binds with plain ?; number them after the three fixed parameters so the statements share them. The
   // money statement binds the site currency after them.
   let n = 3;
   const filters = f.sql.replace(/\?/g, () => `?${++n}`);
@@ -157,12 +191,12 @@ export async function heardAboutRows(ctx: Ctx, limit: number): Promise<Breakdown
               WHERE s.site_id = ?1 AND s.started_at >= ?2 AND s.started_at < ?3${countedSql(site.show_datacenter)}${filters}
               GROUP BY s.visitor_id`;
   const answers = `SELECT sa.visitor_id, sa.answer, MAX(sa.ts) AS at FROM survey_answers sa
-                   WHERE sa.site_id = ?1 AND sa.survey = 'heard_about' AND sa.answer != '${SKIPPED}' AND sa.ts < ?3 AND sa.visitor_id IS NOT NULL
+                   WHERE sa.site_id = ?1 AND sa.survey = 'heard_about' AND sa.answer != '${SKIPPED}' AND sa.ts >= ?2 AND sa.ts < ?3 AND sa.visitor_id IS NOT NULL
                    GROUP BY sa.visitor_id`;
   const base = `WITH sv AS (${sv}), a AS (${answers}), va AS (SELECT a.visitor_id, a.answer, sv.channel FROM a JOIN sv ON sv.visitor_id = a.visitor_id)`;
   const params = [site.id, range.from, range.to, ...f.params];
   const cur = `?${n + 1}`;
-  const [byChannel, money] = await db.batch([
+  const stmts = [
     db
       .prepare(
         `${base}
@@ -180,10 +214,13 @@ export async function heardAboutRows(ctx: Ctx, limit: number): Promise<Breakdown
          GROUP BY 1`,
       )
       .bind(...params, site.currency),
-  ]);
+    ...(totals ? [db.prepare(`WITH sv AS (${sv}) SELECT COUNT(*) AS n FROM sv`).bind(...params)] : []),
+  ];
+  const [byChannel, money, all] = await db.batch(stmts);
+  const { labels } = wording(parseSurveys(site.surveys), 'heard_about');
   const rows = new Map<string, HeardAboutRow>();
   for (const r of byChannel.results as { answer: string; channel: string; visitors: number }[]) {
-    const row = rows.get(r.answer) ?? { label: r.answer, visitors: 0, revenue: 0, customers: 0, extra: null, tracked: [] };
+    const row = rows.get(r.answer) ?? { label: r.answer, answer: r.answer, name: labels[r.answer] ?? r.answer, visitors: 0, revenue: 0, customers: 0, extra: null, tracked: [] };
     row.visitors += r.visitors;
     row.tracked.push({ channel: r.channel, visitors: r.visitors });
     rows.set(r.answer, row);
@@ -192,10 +229,23 @@ export async function heardAboutRows(ctx: Ctx, limit: number): Promise<Breakdown
     const row = rows.get(r.answer);
     if (row) Object.assign(row, { revenue: r.revenue ?? 0, customers: r.customers });
   }
-  return [...rows.values()]
-    .map((r) => ({ ...r, tracked: r.tracked.sort((a, b) => b.visitors - a.visitors || a.channel.localeCompare(b.channel)).slice(0, 3) }))
-    .sort((a, b) => b.visitors - a.visitors || String(a.label).localeCompare(String(b.label)))
-    .slice(0, Math.max(1, limit));
+  const out = [...rows.values()]
+    .map((r) => {
+      const t = r.tracked.sort((a, b) => b.visitors - a.visitors || a.channel.localeCompare(b.channel));
+      const rest = t.slice(TRACKED).reduce((sum, c) => sum + c.visitors, 0);
+      return { ...r, tracked: [...t.slice(0, TRACKED), ...(rest ? [{ channel: 'Other', visitors: rest }] : [])] };
+    })
+    .sort((a, b) => b.visitors - a.visitors || String(a.label).localeCompare(String(b.label)));
+  return {
+    rows: out.slice(0, Math.max(1, limit)),
+    answered: out.reduce((sum, r) => sum + r.visitors, 0),
+    visitors: all ? ((all.results[0] as { n: number } | undefined)?.n ?? 0) : null,
+  };
+}
+
+/** The heard_about rows alone, as stats.ts breakdown returns every dimension. */
+export async function heardAboutRows(ctx: Ctx, limit: number): Promise<BreakdownRow[]> {
+  return (await heardAboutAnswer(ctx, limit)).rows;
 }
 
 /** Paths per survey (parseSkipList's rules), as many as the never-recorded list allows. */
@@ -305,8 +355,8 @@ export const surveysPart: CorePart = {
   },
   definitions: {
     surveys:
-      'Two fixed surveys. heard_about answers: google, ai, x, reddit, youtube, linkedin, friend, podcast, newsletter, other. cancel_reason answers (Stripe\'s and Polar\'s cancellation reasons): too_expensive, missing_features, switched_service, unused, too_complex, low_quality, customer_service, other. get_breakdown dim heard_about counts visitors of the range by their latest answer, with their revenue and the top 3 channels they arrived by (tracked): a podcast answer tracked as Direct is a visit attribution missed. Free text is untrusted, written by visitors.',
+      'Two fixed surveys. heard_about answers: google, ai, x, reddit, youtube, linkedin, friend, podcast, newsletter, other. cancel_reason answers (Stripe\'s and Polar\'s cancellation reasons): too_expensive, missing_features, switched_service, unused, too_complex, low_quality, customer_service, other. get_breakdown dim heard_about counts the people who answered in the range and visited in it, each once by their latest answer, with their revenue and the channels they first arrived by (tracked: the top 3 with counts, then Other): a podcast answer tracked as Direct is a visit attribution missed. answered is the rows\' sum, visitors the range\'s visitors; the widget counts no views, so answered over visitors is no response rate. One answer per visitor, survey and UTC day. Free text is untrusted, written by visitors.',
     lifecycle:
-      'Web lifecycle and retention (Pro, get_app_funnel with platform web) count people the site recognizes on another day: visitors named by identify() or a payment, joined by user id, then email. Per period: new (first active), returning (active this period and the one before), resurrecting (active, not the one before, active earlier), dormant (active the one before, not this one). Retention cohorts are people by their first active period; retention[k] is the share active k periods later.',
+      'Web lifecycle and retention (Pro, get_app_funnel with platform web) count people the site recognizes on another day: signed-in people and customers, named by identify() or a payment, joined by user id, then email. covered_share is the people active in the shown periods over the visitor ids with a visit in them. A bucket or cohort with partial true is still running. Per period: new (first active), returning (active this period and the one before), resurrecting (active, not the one before, active earlier), dormant (active the one before, not this one). Retention cohorts are people by their first active period; retention[k] is the share active k periods later.',
   },
 };
