@@ -20,7 +20,7 @@ The app talks to one FounderData deployment. The user types the deployment URL a
   writes only two things outside its own device settings. The first is chart notes: `POST /api/sites/:id/notes`,
   `DELETE /api/sites/:id/notes/:nid` and `POST /api/sites/:id/notes/:nid/review`
   (`{ outcome: "kept" | "reverted" | "iterated", comment? }`, docs/API.md). The second is its mail actions under
-  `/api/mobile/mail/*`: read state, archive and replies in a thread (section 10). Other writes need the dashboard
+  `/api/mobile/mail/*`: read state, archive, the trash and replies in a thread (section 10). Other writes need the dashboard
   cookie. Inside `/api/mobile/*` the token works for every route listed here.
 - A phone token reads no secrets. In every JSON answer to it, the site's write key `api_key`, the webhook signing
   secrets, `revenuecat_auth`, `gumroad_token` and any other `*_secret`, `*_token` or `*_auth` field is `null`. Share
@@ -193,7 +193,8 @@ The title is the sender's name, else the address, else `Unknown sender`. The sub
 when empty. The body is the start of the text, at most 140 characters. The sender wrote all three, so the Worker removes
 control characters, bidirectional overrides and zero-width characters, folds whitespace to single spaces and cuts the
 title at 80 characters and the subtitle at 120, ending a cut with `…`. Treat them as untrusted all the same. `badge` is
-the number of unarchived threads with unread mail on the domains this device has on. Open the thread on a tap with
+the number of threads in the inbox (not archived, not in the trash) with unread mail on the domains this device has
+on. Open the thread on a tap with
 `GET /api/mobile/mail/threads/<threadId>` (section 10). There is no `siteId`.
 
 Scheduled push, daily and weekly. It has no `siteId`, so a tap opens Home:
@@ -758,12 +759,13 @@ Home, Pulse and a site's overview, 3 for the same reads with a phone token (the 
 
 ## 10. Mail
 
-FounderData Pro with mail on your own domains ([MAIL.md](MAIL.md)) lets the phone read the inbox, mark threads read or
-unread, archive them, download attachments and reply in plain text. The routes live under `/api/mobile/mail/*`. Push
-for received mail is in section 3, [Mail pushes](#mail-pushes). A core deployment answers 404 on every route here.
+FounderData Pro with mail on your own domains ([MAIL.md](MAIL.md)) lets the phone read five folders (inbox, sent,
+archive, trash, all), mark threads read or unread, archive them, move them to the trash, delete them for good from the
+trash, download attachments and reply in plain text with files. The routes live under `/api/mobile/mail/*`. Push for
+received mail is in section 3, [Mail pushes](#mail-pushes). A core deployment answers 404 on every route here.
 
-The phone cannot compose a message to a new recipient, send HTML or attachments, change the From address, or delete
-anything. Those stay in the dashboard.
+The phone cannot compose a message to a new recipient, send HTML, change the From address, or delete a thread that is
+not in the trash. Those stay in the dashboard.
 
 ### Who may call
 
@@ -782,7 +784,8 @@ anything. Those stay in the dashboard.
 ### Errors and lists
 
 - Errors are `{ "error": "<one sentence for a person>" }` with 400 (bad input), 401, 403, 404 (no such thread,
-  message or attachment), 413 (a request body over 25 MB), 422 (the mail service refused the reply, or a recipient is
+  message or attachment), 409 (deleting a thread that is not in the trash), 413 (a reply over 21 MB, or files over
+  the limits in `/status`), 422 (the mail service refused the reply, or a recipient is
   suppressed), 429 (the phone's reply cap), 502 (the send failed) or 503 (mail is not set up). A route may add fields;
   they are listed with it.
 - Times are integers, ms since 1970. Ids are strings. Addresses are lowercase.
@@ -798,7 +801,7 @@ anything. Those stay in the dashboard.
   "participants": ["ann@example.net"],
   "last_from": { "email": "ann@example.net", "name": "Ann Example" },
   "domain_id": "dom_k3j2", "address_id": "adr_7f2a", "address": "support@mail.acme.example",
-  "archived": false
+  "archived": false, "trashed": false, "has_sent": true, "has_attachments": false
 }
 
 // Message
@@ -827,6 +830,11 @@ ThreadSummary:
 - `participants` holds the outside addresses in the thread.
 - `address` is the address that received the thread's first message, `*@domain` for the catch-all. It is null when
   that address was deleted, and for a thread that a sent message started.
+- `trashed` is true for a thread in the trash. Such a thread keeps its `archived` value, and goes back to the archive
+  or the inbox by it when it leaves the trash.
+- `has_sent` is true when the thread holds at least one message that went out, from any sender and with any status,
+  whatever folder the thread is in. `has_attachments` is true when at least one of its messages has an attachment,
+  inline images included.
 
 Message:
 
@@ -855,13 +863,27 @@ Message:
 {
   "ready": true,
   "unread_threads": 3,
+  "trash_threads": 2,
+  "folders": {
+    "inbox": { "threads": 40, "unread": 3 }, "sent": { "threads": 12, "unread": 1 },
+    "archive": { "threads": 210, "unread": 0 }, "trash": { "threads": 2, "unread": 1 },
+    "all": { "threads": 250, "unread": 3 }
+  },
+  "limits": { "reply_attachments": 10, "reply_attachment_bytes": 15728640, "reply_total_bytes": 15728640 },
   "domains": [{ "id": "dom_k3j2", "name": "mail.acme.example", "receiving": true, "unread_threads": 3 }]
 }
 ```
 
 `ready` is true when the Worker has the three mail bindings (sending, storage and the queue). Without them the inbox
-stays empty and a reply answers 503. `unread_threads` counts the unarchived threads with at least one unread message,
-across domains and per domain. Domains come by name.
+stays empty and a reply answers 503. `unread_threads` counts the threads in the inbox (not archived, not in the trash)
+with at least one unread message, across domains and per domain. Domains come by name.
+
+`folders` gives each folder of `GET /threads` its thread count and the count of its threads with unread mail. A
+thread can be in two folders: `sent` overlaps the others, and `all` holds inbox and archive. `trash_threads` repeats
+`folders.trash.threads`.
+
+`limits` is what one reply may carry: `reply_attachments` files, each at most `reply_attachment_bytes` and all
+together at most `reply_total_bytes`, counted as decoded bytes. Check them before you upload.
 
 ### `GET /api/mobile/mail/domains`
 
@@ -877,7 +899,7 @@ across domains and per domain. Domains come by name.
 
 For the domain filter and the address filter. `addresses` holds every address of the domain by name, the catch-all
 `*@domain` last. `action` is `inbox`, `forward`, `webhook` or `drop`. `threads` counts the address's unarchived threads
-and `unread` their unread messages, not threads.
+and `unread` their unread messages, not threads. Both leave out threads in the trash.
 
 ### `GET /api/mobile/mail/threads`
 
@@ -887,8 +909,11 @@ Query, every part optional:
 | --- | --- |
 | `domain_id` | Threads of one domain. |
 | `address_id` | Threads one address received. |
-| `unread=1` | Only threads with unread mail. |
-| `archived=1` | The archive instead of the inbox. Default `0`. |
+| `folder` | `inbox` (default), `sent`, `archive`, `trash` or `all`. See below. |
+| `state` | `unread`: only threads with unread mail. `read`: only threads without. |
+| `attachments=1` | Only threads where some message has an attachment. `0` or left out: no filter. |
+| `unread=1` | The same as `state=unread`. Kept for older apps. |
+| `archived=1` | The same as `folder=archive`. Kept for older apps. |
 | `q` | Text that the subject or a participant's address contains, case-insensitive for ASCII letters, up to 100 characters. It does not search message text. |
 | `sort` | `newest` (default), `oldest`, `unread_first` or `sender`. |
 | `limit` | 1 to 100, default 50. |
@@ -897,6 +922,19 @@ Query, every part optional:
 ```json
 { "threads": [ThreadSummary], "next_cursor": "eyJzIjoic2VuZGVyIiwidCI6MTc2MzQ1MDAwMDAwMCwiaSI6InRocl85YzFkIn0" }
 ```
+
+The folders:
+
+- `inbox`: threads not archived and not in the trash.
+- `sent`: threads with at least one message that went out (`has_sent`), archived or not, not in the trash.
+- `archive`: archived threads that are not in the trash.
+- `trash`: threads in the trash, archived or not.
+- `all`: every thread that is not in the trash.
+
+Every filter combines with the others, with `sort`, `limit` and `cursor`. An unknown value answers 400:
+`folder must be one of inbox, sent, archive, trash, all.`, `state must be unread or read.` or
+`attachments must be 1 or 0.`. So do two parameters that ask for different things, such as `archived=1&folder=inbox`
+or `unread=1&state=read`. The same `archived=1&folder=archive` or `unread=1&state=unread` is fine.
 
 What each sort does, with the tie-breaks that make paging exact:
 
@@ -908,7 +946,7 @@ What each sort does, with the tie-breaks that make paging exact:
   sent, so a thread you answered last sorts under your own name. This sort reads every thread the filters keep on each
   page, so it is slower than the others on a large inbox.
 
-`next_cursor` is null on the last page. Send it back with the same `sort` and filters. A cursor is opaque. A cursor
+`next_cursor` is null on the last page. Send it back with the same `sort`, folder and filters. A cursor is opaque. A cursor
 from another sort answers 400 (`This cursor belongs to the oldest order. ...`), and so does a cursor the server did
 not give out. An unknown `sort` answers 400 `sort must be one of newest, oldest, unread_first, sender.`. A thread whose
 `last_at` or unread state changes while you page can move to a page you already read or have not read yet; reload from
@@ -934,6 +972,38 @@ or unread. Answers `{ "ok": true, "unread": 0 }` with the thread's new unread co
 Body `{ "archived": true }` or `{ "archived": false }`. `archived` defaults to true. Answers `{ "ok": true }`. A new
 inbound message takes a thread out of the archive. 400 when `archived` is not a boolean, 404 for an unknown id.
 
+### `POST /api/mobile/mail/threads/:id/trash`
+
+Body `{ "trashed": true }` or `{ "trashed": false }`. `trashed` defaults to true. Answers `{ "ok": true }`. 400
+`Send trashed as true or false.` when `trashed` is not a boolean, 404 for an unknown id. Moving a thread where it
+already is changes nothing and keeps the time it went to the trash.
+
+A thread in the trash is left out of every other folder and count: the inbox, sent, archive and all, the unread counts
+of `/status` and `/domains`, the app badge, and the thread lists of the dashboard and of agents. Its read and archived
+state stay as they were. Out of the trash, it goes back to the archive when it was archived, else to the inbox.
+
+A new inbound message takes a thread out of the trash and out of the archive, into the inbox, and pushes as any new
+message does. A reply you send into a thread in the trash leaves it in the trash. After 30 days in the trash the
+Worker's hourly retention job deletes the thread for good, with its messages and their files.
+
+### `DELETE /api/mobile/mail/threads/:id`
+
+Deletes a thread in the trash for good: its messages, their bodies, attachments and raw files, and the thread. It
+cannot be undone. Answers `{ "ok": true, "messages": 15, "remaining": 5 }`: `messages` is how many messages this call
+deleted, `remaining` how many the thread still has. One call deletes at most 15 messages, which keeps it inside the
+subrequests of the Workers free plan. While `remaining` is above 0 the thread stays in the trash with what is left;
+call again until it is 0.
+
+409 `This thread is not in the trash. Move it to the trash first, then delete it for good.` for a thread outside the
+trash, 404 for an unknown id.
+
+### `POST /api/mobile/mail/trash/empty`
+
+Deletes threads in the trash for good, longest in the trash first, at most 15 messages per call. No body.
+Answers `{ "deleted": 3, "remaining": 1 }`: `deleted` counts the threads this call removed completely, `remaining` the
+threads still in the trash. Call again while `remaining` is above 0. A call on an empty trash answers
+`{ "deleted": 0, "remaining": 0 }`.
+
 ### `GET /api/mobile/mail/messages/:id/attachments/:n`
 
 The bytes of one attachment, the `url` of a Message's attachment. Headers: the stored `content-type`,
@@ -945,11 +1015,22 @@ The bytes of one attachment, the `url` of a Message's attachment. Headers: the s
 ### `POST /api/mobile/mail/threads/:id/reply`
 
 ```json
-{ "text": "Thanks, the refund is on its way.", "reply_all": false }
+{
+  "text": "Thanks, the refund is on its way.", "reply_all": false,
+  "attachments": [{ "filename": "receipt.pdf", "content": "JVBERi0xLjQK...", "content_type": "application/pdf" }]
+}
 ```
 
-- `text` is required: plain text, 1 to 20,000 characters, not only spaces. `reply_all` is optional, a boolean.
-- `html`, `attachments`, `from`, `to`, `cc`, `bcc`, `reply_to`, `subject` and `headers` are refused with 400
+- `text` is plain text, up to 20,000 characters. It is required unless there is at least one attachment; a reply with
+  files may leave it out or send it empty, and then goes as the files alone. `reply_all` is optional, a boolean.
+- `attachments` is optional: up to 10 files (`limits.reply_attachments` in `/status`). Each has `filename`, `content`
+  (the file's bytes as base64) and, optionally, `content_type`. Without `content_type` the Worker picks one from the
+  file name, `application/octet-stream` when it knows none. One file can be 15 MB and all files together 15 MB, as
+  decoded bytes (`limits.reply_attachment_bytes` and `limits.reply_total_bytes`). As base64 that is a request of about
+  20 MB, and a request over 21 MB is refused before it is read.
+- An attachment with `path` (a URL for the server to fetch) or `content_id` is refused with 400. The phone sends the
+  file itself, and its files are plain attachments.
+- `html`, `from`, `to`, `cc`, `bcc`, `reply_to`, `subject` and `headers` are refused with 400
   `A reply from the phone is plain text to the people in the thread. Leave out <field>.`.
 - From is the address that received the thread, with its display name, else an address of the thread's domain.
 - To is the sender of the thread's last inbound message. A Reply-To on that message is followed only when it names
@@ -967,8 +1048,13 @@ Errors:
 
 - 400 for the body problems above, and when the thread has nothing to reply to: no message, or only messages you sent
   to people the thread does not name (`This thread names nobody to reply to from the phone. ...`).
+- 400 for more than 10 files (`A reply from the phone can carry 10 attachments. This one has 11.`), for an attachment
+  that is not an object, has no `filename`, no `content` or content that is not base64, and for `path` or
+  `content_id`. Each sentence names the attachment by its place in the list, from 1.
 - 404 for an unknown thread.
-- 413 when the body is larger than 25 MB.
+- 413 for one file over 15 MB (`Attachment 2 is 15.3 MB. One file in a reply from the phone can be 15 MB.`), for
+  files over 15 MB together (`The attachments add up to 15.5 MB. ...`), and for a request over 21 MB
+  (`The reply is larger than 21 MB. ...`). Sizes in these sentences are rounded up to a tenth of a MB.
 - 422 when a recipient is on the suppression list or the mail service refused the content, 502 when the send failed.
   Both add `"id"`, `"status"` (`suppressed` or `failed`) and `"code"` (the provider's code, or null) when the message
   was stored.
@@ -982,4 +1068,6 @@ the suppression list stopped does not count. Each phone has its own count. The o
 as the dashboard has none.
 
 What a call costs: reading writes nothing. Marking read writes 1 row per message whose state changes plus 1, archiving
-1, and a reply 22 rows, 1 more than the same reply from the dashboard for the index by device.
+1, a move to the trash 3 and out of it 1 (a move that changes nothing writes 0), and a reply 22 rows plus 1 per file,
+1 more than the same reply from the dashboard for the index by device. Deleting for good writes what D1 counts for the
+rows it deletes, 10 for a thread with one received message.
