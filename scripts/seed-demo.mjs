@@ -1481,7 +1481,8 @@ const seoParts = (() => {
       fp: '9c48328265cd',
       message: "TypeError: Cannot read properties of undefined (reading 'priceId')",
       source: `${BUNDLE}:120`,
-      stack: `${BUNDLE}:120:14 handleCheckout\n${BUNDLE}:88:3 HTMLButtonElement.onclick`,
+      // A literal \n here, turned into a line break after the flush: the seed file keeps one statement per line.
+      stack: `${BUNDLE}:120:14 handleCheckout\\n${BUNDLE}:88:3 HTMLButtonElement.onclick`,
     },
     resize: { fp: '14fe38236d8f', message: 'ResizeObserver loop completed with undelivered notifications', source: null, stack: null },
     script: { fp: 'b7d19db721b1', message: 'Script error.', source: null, stack: null },
@@ -1584,10 +1585,12 @@ const seoParts = (() => {
   });
   insert('alert_events', {
     ts: sent, id: 'evt_demo_err1', kind: 'threshold', site_id: site, title: 'New error on ShipKit /checkout',
-    text: [ERRORS.price.message, `First seen ${new Date(now - 6 * HOUR).toISOString().slice(0, 16).replace('T', ' ')} UTC on /checkout. 1 person so far.`, 'Rule: A new error on /checkout.', '', `An agent reads it with get_recordings, view error, issue ${ERRORS.price.fp}.`].join('\n'),
+    text: [ERRORS.price.message, `First seen ${new Date(now - 6 * HOUR).toISOString().slice(0, 16).replace('T', ' ')} UTC on /checkout. 1 person so far.`, 'Rule: A new error on /checkout.', '', `An agent reads it with get_recordings, view error, issue ${ERRORS.price.fp}.`].join('\\n'),
     data: JSON.stringify({ type: 'alert.crossed', delivery_id: 'dlv_demo_err', rule_id: 'ar_demo_errors', rule_name: 'A new error on /checkout', metric: 'new_error', path: '/checkout', window: '24h', current: 1, previous: 0, change_pct: null }),
   });
   late.push(`UPDATE sites SET errors_on = 1 WHERE id = ${q(site)};`);
+  late.push(`UPDATE errors SET stack = replace(stack, '\\n', char(10)) WHERE site_id = ${q(site)} AND stack LIKE '%\\n%';`);
+  late.push(`UPDATE alert_events SET text = replace(text, '\\n', char(10)) WHERE id = 'evt_demo_err1';`);
 }
 
 flushInserts();
