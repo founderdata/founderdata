@@ -1552,15 +1552,20 @@ const seoParts = (() => {
       "'widget'",
     ),
   );
+  // 9 more identified visitors closed the card without answering: skipped, so the card's response rate is not 100%.
+  late.push(
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'heard_about', started_at + 240000, 'demo_ha_' || visitor_id, visitor_id, sid, NULL, 'skipped', NULL, 'widget' FROM (${people('IS NOT NULL')}) WHERE visitor_id NOT IN (SELECT visitor_id FROM survey_answers WHERE site_id = ${q(shipkit)} AND visitor_id IS NOT NULL) ORDER BY n DESC LIMIT 9;`,
+  );
   // 15 cancelled Stripe subscriptions say why, 6 of them in words, as the Customer Portal's cancellation reasons.
   const REASONS = ['too_expensive', 'missing_features', 'unused', 'too_expensive', 'switched_service', 'too_complex', 'unused', 'too_expensive', 'missing_features', 'low_quality', 'unused', 'customer_service', 'too_expensive', 'other', 'switched_service'];
-  const COMMENTS = ['We only need it during launches, not every month.', 'No team seats yet. We need three logins.', 'Moved to a boilerplate my cofounder already knew.', 'The setup took longer than building it myself.', 'Fine product, the price is high for a side project.', 'Paused the project for now.'];
+  // Each comment by the reason it goes with (n is the row number in REASONS, from 1).
+  const COMMENTS = [[1, 'Fine product, the price is high for a side project.'], [2, 'No team seats yet. We need three logins.'], [3, 'We only need it during launches, not every month.'], [5, 'Moved to a boilerplate my cofounder already knew.'], [6, 'The setup took longer than building it myself.'], [7, 'Paused the project for now.']];
   // The 60 days above cancel only a few; 12 more running monthly plans turn auto-renew off, a few days after a renewal.
   late.push(
     `UPDATE subscriptions SET status = 'canceled', canceled_at = MIN(${now - DAY}, renewed_at + 2 * ${DAY}), updated_at = MIN(${now - DAY}, renewed_at + 2 * ${DAY}) WHERE site_id = ${q(shipkit)} AND id IN (SELECT id FROM subscriptions WHERE site_id = ${q(shipkit)} AND provider = 'stripe' AND interval = 'month' AND canceled_at IS NULL AND ended_at IS NULL AND billing_issue_at IS NULL AND renewed_at IS NOT NULL ORDER BY id LIMIT 12);`,
   );
   const reason = `CASE n ${REASONS.map((x, k) => `WHEN ${k + 1} THEN ${q(x)}`).join(' ')} END`;
-  const comment = `CASE n ${COMMENTS.map((x, k) => `WHEN ${k * 2 + 1} THEN ${q(x)}`).join(' ')} END`;
+  const comment = `CASE n ${COMMENTS.map(([n, x]) => `WHEN ${n} THEN ${q(x)}`).join(' ')} END`;
   late.push(
     `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'cancel_reason', canceled_at, 'stripe:' || id || ':' || canceled_at, visitor_id, NULL, id, ${reason}, ${comment}, 'stripe' FROM (SELECT sub.*, ROW_NUMBER() OVER (ORDER BY sub.canceled_at DESC, sub.id) AS n FROM subscriptions sub WHERE sub.site_id = ${q(shipkit)} AND sub.provider = 'stripe' AND sub.canceled_at IS NOT NULL) WHERE n <= 15;`,
   );
