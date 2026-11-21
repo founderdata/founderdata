@@ -450,6 +450,18 @@ describe('tracker: config from the server', () => {
     expect((t.ml as any)._rec).toMatchObject({ url: 'https://acme.example/fd/api/rec', sid: t.jar.get('rt_sid') });
   });
 
+  it('sends the errors of a page that is not recorded with cfg.e, without clicks and without the recorded mark', async () => {
+    const t = load({ cfg: { e: 1 } });
+    await tick();
+    t.press(el('button', 'Buy'));
+    t.fire('error', { message: 'TypeError: x is undefined', filename: 'https://example.com/app.js', lineno: 12 });
+    t.hide();
+    const [ping] = await Promise.all(t.beacons);
+    expect(ping.a.e).toEqual([{ t: expect.any(Number), m: 'TypeError: x is undefined', s: 'https://example.com/app.js:12' }]);
+    expect(ping.a.c).toBeUndefined();
+    expect(ping.a.r).toBeUndefined();
+  });
+
   it('sends the clicks, rage clicks and errors of a recorded page with the ping when it is hidden', async () => {
     const t = load({ cfg: { rec: REC } });
     // Before the answer arrives: kept, in case the server records the visit.
@@ -475,6 +487,8 @@ describe('tracker: config from the server', () => {
     expect(ping).toMatchObject({ t: 'ping', vid: SERVER_IDS.vid });
     expect(ping.a.p).toBe('/pricing');
     expect(typeof ping.a.s).toBe('number');
+    // Marked as a recorded visit's page: the server keeps its activity row (collect.ts, errors.ts recordedActivity).
+    expect(ping.a.r).toBe(1);
     // A rage click names its element by tag and first class, never by text.
     expect(ping.a.c[1].s).toBe('button.buy');
     expect(ping.a.c.map((c: any) => [c.l, c.k, c.n, c.r])).toEqual([
@@ -487,7 +501,8 @@ describe('tracker: config from the server', () => {
     ]);
     expect(ping.a.e).toEqual([
       { t: expect.any(Number), m: 'TypeError: x is undefined', s: 'https://example.com/app.js:12' },
-      { t: expect.any(Number), m: 'fetch failed', s: '' },
+      // The rejection's Error has a stack, so its frames go as k (errors region, test/errors.test.ts).
+      { t: expect.any(Number), m: 'fetch failed', s: '', k: expect.stringMatching(/:\d+:\d+/) },
     ]);
     // Sent once: the next hide carries engaged time only.
     t.show();

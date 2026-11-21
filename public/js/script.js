@@ -315,6 +315,7 @@
     var a = { p: actPath, s: actAt };
     if (clicks.length && rec) a.c = clicks;
     if (errs.length && (rec || on.e)) a.e = errs;
+    if (rec) a.r = 1; // a recorded visit: the server keeps its activity row (errors-only pages of other visits do not get one)
     clicks = [];
     errs = [];
     lastEl = null;
@@ -345,7 +346,7 @@
   }
   function noteError(m, src, e) { // e: the error or rejection event, for stackOf (errors region)
     m = String(m || 'Error').slice(0, 200);
-    if (errs.length < 5 && (!errs.length || errs[errs.length - 1].m !== m)) errs.push({ t: Date.now() - actAt, m: m, s: src.slice(-200) });
+    if (errs.length < 5 && (!errs.length || errs[errs.length - 1].m !== m)) errs.push({ t: Date.now() - actAt, m: m, s: src.slice(-200), k: stackOf(e) });
   }
   w.addEventListener('error', function (e) {
     if (wantErrors() && e.message) noteError(e.message, e.filename ? e.filename.split(/[?#]/)[0] + ':' + e.lineno : '', e);
@@ -494,7 +495,16 @@
 
   // ==== region errors: stack frames of caught errors
   // lane errors edits only inside this region
-  function stackOf(e) {}
+  // The top 3 frames of the error's stack as "file:line:col fn", without queries, 300 characters (docs/API.md "Errors").
+  // Chrome writes "at fn (file:1:2)", Firefox and Safari "fn@file:1:2".
+  function stackOf(e) {
+    var k = [];
+    String((e.error || e.reason || {}).stack || '').split('\n').forEach(function (l) {
+      var m = k.length < 3 && /(?:at (?:(.+?) \()?|^([^@\s(]*)@)(\S+?)(?:[?#][^:]*)?:(\d+):(\d+)/.exec(l);
+      if (m) k.push(m[3] + ':' + m[4] + ':' + m[5] + (m[1] || m[2] ? ' ' + (m[1] || m[2]) : ''));
+    });
+    return k.join('\n').slice(0, 300) || undefined;
+  }
   // ==== end of region errors
 
   // ---- pageviews (including single-page-app navigation)

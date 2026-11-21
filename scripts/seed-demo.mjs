@@ -1735,7 +1735,136 @@ const seoParts = (() => {
 }
 
 // ---------- Round 7: errors, recording filters and summaries (lane errors)
+// ShipKit catches JavaScript errors (src/worker/errors.ts). Four issues: a TypeError on /checkout first seen 6 hours ago
+// that hit 4 people, 2 of them paying customers, and one recorded visit (pro/scripts/seed-replays.mjs records it, so
+// Watch opens at the error); "ResizeObserver loop..." on every page, ignored; "Script error." from a script on another
+// domain; and a failed module load, resolved 3 days ago and back since yesterday. A new_error rule on /checkout sent
+// one alert for the TypeError. `fp` is fingerprint(message, source, stack); test/errors.test.ts checks each one.
 {
+  out.push(`DELETE FROM errors WHERE site_id IN (${ids});`, `DELETE FROM error_issues WHERE site_id IN (${ids});`, `DELETE FROM error_first WHERE site_id IN (${ids});`);
+  out.push(`DELETE FROM alert_events WHERE id LIKE 'evt_demo_err%';`);
+  const site = shipkit;
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  const H = 'https://shipkit.example.com';
+  const BUNDLE = `${H}/assets/index-B3kZ9a1x.js`;
+  const ERRORS = {
+    price: {
+      fp: '9c48328265cd',
+      message: "TypeError: Cannot read properties of undefined (reading 'priceId')",
+      source: `${BUNDLE}:120`,
+      // A literal \n here, turned into a line break after the flush: the seed file keeps one statement per line.
+      stack: `${BUNDLE}:120:14 handleCheckout\\n${BUNDLE}:88:3 HTMLButtonElement.onclick`,
+    },
+    resize: { fp: '14fe38236d8f', message: 'ResizeObserver loop completed with undelivered notifications', source: null, stack: null },
+    script: { fp: 'b7d19db721b1', message: 'Script error.', source: null, stack: null },
+    chunk: {
+      fp: '11c9286a34fa',
+      message: 'TypeError: Failed to fetch dynamically imported module: https://shipkit.example.com/assets/Dashboard-4f2a9c1e.js',
+      source: `${BUNDLE}:12`,
+      stack: `${BUNDLE}:12:9 loadRoute`,
+    },
+  };
+  let n = 0;
+  const err = (key, sid, vid, ts, path, device = 'Desktop', browser = 'Chrome', times = 1) => {
+    const e = ERRORS[key];
+    insert('errors', {
+      site_id: site, ts, id: 900_000 + ++n, fp: e.fp, session_id: sid, visitor_id: vid, path, message: e.message, source: e.source,
+      stack: e.stack, n: times, device, browser,
+    });
+  };
+  // The people of the checkout error. Kim and Sam pay (Sam on a second device that shares his user id); Joe and Ivy do
+  // not. Ivy's visit is recorded.
+  const visit = (vid, sid, start, o) => {
+    insert('sessions', {
+      site_id: site, id: sid, visitor_id: vid, started_at: start, last_seen_at: start + o.minutes * MIN, duration: o.minutes * MIN, pageviews: o.pages.length,
+      goals: 0, hostname: 'shipkit.example.com', entry_page: o.pages[0], exit_page: o.pages.at(-1), referrer: null, referrer_domain: null,
+      source: o.source ?? 'Google', channel: o.channel ?? 'Organic Search', country: o.geo[0], region: o.geo[1], city: o.geo[2],
+      browser: o.browser ?? 'Chrome', os: o.os ?? 'Mac OS', device: o.device ?? 'Desktop',
+    });
+    insertEvents(site, sid, vid, o.pages.map((path, i) => ({ ts: start + i * 40_000, type: 'pageview', path })));
+  };
+  const people = [
+    { vid: 'err-kim', name: 'Kim Novak', user: 'usr_kim', mrr: 4900, geo: ['US', 'New York', 'New York'] },
+    { vid: 'err-sam', name: 'Sam Patel', user: 'usr_sam', mrr: 1900, geo: ['GB', 'England', 'London'] },
+    { vid: 'err-joe', name: null, user: null, mrr: 0, geo: ['CA', 'Ontario', 'Toronto'] },
+    { vid: 'err-ivy', name: null, user: null, mrr: 0, geo: ['DE', 'Berlin', 'Berlin'] },
+  ];
+  people.forEach((p, i) => {
+    insert('visitors', {
+      site_id: site, id: p.vid, first_seen: now - 40 * DAY, user_id: p.user, name: p.name,
+      email: p.name ? `${p.name.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com` : null,
+    });
+    const start = now - (6 - i) * HOUR;
+    const mobile = i === 2;
+    visit(p.vid, `${p.vid}-s1`, start, {
+      minutes: 3, pages: ['/pricing', '/checkout'], geo: p.geo, ...(mobile ? { device: 'Mobile', os: 'iOS', browser: 'Mobile Safari' } : {}),
+    });
+    // The error on /checkout, 50 s into the visit; Kim hit it twice.
+    err('price', `${p.vid}-s1`, p.vid, start + 50_000, '/checkout', mobile ? 'Mobile' : 'Desktop', mobile ? 'Mobile Safari' : 'Chrome', i === 0 ? 2 : 1);
+    if (p.mrr) {
+      const paid = now - 30 * DAY;
+      insert('payments', {
+        id: `pay_demo_err_${i}`, site_id: site, provider: 'stripe', ts: paid, amount: p.mrr, kind: 'payment', currency: 'USD', visitor_id: p.vid,
+        customer_id: `cus_demo_err_${i}`, email: `${p.name.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com`, name: p.name, product: p.mrr === 4900 ? 'shipkit_pro_monthly' : 'shipkit_starter_monthly',
+      });
+      insertSub({
+        id: `sub_demo_err_${i}`, provider: 'stripe', customer_id: `cus_demo_err_${i}`, visitor_id: p.vid, status: 'active', currency: 'USD', amount: p.mrr,
+        interval: 'month', interval_count: 1, mrr: p.mrr, first_mrr: p.mrr, paid_at: paid, renewed_at: now - 2 * DAY, expires_at: now + 28 * DAY,
+        product: p.mrr === 4900 ? 'shipkit_pro_monthly' : 'shipkit_starter_monthly', site_id: site,
+      });
+    }
+  });
+  // Ivy's visit is recorded: the index row with a digest, and the page activity with the error (pro/scripts/seed-replays.mjs
+  // rebuilds both around its recording and moves the error to the moment the video shows it).
+  {
+    const start = now - 3 * HOUR;
+    insert('replays', {
+      site_id: site, session_id: 'err-ivy-s1', visitor_id: 'err-ivy', started_at: start, entry_page: '/pricing',
+      digest: JSON.stringify({ s: start, v: [1440, 900], p: [{ u: '/pricing', a: 0, g: 0, ms: 40_000, sd: 64 }, { u: '/checkout', a: 40_000, g: 0, ms: 140_000, sd: 30, f: ['email'] }], x: '/checkout' }),
+    });
+    insertEvents(site, 'err-ivy-s1', 'err-ivy', [
+      { ts: start + 170_000, type: 'activity', path: '/checkout', props: { s: start + 40_000, c: [{ t: 9000, l: 'Pay $49', k: 'submit' }], e: [{ t: 10_000, m: ERRORS.price.message, s: ERRORS.price.source }] } },
+    ]);
+  }
+  // Sam's second device: the same person, counted once.
+  insert('visitors', { site_id: site, id: 'err-sam-phone', first_seen: now - 10 * DAY, user_id: 'usr_sam', name: 'Sam Patel', email: 'sam.patel@example.com' });
+  // The other issues hit visitors without a name, each on a visit of its own that was not recorded.
+  const GEOS = [['US', 'California', 'San Francisco'], ['FR', 'Île-de-France', 'Paris'], ['IN', 'Karnataka', 'Bengaluru'], ['BR', 'São Paulo', 'São Paulo']];
+  let anon = 0;
+  const anonErr = (key, ago, path) => {
+    const vid = `err-anon-${++anon}`;
+    const start = now - ago - 20_000;
+    insert('visitors', { site_id: site, id: vid, first_seen: start });
+    visit(vid, `${vid}-s1`, start, { minutes: 2, pages: [path], geo: GEOS[anon % GEOS.length], source: 'Direct/None', channel: 'Direct' });
+    err(key, `${vid}-s1`, vid, start + 20_000, path);
+  };
+  // ResizeObserver: on every page for weeks, from browsers' own layout code. The owner ignored it.
+  for (let d = 0; d < 12; d++) anonErr('resize', (d + 1) * 31 * HOUR, d % 2 ? '/' : '/blog/launch-checklist');
+  // Script error.: a widget from another domain, a few times a day.
+  for (let d = 0; d < 6; d++) anonErr('script', (d * 31 + 5) * HOUR, '/pricing');
+  // The failed module load: first seen 12 days ago, resolved 3 days ago, back since yesterday.
+  for (const ago of [12 * DAY, 11 * DAY, 9 * DAY, 20 * HOUR, 7 * HOUR]) anonErr('chunk', ago, '/dashboard');
+  insert('error_issues', { site_id: site, fp: ERRORS.resize.fp, status: 'ignored', changed_at: now - 15 * DAY });
+  insert('error_issues', { site_id: site, fp: ERRORS.chunk.fp, status: 'resolved', changed_at: now - 3 * DAY });
+  // The new_error rule on /checkout, its dedupe state and the alert it sent for the TypeError (the alert inbox, migration 0069).
+  const sent = now - 5 * HOUR - 20 * MIN;
+  insert('alert_rules', {
+    id: 'ar_demo_errors', site_id: site, name: 'A new error on /checkout', metric: 'new_error', path: '/checkout', comparison: 'rises_above', threshold: 0,
+    win: '24h', min_volume: 1, webhook_url: null, secret: null, channels: 1, push: 1, enabled: 1, crossed: JSON.stringify([ERRORS.price.fp]),
+    deliveries: JSON.stringify([{ id: 'dlv_demo_err', at: sent, kind: 'alert', to: 'push', ok: true, code: 200, attempts: 1, path: '/checkout', detail: '1 of 1 phone' }]),
+    created_at: now - 20 * DAY, updated_at: now - 20 * DAY, check_every: '1h', actor: null, change_kind: null,
+  });
+  insert('alert_events', {
+    ts: sent, id: 'evt_demo_err1', kind: 'threshold', site_id: site, title: 'New error on ShipKit /checkout',
+    text: [ERRORS.price.message, `First seen ${new Date(now - 6 * HOUR).toISOString().slice(0, 16).replace('T', ' ')} UTC on /checkout. 1 person so far.`, 'Rule: A new error on /checkout.', '', `An agent reads it with get_recordings, view error, issue ${ERRORS.price.fp}.`].join('\\n'),
+    data: JSON.stringify({ type: 'alert.crossed', delivery_id: 'dlv_demo_err', rule_id: 'ar_demo_errors', rule_name: 'A new error on /checkout', metric: 'new_error', path: '/checkout', window: '24h', current: 1, previous: 0, change_pct: null }),
+  });
+  late.push(`UPDATE sites SET errors_on = 1 WHERE id = ${q(site)};`);
+  late.push(`UPDATE errors SET stack = replace(stack, '\\n', char(10)) WHERE site_id = ${q(site)} AND stack LIKE '%\\n%';`);
+  // Each issue's first sighting, as the ping writes it (migration 0098): the time of its oldest row.
+  late.push(`INSERT OR IGNORE INTO error_first (site_id, fp, first_seen) SELECT site_id, fp, MIN(ts) FROM errors WHERE site_id = ${q(site)} GROUP BY fp;`);
+  late.push(`UPDATE alert_events SET text = replace(text, '\\n', char(10)) WHERE id = 'evt_demo_err1';`);
 }
 
 flushInserts();

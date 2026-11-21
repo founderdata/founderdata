@@ -131,6 +131,11 @@ describe('round 7 foundation', () => {
 
   it('has four parts, in lane order, each naming only its own tables', () => {
     expect(CORE_PARTS).toHaveLength(4);
-    for (const p of CORE_PARTS) expect(p.siteTables.every((t) => /^[a-z_]+$/.test(t))).toBe(true);
+    expect(CORE_PARTS.map((p) => p.siteTables)).toEqual([
+      ['experiments'],
+      ['survey_answers'],
+      ['page_maps'],
+      ['errors', 'error_issues', 'error_first'],
+    ]);
   });
 });

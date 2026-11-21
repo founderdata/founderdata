@@ -381,7 +381,28 @@ and reads only the counts of that one page.
 
 ## Errors
 
-<!-- r7 errors: written by lane errors -->
+Catch JavaScript errors is off by default. A site that records visits catches errors already. With either on, the
+script sends the errors of each page view with its ping, and the Worker stores one row per distinct error in your own
+D1 database. Each row keeps:
+
+- the message, cut at 200 characters, with emails, phone numbers and runs of 6 or more digits replaced by `[removed]`
+- the file and line it came from, without the query
+- at most 3 stack frames, each a file, line, column and function name, 300 characters in all
+- the page's path, the device and the browser
+- the visit's id and the visitor id, to count the people an error hit and to open a recording of the moment
+- whether the visit came from a hosting network, so bots stay out of the counts
+
+The first time an issue appears, the Worker also notes when, in a row that holds the issue id and the time and nothing
+about the visitor.
+
+No IP address, no form input and no page text beyond the message go in. A message can still quote something a visitor
+typed, when your own code puts it there. Mark that part of the page with `data-fd-mask` or keep it out of your error
+messages. Pages on the never-record list send no errors, and the Worker drops any that arrive for them.
+
+Rows are kept 90 days, then the nightly job deletes them, and an issue's first sighting goes once its last row does. Erasing a person deletes their rows. FounderData Pro shows an
+issue's people with links to their person pages, and its paying customers with their revenue. A viewer login without
+access to personal data sees the counts, not the names. An agent with a read key gets messages, frames, pages and
+counts, never names or emails. Whether an issue is resolved or ignored is a row of its own, with no visitor in it.
 
 ## Meta ads
 
