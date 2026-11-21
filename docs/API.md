@@ -772,9 +772,9 @@ D1 counts every page view in the range and returns only the totals, so `truncate
 
 A range with more than 75,000 events (40,000 with `seq`) reads only its newest visits whose events fit, so one answer
 reads under 1 million D1 rows. The answer then says `"sampled": true` and `sessions_read`, the visits it read. Otherwise
-`sampled` is `false` and `sessions_read` is `null`. The dashboard's Paths view says so under its table. Paths reads
-about 20 rows per visit of the range on the demo: 20.8 for the top pages, 10.9 for one path, 25.3 for `seq` of one
-page.
+`sampled` is `false` and `sessions_read` is `null`. The dashboard's Paths view says so under its table. Measured on the
+demo (local D1, 6,196 visits in 30 days), Paths reads 23.3 rows per visit of the range for the top pages, 13.2 for one
+path, 27.5 for `seq` of one page and 25.1 for `seq` of three. Rows read on production D1: not measured.
 
 `seq=/,/pricing` (Pro, 1 to 3 paths, comma-separated) follows visits that viewed those pages one right after the other,
 with repeats of a page in a row counted once. `sessions` counts the visits that did, at the first place they did. A visit

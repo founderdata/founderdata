@@ -398,6 +398,20 @@ for the UTC day, its ticks skip the scan of its keywords and pairs. Reads still 
 Opening a page's click map (Pro) reads about 15 rows per mapped page view, the newest 2,000 at most (about 30,000
 rows), and the overlay about the same again.
 
+Some Pro reports read many rows. The free plan allows 5 million rows read a day, and D1 refuses queries for the rest of
+the UTC day once a database passes it. Measured on the demo, which has 6,196 visits in 30 days:
+
+| Report | Rows read |
+| --- | --- |
+| Paths, top pages / one page / a sequence of 1 to 3 pages | about 23 / 13 / 22 to 28 per visit of the range. A range with more than 75,000 events (40,000 with a sequence) reads only its newest visits and says so, so one look stays under 1 million |
+| Experiment detail | about 9 per visit of the site during the run |
+| Experiment list | about 10 per visit of the site during each web experiment's run, for each one, 20 at most |
+| Web lifecycle / web retention | about 40,000 / 30,000 on the demo, whatever the period. With Known people they read every visit of the people the site recognizes |
+
+At 3,000 visits a day, a 30-day Paths view hits the cap and reads up to about 825,000 rows. An experiment that ran 30
+days reads about 840,000 on its page. Six such opens a day reach the 5 million. These numbers come from local D1. Rows read
+on a production database: not measured.
+
 The hourly jobs never share a tick: phone pushes and alert rules run at minute 0, the weekly report at 07:05 on Mondays,
 the X poll at minute 15, the mail health check at minute 20, the Search Console sync at minute 30, the Meta ads import at minute 45, next actions at
 minute 50 (3 sites a tick) and the AI answer counts at minute 55. The Meta Conversions API sends what is pending on every
@@ -434,6 +448,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more / 0 |
 | Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
 | Error issue (Pro) resolved, ignored or reopened / the first new error alert rule / a later one | 1 / 3: the rule's 2 rows plus 1 for the dashboard address its alerts link to / 2 |
+| Errors page (Pro) opened in the dashboard | 0. 1 the first time it saves the dashboard address alerts link to, or when that address moved |
 | App: typical session of a known install | 36 |
 | App: a new install's first session / a relaunch the same day without consent. An install that Apple Search Ads attributes writes 2 rows more when Apple answers | 7 / 3 to 5 |
 | Payment from Stripe, the App Store or another provider | 5 to 9. A subscription event that cancels a paying subscription or fails its renewal adds 1 alert inbox row |

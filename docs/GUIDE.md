@@ -350,8 +350,23 @@ prompt** button: paste the prompt into Claude Code or Cursor and it does the ins
 | --- | --- |
 | 100,000 Worker requests/day | One request per web event (pageview, goal, outbound click, engaged-time ping) and one per app batch of up to 50 events. The script and dashboard files are static and don't count. |
 | 100,000 D1 rows written/day | The binding limit. See the table below: about 3,100 typical web visits a day, or 2,700 app sessions, or a mix. |
-| 5M D1 rows read/day | A dashboard load reads roughly 10 times the sessions in the range, so with 10k visitors/month that's hundreds of loads a day. Opening a page's click map (Pro) reads about 15 rows per mapped page view, the newest 2,000 at most (about 30,000 rows), and the overlay about the same again |
+| 5M D1 rows read/day | A dashboard load reads roughly 10 times the sessions in the range, so with 10k visitors/month that's hundreds of loads a day. Some Pro reports read more, measured on the demo below. Past 5 million, D1 refuses queries until 00:00 UTC |
 | 5 GB D1 storage | Years of data at side-project traffic |
+
+Rows read by the Pro reports, measured on local D1 with the demo (6,196 visits in 30 days). Rows read on a production
+database: not measured.
+
+| Pro report | D1 rows read |
+| --- | --- |
+| [Paths](#paths): top pages / one page / a sequence of 1 to 3 pages | About 23 / 13 / 22 to 28 per visit of the range. A range with more than 75,000 events (40,000 with a sequence) reads only its newest visits, so one look stays under 1 million |
+| [Experiment](#experiments-pro) page | About 9 per visit of the site during the run |
+| Experiments list | About 10 per visit of the site during each web experiment's run, for each one, 20 at most |
+| [Retention and lifecycle](#retention-and-lifecycle-pro) | About 30,000 / 40,000 on the demo, whatever the period. With Known people they read every visit of the people the site recognizes |
+| Click map | About 15 per mapped page view, the newest 2,000 at most (about 30,000), and the overlay about the same again |
+
+An example at 3,000 visits a day. A 30-day Paths view has about 315,000 events, so it hits the cap and reads up to
+825,000 rows. An experiment that ran 30 days reads about 840,000 on its page, and the list reads about 940,000 for it.
+Six such opens a day use the 5 million. Shorter ranges cost less: a 7-day Paths view reads about 480,000.
 
 D1 counts each index entry it writes as a row. These are the rows each write path costs, measured on local D1 by
 `test/cost.test.ts` for core and by a cost test in the Pro repository for Pro's write paths. Each test fails if a
@@ -376,8 +391,9 @@ number changes:
 | Web: scroll depth of one page load | 0, a column of the page speed row |
 | Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
 | Error issue (Pro) resolved, ignored or reopened | 1 |
+| Errors page (Pro) opened in the dashboard | 0. 1 the first time it saves the dashboard address alerts link to, or when that address moved |
 | New error alert rule (Pro): the first one / a later one / checked hourly | 3 (the rule's 2 rows plus 1 for the dashboard address its alerts link to) / 2 / 1 when it fires, plus 1 [inbox](#alert-inbox-pro) row per alert |
-| Reading lifecycle, retention, paths, experiment results, error issues or a click map (Pro) | 0 |
+| Reading lifecycle, retention, paths, experiment results or a click map (Pro), or error issues through the API | 0. Rows read are in the table above |
 | App: new install's first `session_start` | 7 (6 with a kept install id: consent or `.vendor`) |
 | App: relaunch on the same day without consent, `session_start` only | 3 within 30 minutes of the last activity (the session continues), 5 later |
 | App: screens and goals in one batch | 3 each, plus 2 per batch (the session update and the id counter) |
@@ -2917,7 +2933,8 @@ The page detail has a smaller version, **Before and after this page**: the 5 pag
 
 Agents read the same numbers with `get_app_funnel`, `report: "paths"` and `sequence: ["/", "/pricing"]`
 ([API.md](API.md#funnels-and-paths)). An agent's key without `read:revenue` gets no paid numbers. Paths writes no
-rows. It reads the page views of the period, about 20 database rows per visit. A period with more than 75,000 events
+rows. It reads the page views of the period: about 23 database rows per visit for the first view, 13 for one page and 22
+to 28 for a sequence. A period with more than 75,000 events
 (40,000 once you pick a page) reads only its newest visits, so one look stays under 1 million rows. The card says so
 under its table.
 
