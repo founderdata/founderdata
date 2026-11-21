@@ -5,6 +5,7 @@ import { isPro } from '../../lib/pro';
 import { hasWebsite, isAppOnly } from '../../lib/siteKind';
 import type { CardStatus } from './kit';
 import type { SetupIconName } from './icons';
+import { hasApp } from '../../../shared/platform';
 
 /**
  * The map of Settings: its groups, the cards in each, and the state of every integration, read once when the page
@@ -49,7 +50,7 @@ export interface CardDef extends Edition {
 }
 
 const web = (s: Site) => hasWebsite(s);
-const app = (s: Site) => !!s.app_bundle_id;
+const app = (s: Site) => hasApp(s);
 
 /** Every card, in the order the groups show them. Card ids are the hashes old links use (#write-cap, #stripe). */
 const ALL_CARDS: CardDef[] = [

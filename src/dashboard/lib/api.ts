@@ -34,6 +34,10 @@ export interface Site {
   dodo_webhook_secret: string | null;
   created_at: number;
   app_bundle_id: string | null;
+  /** Google Play package name of the Android app (migration 0080). */
+  android_package?: string | null;
+  /** Service account email of the Pub/Sub push subscription for Google Play notifications. */
+  google_push_email?: string | null;
   /** The app's App Store id, found by the App Store sales import. */
   asc_app_id?: string | null;
   /** The app's App Store id as entered in Settings, for a deployment without the sales import. */
@@ -112,6 +116,8 @@ export interface Site {
   payments_connected?: boolean;
   /** GET /api/sites only: an app batch was refused in the last 24 hours because the site has no bundle id (ms). */
   app_rejected_at?: number | null;
+  /** GET /api/sites only: an Android batch was refused in the last 24 hours because the site has no package name (ms). */
+  android_rejected_at?: number | null;
   /** GET /api/sites only: when today's cap was reached (ms), else null. */
   capped_at?: number | null;
   visitors24h?: number;

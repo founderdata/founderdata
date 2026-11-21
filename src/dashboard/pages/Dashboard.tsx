@@ -22,6 +22,7 @@ import { closeVisitor as closeVisitorUrl, openVisitor as openVisitorUrl, useSear
 import { EmptyIcons, EmptyState } from '../components/ui/EmptyState';
 import { Segmented } from '../components/ui/Segmented';
 import { BREAKDOWN_CARDS, PLATFORM_CARD, type BreakdownTab } from '../../shared/dashboard-tabs';
+import { hasApp } from '../../shared/platform';
 
 /**
  * A session property key as people read it: exp_paywall_copy becomes "Experiment paywall_copy". A copy of
@@ -58,7 +59,7 @@ const FILTER_LABELS: Record<string, { label: string; dim: string }> = {
   goal: { label: 'Completed goal', dim: 'goal' },
 };
 
-/** Overview for the whole site, the website or the app. It sets the platform filter ("Web" or "iOS"). */
+/** Overview for the whole site, the website or the app. It sets the platform filter ("Web", or "App" for iOS and Android together). */
 function PlatformSwitch({ value, onChange }: { value: string | undefined; onChange: (platform: string | null) => void }) {
   return (
     <Segmented
@@ -67,7 +68,7 @@ function PlatformSwitch({ value, onChange }: { value: string | undefined; onChan
       options={[
         { label: 'Web and app', value: 'all' },
         { label: 'Web', value: 'Web' },
-        { label: 'App', value: 'iOS' },
+        { label: 'App', value: 'App' },
       ]}
       value={value ?? 'all'}
       onChange={(v) => onChange(v === 'all' ? null : v)}
@@ -144,17 +145,17 @@ export function Dashboard({ siteId, view }: { siteId: string; view: View }) {
   // The sites list is not here yet (a cached one makes this a single frame): hold the page's shape.
   if (!dash || !site) return <RouteFallback kind="site" />;
   // An app with no website: a placeholder domain, or no web visit in the last 90 days.
-  const appOnly = !!site.app_bundle_id && (isAppOnly(site) || overview?.kind === 'app');
+  const appOnly = hasApp(site) && (isAppOnly(site) || overview?.kind === 'app');
   // Platform splits web from app, so it says something only for a site with both and no platform filter. App versions
   // exist only for app sessions. A website alone gets neither, rather than a card with one "Web" row.
   const platformTabs = PLATFORM_CARD.filter((t) =>
-    t.dim === 'platform' ? !!site.app_bundle_id && !appOnly && !q.filters.platform : !!site.app_bundle_id && q.filters.platform !== 'Web',
+    t.dim === 'platform' ? hasApp(site) && !appOnly && !q.filters.platform : hasApp(site) && q.filters.platform !== 'Web',
   );
 
   const filters = Object.entries(q.filters);
   // A site with a web and an app side switches between them in the Overview's chart header, which also shows the state: no chip for it.
   // An app with no web visits has nothing to switch to.
-  const platformSwitch = view === 'overview' && !!site.app_bundle_id && !appOnly;
+  const platformSwitch = view === 'overview' && hasApp(site) && !appOnly;
   const shownFilters = platformSwitch ? filters.filter(([k]) => k !== 'platform') : filters;
   // A section this site cannot use yet (no app, no website, no subscription provider) shows its setup step instead.
   const setup = sectionState(site, view).setup;
@@ -191,6 +192,16 @@ export function Dashboard({ siteId, view }: { siteId: string; view: View }) {
             has no bundle id. The app drops refused events.{' '}
             <button className="font-medium underline underline-offset-2" onClick={() => navigate(`/site/${site.id}/settings#general`)}>
               Add the bundle id
+            </button>
+          </div>
+        )}
+
+        {site.android_rejected_at && (
+          <div className={banner}>
+            An Android app sent events to this site at {fmtDateTime(site.android_rejected_at, site.timezone)}, and the server refused them because the
+            site has no package name. The app drops refused events.{' '}
+            <button className="font-medium underline underline-offset-2" onClick={() => navigate(`/site/${site.id}/settings#general`)}>
+              Add the package name
             </button>
           </div>
         )}

@@ -18,6 +18,7 @@ import { searchDropText } from './search-drop-text';
 import type { SearchDrop } from '../shared/seo-insights';
 // Last, so every module this file needs has loaded before Pro's tree (which imports them back) does.
 import { proHooks } from './pro-hooks';
+import { appHostSql, hasApp, platformSql, webHostSql } from '../shared/platform';
 
 /**
  * The home page: every site side by side for one period, plus totals, a combined chart, where visitors and money
@@ -32,7 +33,10 @@ import { proHooks } from './pro-hooks';
  * come from Apple's report on the days it covers and from the payment rows on the others (src/worker/revenue.ts).
  */
 
-const PLATFORM = `(CASE WHEN s.hostname LIKE 'ios:%' THEN 'ios' ELSE 'web' END)`;
+/** 'ios', 'android' or 'web' (src/shared/platform.ts), for the feed. */
+const PLATFORM = platformSql('s.hostname');
+/** 'app' (iOS or Android) or 'web', for the platform tiles. */
+const TILE = `(CASE WHEN ${appHostSql('s.hostname')} THEN 'app' ELSE 'web' END)`;
 /**
  * Every site, as a condition on the leading column of the (site_id, time) indexes: without it a time range alone
  * walks the whole index, every visit or payment ever stored, to find the period's rows.
@@ -198,15 +202,15 @@ async function homeData(db: D1Database, q: Record<string, string | undefined>, n
                 COUNT(DISTINCT s.visitor_id) AS visitors, COUNT(*) AS sessions,
                 SUM(CASE WHEN s.pageviews <= 1 AND s.goals = 0 THEN 1 ELSE 0 END) AS bounces,
                 AVG(s.duration) AS avg_duration,
-                COUNT(DISTINCT CASE WHEN ${PLATFORM} = 'ios' THEN s.visitor_id END) AS app_visitors,
+                COUNT(DISTINCT CASE WHEN ${TILE} = 'app' THEN s.visitor_id END) AS app_visitors,
                 -- Per platform, for the platform tiles (platformTotals gets them from here instead of a pass of its own).
-                COUNT(DISTINCT CASE WHEN ${PLATFORM} = 'web' THEN s.visitor_id END) AS web_visitors,
-                SUM(CASE WHEN ${PLATFORM} = 'ios' THEN 1 ELSE 0 END) AS app_sessions,
-                SUM(CASE WHEN ${PLATFORM} = 'ios' AND s.pageviews <= 1 AND s.goals = 0 THEN 1 ELSE 0 END) AS app_bounces,
-                SUM(CASE WHEN ${PLATFORM} = 'ios' THEN s.duration ELSE 0 END) AS app_duration,
-                SUM(CASE WHEN ${PLATFORM} = 'web' THEN 1 ELSE 0 END) AS web_sessions,
-                SUM(CASE WHEN ${PLATFORM} = 'web' AND s.pageviews <= 1 AND s.goals = 0 THEN 1 ELSE 0 END) AS web_bounces,
-                SUM(CASE WHEN ${PLATFORM} = 'web' THEN s.duration ELSE 0 END) AS web_duration
+                COUNT(DISTINCT CASE WHEN ${TILE} = 'web' THEN s.visitor_id END) AS web_visitors,
+                SUM(CASE WHEN ${TILE} = 'app' THEN 1 ELSE 0 END) AS app_sessions,
+                SUM(CASE WHEN ${TILE} = 'app' AND s.pageviews <= 1 AND s.goals = 0 THEN 1 ELSE 0 END) AS app_bounces,
+                SUM(CASE WHEN ${TILE} = 'app' THEN s.duration ELSE 0 END) AS app_duration,
+                SUM(CASE WHEN ${TILE} = 'web' THEN 1 ELSE 0 END) AS web_sessions,
+                SUM(CASE WHEN ${TILE} = 'web' AND s.pageviews <= 1 AND s.goals = 0 THEN 1 ELSE 0 END) AS web_bounces,
+                SUM(CASE WHEN ${TILE} = 'web' THEN s.duration ELSE 0 END) AS web_duration
          FROM sessions s WHERE ${IN_SITES('s')} AND ${both('s.started_at')}${countedAllSql('s')} GROUP BY s.site_id, cur`,
       )
       .bind(range.from, ...bothBind),
@@ -271,7 +275,7 @@ async function homeData(db: D1Database, q: Record<string, string | undefined>, n
       .prepare(
         `SELECT st.id AS site_id, (SELECT MAX(started_at) FROM sessions WHERE site_id = st.id) AS last,
                 EXISTS (SELECT 1 FROM sessions w WHERE w.site_id = st.id AND w.started_at > ?
-                          AND (w.hostname IS NULL OR w.hostname NOT LIKE 'ios:%')) AS web
+                          AND ${webHostSql('w.hostname')}) AS web
          FROM sites st`,
       )
       .bind(now - 90 * 86_400_000),
@@ -323,7 +327,7 @@ async function homeData(db: D1Database, q: Record<string, string | undefined>, n
   const byPlatform = new Map<string, { cur: number; platform: string; visitors: number; sessions: number; bounces: number; duration: number }>();
   for (const r of rowsOf('kpi')) {
     if (productOnly.has(r.site_id)) continue;
-    for (const [platform, p] of [['web', 'web'], ['ios', 'app']] as const) {
+    for (const [platform, p] of [['web', 'web'], ['app', 'app']] as const) {
       const sessions = Number(r[`${p}_sessions`] ?? 0);
       if (!sessions) continue;
       const key = `${r.cur}|${platform}`;
@@ -454,10 +458,10 @@ async function homeData(db: D1Database, q: Record<string, string | undefined>, n
       currency: s.currency,
       /** The site's own timezone: its dashboard counts days in it, so its totals can differ from these (viewer's tz). */
       timezone: s.timezone,
-      hasApp: !!s.app_bundle_id,
+      hasApp: hasApp(s),
       bundleId: s.app_bundle_id,
       // An app with no web visits is an app-only product: its domain is a placeholder, not a website.
-      kind: (s.app_bundle_id ? (hasWeb.get(s.id) ? 'both' : 'app') : 'web') as SiteKind,
+      kind: (hasApp(s) ? (hasWeb.get(s.id) ? 'both' : 'app') : 'web') as SiteKind,
       /** website, app, extension or newsletter (src/worker/product-type.ts). */
       type: productType(s),
       /** An extension's or a newsletter's own numbers in the period and the one before; null for the other types. */
@@ -636,7 +640,7 @@ async function homeData(db: D1Database, q: Record<string, string | undefined>, n
     sourceDomain: r.referrer_domain as string | null,
     channel: r.channel as string | null,
     country: r.country as string | null,
-    platform: r.source ? (r.platform as 'web' | 'ios') : null,
+    platform: r.source ? (r.platform as 'web' | 'ios' | 'android') : null,
   }));
 
   return {
@@ -694,7 +698,7 @@ export function sameTimeYesterday(todayStart: number, tz: string, now: number): 
 export function paymentsConnected(s: Site, hasPayments: boolean): boolean {
   return (
     hasPayments ||
-    !!(s.stripe_webhook_secret || s.dodo_webhook_secret || s.revenuecat_auth || s.app_bundle_id || s.lemonsqueezy_secret || s.polar_secret || s.paddle_secret || s.gumroad_token || s.gumroad_seller_id)
+    !!(s.stripe_webhook_secret || s.dodo_webhook_secret || s.revenuecat_auth || hasApp(s) || s.lemonsqueezy_secret || s.polar_secret || s.paddle_secret || s.gumroad_token || s.gumroad_seller_id)
   );
 }
 
@@ -782,7 +786,7 @@ export async function platformTotals(
   const bind = [range.from, before.from, range.to, range.from, before.to];
   const visitsSql = db
     .prepare(
-      `SELECT (s.started_at >= ?) AS cur, ${PLATFORM} AS platform, COUNT(DISTINCT s.site_id || ' ' || s.visitor_id) AS visitors, COUNT(*) AS sessions,
+      `SELECT (s.started_at >= ?) AS cur, ${TILE} AS platform, COUNT(DISTINCT s.site_id || ' ' || s.visitor_id) AS visitors, COUNT(*) AS sessions,
               SUM(CASE WHEN s.pageviews <= 1 AND s.goals = 0 THEN 1 ELSE 0 END) AS bounces, AVG(s.duration) AS avg_duration
        FROM sessions s WHERE ${both('s.started_at')}${countedAllSql('s')} GROUP BY cur, platform`,
     )
@@ -793,14 +797,14 @@ export async function platformTotals(
       .prepare(
         `SELECT (s.started_at >= ?) AS cur, COUNT(DISTINCT v.site_id || ' ' || v.id) AS n
          FROM sessions s JOIN visitors v ON v.site_id = s.site_id AND v.id = s.visitor_id
-         WHERE ${both('s.started_at')} AND s.hostname LIKE 'ios:%' AND v.persistent = 1
+         WHERE ${both('s.started_at')} AND ${appHostSql('s.hostname')} AND v.persistent = 1
            AND v.first_seen >= (CASE WHEN s.started_at >= ? THEN ? ELSE ? END) AND v.first_seen < (CASE WHEN s.started_at >= ? THEN ? ELSE ? END)
          GROUP BY cur`,
       )
       .bind(...bind, range.from, range.from, before.from, range.from, range.to, before.to),
     db
       .prepare(
-        `SELECT (p.ts >= ?) AS cur, ${PLATFORM} AS platform,
+        `SELECT (p.ts >= ?) AS cur, ${TILE} AS platform,
                 COUNT(DISTINCT CASE WHEN p.kind = 'payment' AND p.renewal = 0 THEN p.site_id || ' ' || COALESCE(p.visitor_id, p.customer_id, p.id) END) AS customers
          FROM payments p JOIN sessions s ON s.site_id = p.site_id AND s.id = p.session_id
          WHERE ${both('p.ts')} AND ${REAL} GROUP BY cur, platform`,
@@ -812,7 +816,7 @@ export async function platformTotals(
   ]);
   const visits = { results: given ?? ((read?.results ?? []) as unknown as PlatformVisitRow[]) };
   const out = { web: { current: emptyPlatform(), previous: emptyPlatform() }, app: { current: emptyPlatform(), previous: emptyPlatform() } };
-  const at = (platform: string, cur: number) => out[platform === 'ios' ? 'app' : 'web'][cur ? 'current' : 'previous'];
+  const at = (platform: string, cur: number) => out[platform === 'app' ? 'app' : 'web'][cur ? 'current' : 'previous'];
   for (const r of visits.results as any[]) {
     const k = at(r.platform, r.cur);
     k.visitors = r.visitors;
@@ -820,7 +824,7 @@ export async function platformTotals(
     k.bounceRate = r.sessions ? r.bounces / r.sessions : 0;
     k.avgDuration = Math.round(r.avg_duration ?? 0);
   }
-  for (const r of installs.results as any[]) at('ios', r.cur).newInstalls = r.n;
+  for (const r of installs.results as any[]) at('app', r.cur).newInstalls = r.n;
   for (const r of buyers.results as any[]) at(r.platform, r.cur).customers = r.customers;
   for (const p of [out.web, out.app]) for (const k of [p.current, p.previous]) k.conversionRate = k.visitors ? k.customers / k.visitors : 0;
   return out;

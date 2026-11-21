@@ -15,6 +15,12 @@ website, send the same goals with `window.founderdata('goal', name, props)` or `
 - Call `FounderData.observeTransactions()` once at launch if the app sells through StoreKit.
 - Keep the SDK calls in one file of your app. That makes it easy to see what the app sends.
 
+In an Android app, call `FounderData.configure(this, siteId, host, debugHost)` in `Application.onCreate` instead,
+report Play Billing purchases with `FounderData.trackPurchase(purchase, kind)`, and skip the call in unit and
+Robolectric tests. The helpers below have the same names in Kotlin (`FounderData.paywallViewed(PaywallSource.ONBOARDING)`).
+Set the session property `build_channel` to `debug` in debug builds. [../android/README.md](../android/README.md)
+has the details.
+
 ## 2. Session properties (set as early as the app knows them)
 
 | Key | Values | Meaning |

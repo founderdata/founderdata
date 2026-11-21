@@ -13,6 +13,7 @@ import { SegTrack } from './ui/Segmented';
 import { StickyBar } from './ui/StickyBar';
 import { isPro } from '../lib/pro';
 import { SECTION_GROUPS, SECTION_LABELS, SECTION_SHORT_LABELS, sectionState, sectionUrl, type View } from '../lib/sections';
+import { hasApp } from '../../shared/platform';
 
 export const PERIODS: { value: string; label: string }[] = [
   { value: 'today', label: 'Today' },
@@ -206,7 +207,7 @@ export function Toolbar({
         width="min-w-[240px]"
         button={
           <button className="btn gap-2 pl-2 pr-2.5">
-            <SiteIcon domain={site.domain} app={!!site.app_bundle_id} size={18} />
+            <SiteIcon domain={site.domain} app={hasApp(site)} size={18} />
             <span className="max-w-[130px] truncate font-semibold sm:max-w-[200px]">{site.name}</span>
             <Chevron />
           </button>
@@ -224,7 +225,7 @@ export function Toolbar({
                   navigate(`/site/${s.id}${window.location.search}`);
                 }}
               >
-                <SiteIcon domain={s.domain} app={!!s.app_bundle_id} size={16} />
+                <SiteIcon domain={s.domain} app={hasApp(s)} size={16} />
                 <span className="truncate">{s.name}</span>
                 {s.id === site.id && <Check />}
               </button>

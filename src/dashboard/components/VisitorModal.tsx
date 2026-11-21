@@ -11,6 +11,8 @@ import { ProSlot } from './ProSlot';
 import { Skeleton } from './ui/Skeleton';
 import { Spinner } from './ui/Spinner';
 import { StatStrip, StatTile } from './ui/StatTile';
+import { platformOf } from '../../shared/platform';
+import { isTestProvider } from '../../shared/test-providers';
 
 interface Profile {
   visitor: { id: string; first_seen: number; name: string | null; email: string | null; user_id: string | null } | null;
@@ -31,7 +33,7 @@ export function VisitorModal({ visitorId, onClose }: { visitorId: string | null;
   // Same rule as the revenue totals: in the site's currency (converted when paid in another), no sandbox purchases.
   const paid =
     p?.payments
-      .filter((x) => x.provider !== 'app_store_sandbox')
+      .filter((x) => !isTestProvider(x.provider))
       .reduce((a, x) => a + (x.currency === site.currency ? x.amount : (x.amount_conv ?? 0)), 0) ?? 0;
   const firstPayment = p?.payments.filter((x) => x.kind === 'payment').at(-1);
 
@@ -235,7 +237,9 @@ export function VisitorModal({ visitorId, onClose }: { visitorId: string | null;
 
 /** The device of a visit in a few words: "Mac", "iPhone", "iPhone app". */
 function deviceName(s: { os?: string | null; device?: string | null; hostname?: string | null }): string {
-  if (typeof s.hostname === 'string' && s.hostname.startsWith('ios:')) return s.device === 'Tablet' ? 'iPad app' : 'iPhone app';
+  const platform = platformOf(s.hostname);
+  if (platform === 'ios') return s.device === 'Tablet' ? 'iPad app' : 'iPhone app';
+  if (platform === 'android') return s.device === 'Tablet' ? 'Android tablet app' : 'Android app';
   const os = (s.os ?? '').replace(/\s[\d.]+$/, '');
   const names: Record<string, string> = { 'Mac OS': 'Mac', iOS: 'iPhone', iPadOS: 'iPad', Windows: 'Windows PC', 'Chrome OS': 'Chromebook', Linux: 'Linux PC' };
   if (names[os]) return names[os];

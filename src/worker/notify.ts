@@ -63,6 +63,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   dodo: 'Dodo Payments',
   stripe: 'Stripe',
   app_store: 'App Store',
+  google_play: 'Google Play',
   revenuecat: 'RevenueCat',
   api: 'Payments API',
   lemonsqueezy: 'Lemon Squeezy',

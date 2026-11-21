@@ -3,12 +3,13 @@ import { withAsaNames } from './asa-names';
 import { withMetaCampaigns } from './meta-campaigns';
 import type { AppEnv, Site } from './env';
 import { bucketLabels, bucketSql, dayInTz, previousRange, resolveRange, tzOffset, type Range } from './lib/time';
-import { currencyDecimals, REAL, SANDBOX_PROVIDER } from './payments';
+import { currencyDecimals, isTestProvider, REAL } from './payments';
 import { proHooks } from './pro-hooks';
 import { importFilter, importInfo, importInfoOf, importedSpan, importedTotals, withImported, type ImportInfoRow, type ImportedTotals } from './imports';
 import { goalCounts, siteGoal } from './primary-goal';
 import { countedSql } from './datacenter';
 import { APPLE_PAYMENT, appStoreLayer, appStoreLayerPlan, appleNet, appleSplitColumns, dayBucket, KEPT_CREDIT, noSourceAmount, revenueBasis, type AppStoreLayer, type AscPrefetch, type LayerPlan } from './revenue';
+import { appHostSql, hasApp, platformLabelSql, webHostSql } from '../shared/platform';
 
 export { REAL };
 /**
@@ -17,8 +18,8 @@ export { REAL };
  */
 export const AMOUNT = `CASE WHEN p.currency = ? THEN p.amount ELSE COALESCE(p.amount_conv, 0) END`;
 
-/** iOS app sessions have the hostname ios:<bundle id>. */
-const PLATFORM = `(CASE WHEN s.hostname LIKE 'ios:%' THEN 'iOS' ELSE 'Web' END)`;
+/** App sessions have the hostname ios:<bundle id> or android:<package> (src/shared/platform.ts): iOS, Android or Web. */
+const PLATFORM = platformLabelSql('s.hostname');
 
 /** Filters that live on the session row (clicking a row in the dashboard adds one of these). */
 const SESSION_FILTERS = [
@@ -110,7 +111,10 @@ export function filterSql(f: Filters, keptSource = false): { sql: string; params
       params.push(v);
     }
   }
-  if (f.platform) {
+  if (f.platform === 'App') {
+    // Either app: iOS or Android.
+    parts.push(appHostSql('s.hostname'));
+  } else if (f.platform) {
     parts.push(`${PLATFORM} = ?`);
     params.push(f.platform);
   }
@@ -241,7 +245,7 @@ interface RevRow {
 const INSTALLS_SQL = (where: string) => `
   SELECT COUNT(DISTINCT CASE WHEN v.first_seen >= ? AND v.first_seen < ? THEN v.id END) AS new_installs, COUNT(DISTINCT v.id) AS installs
   FROM sessions s JOIN visitors v ON v.site_id = s.site_id AND v.id = s.visitor_id
-  WHERE ${where} AND s.hostname LIKE 'ios:%' AND v.persistent = 1`;
+  WHERE ${where} AND ${appHostSql('s.hostname')} AND v.persistent = 1`;
 
 interface InstallsRow {
   new_installs: number;
@@ -325,7 +329,7 @@ export async function overview(ctx: Ctx) {
   if (ctx.converting) await ctx.converting;
 
   // New installs only for a site with an app, so a website's overview reads its sessions no more often than before.
-  const installs = site.app_bundle_id
+  const installs = hasApp(site)
     ? [
         db.prepare(INSTALLS_SQL(cur.sql)).bind(range.from, range.to, ...cur.params),
         db.prepare(INSTALLS_SQL(prev.sql)).bind(before.from, before.to, ...prev.params),
@@ -357,7 +361,7 @@ export async function overview(ctx: Ctx) {
     db
       .prepare(
         `SELECT EXISTS (SELECT 1 FROM sessions WHERE site_id = ? AND started_at > ?
-                          AND (hostname IS NULL OR hostname NOT LIKE 'ios:%')) AS web,
+                          AND ${webHostSql('hostname')}) AS web,
                 (SELECT MAX(started_at) FROM sessions WHERE site_id = ?) AS last`,
       )
       .bind(site.id, now - 90 * 86_400_000, site.id),
@@ -424,7 +428,7 @@ export async function overview(ctx: Ctx) {
     currency: site.currency,
     decimals: currencyDecimals(site.currency),
     /** web, app (a bundle id and no web visit in 90 days) or both, like the home page. */
-    kind: (site.app_bundle_id ? (hasWeb ? 'both' : 'app') : 'web') as 'web' | 'app' | 'both',
+    kind: (hasApp(site) ? (hasWeb ? 'both' : 'app') : 'web') as 'web' | 'app' | 'both',
     current,
     previous: withImp(withApple(k0.results[0] as KpiRow, r0.results[0] as RevRow, 1, i0?.results[0] as InstallsRow | undefined), k0.results[0] as KpiRow, iPrev),
     /**
@@ -954,7 +958,7 @@ export interface ProviderRevenue {
 }
 
 /**
- * Revenue per payment provider (stripe, app_store, dodo, api, revenuecat, app_store_sandbox) and currency. The
+ * Revenue per payment provider (stripe, app_store, dodo, api, revenuecat, google_play, app_store_sandbox, google_play_test) and currency. The
  * App Store line follows the revenue definition (src/worker/revenue.ts): Apple's report on the days it covers, App
  * Store payment rows (RevenueCat App Store purchases included) on the others. With a filter it is payments only.
  */
@@ -981,7 +985,7 @@ export async function revenueByProvider(ctx: Ctx): Promise<ProviderRevenue[]> {
     ...r,
     net: r.gross + r.refunds,
     decimals: currencyDecimals(r.currency),
-    counted: r.provider !== SANDBOX_PROVIDER && !pending,
+    counted: !isTestProvider(r.provider) && !pending,
     netConverted: pending ? null : converted,
   }));
   if (layer) {

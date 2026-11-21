@@ -239,6 +239,7 @@ the secret never shows up in a chat or a shell history.
 | Integration | Turns on | The owner gets | Secrets and steps | Guide |
 | --- | --- | --- | --- | --- |
 | Payments | Revenue per visitor and source | A signing secret from Stripe, Dodo, Lemon Squeezy, Polar, Paddle or Gumroad | Webhook URL in the provider, signing secret in the site's settings | [Stripe](#revenue-attribution-with-stripe), [Dodo](#revenue-attribution-with-dodo-payments), [others](#revenue-attribution-with-lemon-squeezy-polar-paddle-and-gumroad) |
+| Google Play | Android app purchases, checked with Google, and refunds from real-time developer notifications | A Google Cloud service account invited in Play Console with "View financial data", and a Pub/Sub push subscription with an OIDC token for the app's Play topic | `GOOGLE_SERVICE_ACCOUNT_JSON`. Per site: the Android package name and the push subscription's service account in Settings, General. Push endpoint and audience: `https://<your host>/api/webhooks/google/<site id>` | [APP-API.md](APP-API.md#9-android-apps) |
 | Email alerts | Alerts and the weekly report by email | A Resend key, or Cloudflare Email Routing | `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | [Alerts](#alerts-and-weekly-report) |
 | DataForSEO (Pro) | Google rank tracking and keyword research (SEO tab), App Store ranks without a Mac (ASO tab), Google AI Overviews and Perplexity (AI visibility tab) | The API login and API password from the DataForSEO dashboard. The API password is not the account password. The account needs a balance | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD`, then press Test on the checklist's DataForSEO row. Per site: the country and monthly cap under SEO, Google ranks, then keywords | [SEO.md](SEO.md#keyword-research-and-rank-tracking), [ASO.md](ASO.md#ranks-without-your-mac) |
 | Search Console (Pro) | The SEO tab's clicks, queries, pages and decay | A Google Cloud project with an OAuth client of type Web application | Paste the redirect URI from the checklist's Google row into the client, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then the owner clicks **Connect Google** in the SEO tab and picks a property per site | [SEO.md](SEO.md#connect-google) |
@@ -370,6 +371,8 @@ number changes:
 | App: `onboardingStep` goal | 3, like any goal |
 | App: consented install (`ctx.consent`) | 0 extra, 1 fewer for the first `session_start` |
 | App Store purchase (app event or notification) | 6, a repeat delivery 0 to 1; 7 for a subscription (its row in `subscriptions`). Each payment credited to a visitor counts 1 for its entry in the index that tells the [live globe](MOBILE-API.md#9-live-visitors) who has paid before |
+| Android app batches ([APP-API.md](APP-API.md#9-android-apps)) | The same as the iOS rows above |
+| Google Play purchase, checked with Google after the answer (app event or notification) | 6 for a subscription (the payment and its row in `subscriptions`), a repeat delivery 0. A voided purchase writes 1 refund row. Each check is 2 or 3 calls to Google in `waitUntil` |
 | App Store free trial from the app (a `trial_start` signal, no payment) | 3, a repeat delivery 1; 5 with the subscription's row and its entry in the trial index |
 | App Store auto-renew off or on, failed renewal, expiry (notification) | 1, plus 1 [inbox](#alert-inbox-pro) row when a paying subscription fails to renew or is canceled |
 | App Store sales import (below): a day with 20 sales rows, first import / re-import | 63 / 82 |
@@ -495,8 +498,9 @@ banner for 24 hours. Recording that costs 1 row per site at most every 10 minute
 For scripts: `GET /api/sites/:id` returns `usage` with `rows` (the site's rows today), `cap` (its own number, the pool
 size on automatic, or `null` with the cap off), `site_max` (on automatic with more than one site, the share of the pool
 one site may use, else `null`), `auto` (the pool size, 80,000 or `WRITE_POOL_ROWS`), `shared` (on automatic),
-`pool_rows` (all sites today), `capped_at` and `resets_at`. `GET /api/sites` returns `capped_at` per site, and `app_rejected_at` for a site
-without a bundle id whose app was refused in the last 24 hours. `GET /api/usage` returns
+`pool_rows` (all sites today), `capped_at` and `resets_at`. `GET /api/sites` returns `capped_at` per site, `app_rejected_at` for a site
+without a bundle id whose app was refused in the last 24 hours, and `android_rejected_at` for a site without an Android
+package name whose Android app was refused. `GET /api/usage` returns
 `{ "capped": { "<site id>": <ms> }, "pool": { "rows", "size", "capped_at", "resets_at" } }`: the sites capped today, and
 the rows all sites wrote today against the pool. It reads one row more than before. `GET /api/sites/:id` also returns `last_payments`,
 the time of the last payment per provider (`stripe`, `dodo`, `revenuecat`, `app_store`, `api`), which Settings shows on
@@ -3171,7 +3175,8 @@ npm run smoke                         # end-to-end test against the running dev 
 
 `scripts/setup-sites.mjs` creates or updates the sites listed in `sites.json` (copy `sites.example.json`; the file is
 gitignored because it holds secrets). A website has a `domain`, an iOS app has an `app_bundle_id` (or `bundle_id`),
-and a product with both has both. The script finds a site by its domain, or an app without a website by its bundle id.
+and a product with both has both. An Android app adds `android_package` and, for Google Play notifications,
+`google_push_email` (docs/APP-API.md, section 9). The script finds a site by its domain, or an app without a website by its bundle id.
 Add a `domain` to an app's entry later and the same site gets it.
 
 The file is a list of sites, or `{ "defaults": { ... }, "sites": [ ... ] }`, where every site takes the defaults it does

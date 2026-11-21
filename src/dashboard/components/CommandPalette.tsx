@@ -7,6 +7,7 @@ import { setThemePref } from '../lib/theme';
 import { useApi } from '../lib/useApi';
 import { SiteIcon } from './Icons';
 import { PERIODS } from './Toolbar';
+import { hasApp } from '../../shared/platform';
 
 interface Item {
   id: string;
@@ -107,8 +108,8 @@ export function CommandPalette() {
         id: `site-${s.id}`,
         group: 'Sites and apps',
         label: s.name,
-        hint: s.domain.endsWith('.invalid') ? s.app_bundle_id ?? undefined : s.domain,
-        icon: <SiteIcon domain={s.domain} app={!!s.app_bundle_id} size={16} />,
+        hint: s.domain.endsWith('.invalid') ? (s.app_bundle_id ?? s.android_package) ?? undefined : s.domain,
+        icon: <SiteIcon domain={s.domain} app={hasApp(s)} size={16} />,
         run: () => navigate(`/site/${s.id}${window.location.search}`),
       });
     if (onData) for (const p of PERIODS) out.push({ id: `p-${p.value}`, group: 'Period', label: p.label, run: () => setPeriod(p.value) });

@@ -16,6 +16,7 @@ import { chartAnim, chartDefs, chartGrid, chartLine, chartLineCursor, chartToolt
 import { Skeleton, SkeletonChart } from './ui/Skeleton';
 import { StatStrip, StatTile } from './ui/StatTile';
 import { Delta, Key } from './site/primitives';
+import { hasApp, isAppFilter } from '../../shared/platform';
 
 type Metric = 'visitors' | 'revenue';
 
@@ -102,7 +103,7 @@ export function OverviewCard({ data, notes, controls }: { data: Overview | null;
   const p = data?.previous;
   // An app that takes payments leads with what pays: revenue, MRR, trial to paid and the Search Ads cost per paid user.
   // Visit numbers (visitors, bounce rate, session time) move to a smaller row under them.
-  const lead = !!site.app_bundle_id && site.payments_connected !== false && (data?.kind === 'app' || isAppOnly(site) || q.filters.platform === 'iOS');
+  const lead = hasApp(site) && site.payments_connected !== false && (data?.kind === 'app' || isAppOnly(site) || isAppFilter(q.filters.platform));
   const subs = useApi<SubsLead>(lead ? `/api/sites/${site.id}/subscriptions?${qs(q)}` : null, reloadKey).data;
   const trial = useApi<TrialLead>(lead ? `/api/sites/${site.id}/app/paywall?${qs(q, { split: 'source' })}` : null, reloadKey).data;
   const trialBefore = useApi<TrialLead>(lead ? `/api/sites/${site.id}/app/paywall?${qs(q, { split: 'source', compare: 'previous' })}` : null, reloadKey).data;
@@ -116,7 +117,7 @@ export function OverviewCard({ data, notes, controls }: { data: Overview | null;
   const noSessions = !!p && p.sessions === 0;
   const pts = (n: number) => `${Math.round(n * 100)} pts`;
   // An app-only site, or the App filter: without a kept install id a visitor is one device on one day.
-  const app = data?.kind === 'app' || isAppOnly(site) || q.filters.platform === 'iOS';
+  const app = data?.kind === 'app' || isAppOnly(site) || isAppFilter(q.filters.platform);
   // New installs: consented installs only. An app that never asks for consent has none, so the tile says so.
   const installs = app && c?.newInstalls !== undefined;
   const noConsent = installs && !c!.consentedInstalls && !p!.consentedInstalls;

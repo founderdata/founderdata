@@ -303,6 +303,14 @@ consent, from a hash of `identifierForVendor`, so retention covers those install
 
 Screens, goals, onboarding steps and sign-out are covered in [ios/README.md](ios/README.md).
 
+### Android
+
+`com.founderdata:founderdata-android` is the Kotlin port of the same SDK, for Android 6 (API 23) and later. It sends
+the same events, with Google Play purchases checked by the server with Google
+([docs/APP-API.md](docs/APP-API.md), section 9). Call `FounderData.configure(this, "SITE_ID", "https://YOUR-FOUNDERDATA-URL")`
+in `Application.onCreate`. Setup, consent, `InstallId.VENDOR` and Play's Data safety answers are in
+[android/README.md](android/README.md).
+
 ### App Store setup
 
 1. In FounderData, add the app (Home, **Add site or app**, iOS app) with its bundle id, or enter the bundle id in an
@@ -392,7 +400,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Recorded visit (Pro): the index row with its first chunk / each later chunk | 3 (the row and its 2 index entries) / 0. Each chunk is 1 Worker request and 1 R2 write |
 | App: typical session of a known install | 36 |
 | App: a new install's first session / a relaunch the same day without consent. An install that Apple Search Ads attributes writes 2 rows more when Apple answers | 7 / 3 to 5 |
-| Payment from Stripe, the App Store or another provider | 5 to 9. A subscription event that cancels a paying subscription or fails its renewal adds 1 alert inbox row |
+| Payment from Stripe, the App Store, Google Play or another provider | 5 to 9. A subscription event that cancels a paying subscription or fails its renewal adds 1 alert inbox row |
 | ASO: a snapshot of one app in one country, any number of keywords | 1, a second one the same day 1 |
 | ASO: a new review (a review that alerts adds 1 alert inbox row per post) / weekly popularity per keyword and country | 1 / 1 |
 | ASO: each keyword added or imported | 1 |
@@ -471,6 +479,7 @@ The code is laid out like this:
 - `src/dashboard` is the React dashboard (Vite, Tailwind, Recharts). The same Worker serves it as static files.
 - `migrations/` holds the database schema.
 - `ios/` holds the FounderDataKit Swift package.
+- `android/` holds the FounderData Android library (Kotlin, Gradle).
 - FounderData Pro adds a `pro/` folder with its reports and the iPhone app ([docs/PRO.md](docs/PRO.md)).
 
 ## Docs

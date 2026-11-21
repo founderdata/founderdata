@@ -32,6 +32,7 @@ import { compactSources, siteTrust, trustForKey, type SiteTrust } from './source
 import { vitalsRoute } from './vitals';
 import { proHooks } from './pro-hooks';
 import { VERSION } from '../shared/product';
+import { hasApp } from '../shared/platform';
 
 /** The range parameters every ranged route takes; `cacheKey` keeps only the parameters a route names. */
 export const RANGE = ['period', 'from', 'to', 'filters'];
@@ -251,7 +252,7 @@ export const DEFINITIONS = {
     'get_note_impact compares the window days after a note (7 by default) with the same days before it. It needs 100 visitors on each side and, with revenue, 10 new customers on both sides together; with less the verdict is inconclusive. It judges revenue per visitor when either side has revenue, else the conversion rate, else visitors (a key without revenue). A change of 10% or more is better or worse. An aso note with target keyword:<term> is judged on that keyword\'s App Store rank. verdict_metric and reason name the rule each answer used.',
   timezone: 'Days, buckets and from/to dates are in the site\'s timezone. Timestamps are ISO 8601 in UTC.',
   filters:
-    'The filters argument keeps only matching visits, as the dashboard filters them. Keys: channel, source, referrer_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref, country (ISO code), region, city, browser, os, device, entry_page, exit_page, hostname, app_version, language, click_network, platform (Web or iOS), page (a page viewed in the visit), goal (a goal completed in it) and prop:<name> (an app session property). An empty string matches none. Payments count when the visit they are credited to matches.',
+    'The filters argument keeps only matching visits, as the dashboard filters them. Keys: channel, source, referrer_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref, country (ISO code), region, city, browser, os, device, entry_page, exit_page, hostname, app_version, language, click_network, platform (Web, iOS, Android, or App for both apps), page (a page viewed in the visit), goal (a goal completed in it) and prop:<name> (an app session property). An empty string matches none. Payments count when the visit they are credited to matches.',
   query:
     'query compiles each metric with the same rules as the panels: its totals equal get_overview for the range and filters, and its day, week and month buckets equal get_timeseries. Visitors are counted per row, so rows split by time or a dimension can add up to more than the total (one visitor on two days counts on both). Split by a visit dimension, a payment counts on the row of the visit it is credited to; payments without one get note no_visit and App Store revenue no payment explains note app_store_no_source, so revenue rows add up to the total. Split by product or provider, Apple\'s report goes to provider app_store with note app_store_report under product. goal:<name> counts the visitors who completed the goal.',
 } as const;
@@ -266,7 +267,7 @@ export function siteFacts(site: Site, trust: SiteTrust | undefined, showRevenue:
     timezone: site.timezone,
     currency: site.currency,
     currency_decimals: currencyDecimals(site.currency),
-    app: !!site.app_bundle_id,
+    app: hasApp(site),
     type: site.product_type ?? null,
     primary_goal: site.primary_goal ?? null,
     // Visits from hosting networks count (definitions.datacenter).
@@ -350,7 +351,7 @@ async function whoami(c: Context<AppEnv>) {
     id: s.id,
     name: s.name,
     domain: s.domain,
-    app: !!s.app_bundle_id,
+    app: hasApp(s),
     ...(trust ? (({ timezone: _t, currency: _c, currency_decimals: _d, app: _a, ...rest }) => rest)(siteFacts(s, trust.get(s.id), !!tok.show_revenue, false)) : {}),
   }));
   const v = c.env.CF_VERSION_METADATA;

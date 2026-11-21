@@ -3,6 +3,7 @@
 // (pro/worker/verdicts.ts); notes.ts needs these to validate a note, date its review and cap a due list.
 import type { Site } from './env';
 import { productType } from './product-type';
+import { hasApp } from '../shared/platform';
 
 /** Search Console is this many days behind today (pro/worker/gsc-sync.ts). */
 export const GSC_LAG_DAYS = 3;
@@ -106,7 +107,7 @@ export function parseTarget(target: string | null | undefined): Target {
   return { type: 'none' };
 }
 
-export const isApp = (site: Pick<Site, 'product_type' | 'app_bundle_id'>) => !!site.app_bundle_id || productType(site) === 'app';
+export const isApp = (site: Pick<Site, 'product_type' | 'app_bundle_id' | 'android_package'>) => hasApp(site) || productType(site) === 'app';
 
 /** What an app site has stored: Apple's download rows, and trials from subscriptions. Read by notes.ts appDataOf. */
 export interface AppData {
@@ -125,7 +126,7 @@ export interface AppData {
  *   (aso without a keyword) on App Store downloads first. Without the data both stay allowed, after the defaults.
  * - everything else: `visits`, the visit rule (revenue per visitor, else conversion, else visitors).
  */
-export function metricsFor(kind: string | null, target: string | null, site: Pick<Site, 'product_type' | 'app_bundle_id'>, data: AppData | null = null): NoteMetric[] {
+export function metricsFor(kind: string | null, target: string | null, site: Pick<Site, 'product_type' | 'app_bundle_id' | 'android_package'>, data: AppData | null = null): NoteMetric[] {
   if (kind === 'outage') return [];
   const t = parseTarget(target);
   const rpv: NoteMetric = 'visits';

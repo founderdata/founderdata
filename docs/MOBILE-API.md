@@ -57,6 +57,43 @@ The app talks to one FounderData deployment. The user types the deployment URL a
 - `POST /api/mobile/push-test` sends a test alert and a widget push to the calling device and returns
   `{ alert: { status, reason? }, widget: { status, reason? } }`. It doubles as the check that the Worker reaches APNs.
 
+### Android push
+
+The Android owner app registers its Firebase Cloud Messaging token with the same route:
+
+- `PUT /api/mobile/push` `{ token, provider: "fcm", package? }`. `token` is the FCM registration token, unchanged
+  (case-sensitive; letters, digits and `_ : -`). `package` is the app's package name and is optional. The route does
+  not take `environment` or `topic`. A token that another device registered moves to this one. This costs 1 row, or
+  none when the token is the same. Without `provider`, or with `provider: "apns"`, the body is the APNs body above.
+- The Worker stores the FCM token as the device's alert token (`devices.push_provider = 'fcm'`). Every alert therefore
+  goes to Android phones too: payments, scheduled pushes, alert rules and review alerts. Widget pushes and Live
+  Activities are iOS only, so an Android phone gets neither.
+- Messages go out over FCM HTTP v1: `POST https://fcm.googleapis.com/v1/projects/{project}/messages:send`, with an
+  OAuth token for `https://www.googleapis.com/auth/firebase.messaging` from the service account. A message has:
+  - `notification: { title, body }`, the alert of the iOS payload.
+  - `data`, with every value a string: `title` and `body` again, plus the payload's other fields. These are `siteId`,
+    `paymentId` and `event` for a payment push, and `scheduled` (`daily` or `weekly`) with `day` for a scheduled
+    push. Alert rules add `ruleId`, `path` and `noteId`.
+  - `android: { priority: "high", notification: { tag: <site id or scheduled-daily> } }`, so one site's alerts stack.
+- FCM answers that disable the token until the app registers it again, the same as an APNs 410:
+  - `UNREGISTERED` (HTTP 404).
+  - `INVALID_ARGUMENT` that names the token: a field violation on `message.token`, or a message about the
+    registration token.
+
+  An `INVALID_ARGUMENT` about the payload, quota errors and 5xx answers leave the token as it is.
+- `POST /api/mobile/push-test` on an Android phone sends the test alert through FCM. It answers
+  `{ alert: { status }, widget: { status: 0, reason: "not registered" } }`. In `GET /api/mobile/devices`, `push` is
+  true for a live FCM token as well.
+
+Worker secrets for Android push:
+
+- `GOOGLE_SERVICE_ACCOUNT_JSON`: the service account's JSON key. It is the same secret as Google Play purchases
+  (docs/APP-API.md section 9). It needs the "Firebase Cloud Messaging API Admin" role in the Firebase project.
+- `FCM_PROJECT_ID` (optional): the Firebase project, when it is not the service account's own `project_id`.
+
+Without the service account, Android push is off. When neither APNs nor FCM is set up, `push-test` still answers
+HTTP 503 `{ error: "APNs not configured" }`.
+
 Worker secrets: `APNS_KEY_P8` (the .p8 file contents), `APNS_KEY_ID`, `APNS_TEAM_ID`. Without them push is off and
 `push-test` answers HTTP 503 with `{ error: "APNs not configured" }`. Auth is token-based (ES256 JWT, cached up to 50 minutes).
 
@@ -328,6 +365,50 @@ What the revenue reads add:
   is the name or id of a campaign in the site's Meta ad account has `meta: true`.
 - `GET /api/sites/:id/revenue`: one `app_store` line in the site currency carries the report; RevenueCat purchases
   made in the App Store count under `app_store`. App Store payments in another currency keep their own line.
+
+### Google Play sales
+
+FounderData Pro imports Google Play's estimated sales report. It is the Android counterpart of the App Store Connect
+import above.
+
+- **Where it comes from.**
+  - Play Console writes its financial reports to the Cloud Storage bucket `pubsite_prod_rev_<developer id>`.
+  - The import reads `sales/salesreport_YYYYMM.zip`. It is one zipped CSV per month, which Google writes again as
+    the month goes on.
+  - Each row is one order, refund or partial refund. Order Charged Date is in UTC, and amounts are in the buyer's
+    currency with a `,` thousands separator.
+- **Setup.**
+  1. Set `GOOGLE_SERVICE_ACCOUNT_JSON`.
+  2. In Play Console, Users and permissions, invite the service account with "View financial data" for the account.
+  3. Set the developer id, the number in your Play Console URL:
+     `PUT /api/googleplay/settings { "developerId": "0123456789" }`, or send `{ "bucket": "pubsite_prod_..." }` when
+     your bucket has another name. An empty value turns the import off.
+
+  `GET /api/googleplay/settings` answers `{ bucket, file, lastDay, serviceAccount }`.
+- **The import.** It runs every hour, one month file per step:
+  1. It lists the month files. This is one call.
+  2. It skips a file whose Cloud Storage generation it already imported, which costs one read.
+  3. It downloads and unzips the newest file that changed. The current month goes first, then older months, up to 27.
+  4. It adds the orders up per day, product (SKU), status, buyer currency and country.
+  5. It writes again only the days whose sums changed.
+
+  A file that fails, or whose step stops at the Worker's CPU limit, is tried 3 times per generation. After that the
+  checklist shows the error until Google writes the file again. `POST /api/googleplay/import` runs one step at once.
+- **Days.**
+  - A day counts as reported (`ok`, or `zero` with no orders) once the file was written at least 24 hours after
+    that day ended in UTC.
+  - Earlier days are `partial`. Google does not document how late the report is, so this rule is cautious.
+  - Refunds and chargebacks are stored as negative amounts. A partial refund lowers the amount and leaves the order
+    count as it is.
+- **Sites.** Rows belong to the site whose Android package (`android_package`) equals the row's Package ID. Rows of
+  another package are kept without a site and get one when a site sets that package.
+- **Reads.** `GET /api/sites/:id/googleplay?period=30d` (or `from` and `to`) answers
+  `{ configured, mapped, from, to, days: [{ date, reported, orders, refunds, chargedConverted }], totals: { orders, refunds, charged, chargedConverted } }`.
+  `charged` lists the amounts per buyer currency, as price plus tax. `chargedConverted` is converted into the site
+  currency at each day's ECB rate, with `notConverted` for currencies without a rate.
+- **Revenue.** Revenue does not count these amounts. Google Play payment rows (`gplay_<orderId>`, docs/APP-API.md
+  section 9) are revenue, and the report is the check against them. Downloads (the installs reports) and the
+  earnings report (Google's fees and payouts) are not imported.
 
 ## 6. ASO
 

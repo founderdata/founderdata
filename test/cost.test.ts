@@ -1,10 +1,12 @@
 // Measures D1 rows written per write path of core (Pro's paths: pro/test/cost.test.ts) (workerd's SQLite, which counts like D1: table row + one per index
 // entry touched). The numbers back the free-plan table in docs/GUIDE.md; if one changes, update the guide.
 import { createHmac } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { resetBudgetForTests } from '../src/worker/budget';
 import { setTrustedRootForTests } from '../src/worker/lib/apple-jws';
 import { forgetSite } from '../src/worker/env';
+import { checkPlayPurchaseLater } from '../src/worker/googleplay';
+import { resetGoogleAuthForTests } from '../src/worker/lib/google-auth';
 import { importStep } from '../src/worker/stripe-import';
 import { runDailyAlerts, runWeeklyReport } from '../src/worker/digest';
 import { mobileSummary } from '../src/worker/summary';
@@ -17,6 +19,7 @@ import { isPro } from './helpers/edition';
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129 Safari/537.36';
 const BUNDLE = 'com.example.app';
+const ANDROID_PACKAGE = 'com.example.app.android';
 const SECRET = 'whsec_cost_test_secret';
 const RC_SECRET = 'rc_cost_test_secret_0123456789';
 const measured: [string, number][] = [];
@@ -57,7 +60,7 @@ describe('free-plan cost: D1 rows written per write path', () => {
     // The daily cap's counter writes 2 rows per 200 rows (measured on its own below), not inside the other numbers.
     resetBudgetForTests(Infinity);
     w = await startWorker();
-    site = await w.createSite({ domain: 'example.org', app_bundle_id: BUNDLE, stripe_webhook_secret: SECRET, revenuecat_auth: RC_SECRET, currency: 'EUR' });
+    site = await w.createSite({ domain: 'example.org', app_bundle_id: BUNDLE, android_package: ANDROID_PACKAGE, stripe_webhook_secret: SECRET, revenuecat_auth: RC_SECRET, currency: 'EUR' });
   });
   afterAll(async () => {
     setTrustedRootForTests(null);
@@ -142,6 +145,40 @@ describe('free-plan cost: D1 rows written per write path', () => {
       { t: 'ping', sid: sid2, d: 120_000 },
     ];
     expect(await rows('app: typical session in one batch, known install (start, 8 screens, 2 goals, ping)', () => app(vid, typical))).toBe(36);
+  });
+
+  it('Android app events and Google Play purchases', async () => {
+    const vid = crypto.randomUUID(), sid = crypto.randomUUID();
+    const android = (events: unknown[]) =>
+      w.fetch('/api/app/events', {
+        method: 'POST',
+        body: JSON.stringify({ w: site.id, vid, ctx: { platform: 'android', bundle_id: ANDROID_PACKAGE, app_version: '1.0', os_version: '16', form_factor: 'phone' }, events }),
+      });
+    // The same rows as an iOS batch: only the hostname and os differ.
+    expect(await rows('android app: new install, session_start only', () => android([{ t: 'session_start', sid }]))).toBe(7);
+    expect(await rows('android app: batch of 1 screen, same session', () => android([{ t: 'screen', sid, n: 'Home' }]))).toBe(5);
+
+    // The Google check (in waitUntil): a payment and its subscription row. Google is a mock.
+    const key = (await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign'])) as CryptoKeyPair;
+    const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', key.privateKey));
+    const env = { ...w.env, GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({ client_email: 'sa@example.iam.gserviceaccount.com', private_key: `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...der))}\n-----END PRIVATE KEY-----` }) };
+    const token = 'tok_cost_' + crypto.randomUUID().replace(/-/g, '');
+    const expiry = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    const google = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('https://oauth2.googleapis.com/')) return Response.json({ access_token: 'cost' });
+      if (url.includes('/purchases/subscriptionsv2/')) return Response.json({ subscriptionState: 'SUBSCRIPTION_STATE_ACTIVE', startTime: new Date().toISOString(), lineItems: [{ productId: 'pro', latestSuccessfulOrderId: 'GPA.0000-0001', expiryTime: expiry, autoRenewingPlan: { autoRenewEnabled: true } }] });
+      if (url.includes('/orders/')) return Response.json({ orderId: 'GPA.0000-0001', state: 'PROCESSED', createTime: new Date().toISOString(), total: { currencyCode: 'EUR', units: '9', nanos: 990_000_000 } });
+      return new Response('not found', { status: 404 });
+    }) as typeof fetch;
+    resetGoogleAuthForTests();
+    vi.stubGlobal('fetch', google);
+    try {
+      expect(await rows('Google Play subscription purchase (checked with Google)', () => checkPlayPurchaseLater(env, site, { token, kind: 'subs', visitorId: vid, sessionId: sid }))).toBe(6);
+      expect(await rows('Google Play purchase reported again (the app and a notification)', () => checkPlayPurchaseLater(env, site, { token, kind: 'subs', visitorId: vid, sessionId: sid }))).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('app install from Apple Search Ads', async () => {

@@ -1,0 +1,11 @@
+# JitPack (jitpack.io) builds the Android SDK in android/ from a git tag, commit or branch, and serves it as
+#   com.github.<owner>:<repo>:<tag>   (the repository's only artifact)
+# with the repository maven("https://jitpack.io"). See android/README.md, "Install". JitPack sets GROUP
+# (com.github.<owner>), ARTIFACT (<repo>) and VERSION (the tag) for this build.
+jdk:
+  - openjdk21
+before_install:
+  - yes | sdkmanager --licenses > /dev/null || true
+  - sdkmanager "platforms;android-36" "build-tools;36.0.0" > /dev/null
+install:
+  - cd android && ./gradlew :founderdata:publishToMavenLocal -PPUBLISH_GROUP=$GROUP.$ARTIFACT -PVERSION_NAME=$VERSION --no-daemon --console=plain

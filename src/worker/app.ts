@@ -10,9 +10,10 @@ import { cfGeoOf, coarseCoord, normalizePath, type Geo } from './collect';
 import { getSite, type AppEnv, type Site } from './env';
 import { appDayKey, clientIp, visitorSecret } from './identity';
 import { verifyAppleJws } from './lib/apple-jws';
+import { checkPlayPurchasesLater, type PlayCheck } from './googleplay';
 
 /**
- * App events: POST /api/app/events (docs/APP-API.md). A batch from the iOS SDK's offline queue:
+ * App events: POST /api/app/events (docs/APP-API.md). A batch from the iOS or Android SDK's offline queue:
  * one install (vid), up to 50 events from one or more sessions.
  *
  * Cost: everything except purchases goes to D1 in one batch. Each screen or goal is one events row;
@@ -97,9 +98,14 @@ export async function handleAppEvents(c: Context<AppEnv>) {
   }
   const site = await getSite(c.env.DB, body.w);
   if (!site) return c.json({ error: 'unknown site' }, 404);
-  // Like the domain check for websites: only the site's own app can send data.
-  const bundle = clip(obj(body.ctx).bundle_id, 200);
-  if (!site.app_bundle_id || bundle !== site.app_bundle_id) {
+  // Like the domain check for websites: only the site's own app can send data. An Android batch names the package
+  // name (docs/APP-API.md section 9), an iOS batch the bundle id.
+  const bundle = clip(obj(body.ctx).bundle_id, 255);
+  if (isAndroid(obj(body.ctx))) {
+    if (!site.android_package || bundle !== site.android_package) {
+      return c.json({ error: site.android_package ? `package ${bundle} does not belong to this site` : 'set the Android package name in the site settings first' }, 403);
+    }
+  } else if (!site.app_bundle_id || bundle !== site.app_bundle_id) {
     return c.json({ error: site.app_bundle_id ? `bundle ${bundle} does not belong to this site` : 'set the app bundle id in the site settings first' }, 403);
   }
   const now = Date.now();
@@ -111,7 +117,12 @@ export async function handleAppEvents(c: Context<AppEnv>) {
   const dayKey = keepsId(obj(body.ctx))
     ? null
     : await appDayKey(visitorSecret(c.env), site.id, clientIp((n) => c.req.header(n)), c.req.header('user-agent') ?? '', obj(body.ctx), now);
-  const res = await ingestApp(c.env.DB, site, body, cfGeoOf(c), now, (p) => c.executionCtx.waitUntil(p), pusherOf(c), dayKey);
+  const push = pusherOf(c);
+  const res = await ingestApp(c.env.DB, site, body, cfGeoOf(c), now, (p) => c.executionCtx.waitUntil(p), push, dayKey, (checks) =>
+    // The Google checks run after the answer (docs/APP-API.md section 9), one after another: their calls stay out of
+    // the request path and share one access token.
+    c.executionCtx.waitUntil(checkPlayPurchasesLater(c.env, site, checks, push)),
+  );
   c.executionCtx.waitUntil(spend(c.env.DB, site, res.written, now));
   return c.json({ ok: true, rejected: res.rejected }, 202);
 }
@@ -138,6 +149,14 @@ interface SessionAcc {
  * ctx.id "vendor": the id is derived from identifierForVendor, so later launches come back under it too.
  */
 const keepsId = (ctx: Obj) => ctx.consent === true || ctx.id === 'vendor';
+
+/** ctx.platform "android": an Android batch (docs/APP-API.md section 9). Anything else is iOS, as before. */
+const isAndroid = (ctx: Obj) => ctx.platform === 'android';
+
+/** A Google Play purchase token: 10 to 4096 printable ASCII characters without spaces (it is URL-encoded for Google). */
+const PLAY_TOKEN = /^[\x21-\x7e]{10,4096}$/;
+/** Play purchases one batch checks with Google, one after another: each check is 2 to 3 Google calls and about 10 D1 calls. */
+export const MAX_PLAY_CHECKS = 3;
 
 /**
  * Which visitor and sessions a batch belongs to (docs/APP-API.md section 3). Without a kept install id the SDK makes
@@ -238,6 +257,8 @@ export async function ingestApp(
   defer: (p: Promise<unknown>) => void,
   push?: Pusher,
   dayKey: string | null = null,
+  /** Starts the Google checks of the batch's Play purchases after the answer (googleplay.ts). Without it they are skipped. */
+  playCheck?: (checks: PlayCheck[]) => void,
 ): Promise<{ rejected: number; written: number }> {
   const launchId = canonicalId(body.vid);
   const ctx = obj(body.ctx);
@@ -245,7 +266,11 @@ export async function ingestApp(
   const build = clip(ctx.build, 16);
   const appVersion = version ? (build ? `${version} (${build})` : version) : null;
   const osVersion = clip(ctx.os_version, 20);
-  const device = /^iPad/i.test(String(ctx.device ?? '')) ? 'Tablet' : 'Mobile';
+  const android = isAndroid(ctx);
+  // An Android model name says nothing about the size, so the SDK sends ctx.form_factor.
+  const device = (android ? ctx.form_factor === 'tablet' : /^iPad/i.test(String(ctx.device ?? ''))) ? 'Tablet' : 'Mobile';
+  const host = android ? `android:${site.android_package}` : `ios:${site.app_bundle_id}`;
+  const os = android ? (osVersion ? `Android ${osVersion}` : 'Android') : osVersion ? `iOS ${osVersion}` : 'iOS';
   // The app's language from ctx.locale ("en_US" is "en").
   const lang = typeof ctx.locale === 'string' ? ctx.locale.split(/[_-]/)[0].toLowerCase() : '';
   const language = /^[a-z]{2,3}$/.test(lang) ? lang : null;
@@ -257,6 +282,7 @@ export async function ingestApp(
   const rows: { s: string; ts: number; t: string; n: string | null; p: string | null; pr: string | null }[] = [];
   const identifies: Obj[] = [];
   const purchases: { sid: string; jws: string }[] = [];
+  const plays: { sid: string; token: string; kind: 'subs' | 'inapp'; product: string | null }[] = [];
   const ads: { sid: string; token: string }[] = [];
 
   for (const raw of body.events) {
@@ -313,7 +339,13 @@ export async function ingestApp(
     } else if (e.t === 'identify') {
       identifies.push(obj(e.p));
     } else if (e.t === 'purchase') {
-      if (typeof e.jws === 'string') purchases.push({ sid: e.sid, jws: e.jws });
+      const raw = e as unknown as Obj;
+      if (raw.store === 'google_play') {
+        // Only an Android batch can carry a Play purchase; the token and kind must be usable for the Google check.
+        if (android && typeof raw.token === 'string' && PLAY_TOKEN.test(raw.token) && (raw.kind === 'subs' || raw.kind === 'inapp')) {
+          plays.push({ sid: e.sid, token: raw.token, kind: raw.kind, product: clip(raw.product, 200) });
+        } else rejected++;
+      } else if (typeof e.jws === 'string' && !android) purchases.push({ sid: e.sid, jws: e.jws });
       else rejected++;
     }
   }
@@ -332,6 +364,7 @@ export async function ingestApp(
     for (const [k, s] of merged) sessions.set(k, s);
     for (const r of rows) r.s = storedSid(r.s);
     for (const p of purchases) p.sid = storedSid(p.sid);
+    for (const p of plays) p.sid = storedSid(p.sid);
     for (const a of ads) a.sid = storedSid(a.sid);
   }
 
@@ -359,7 +392,7 @@ export async function ingestApp(
   if (linkedWebVid) {
     stmts.push(db.prepare('UPDATE visitors SET linked_web_vid = ? WHERE site_id = ? AND id = ?').bind(linkedWebVid, site.id, vid));
   }
-  for (const [sid, s] of sessions) stmts.push(insertSession(db, site, vid, sid, s, geo, osVersion, device, appVersion, language));
+  for (const [sid, s] of sessions) stmts.push(insertSession(db, site, vid, sid, s, geo, host, os, device, appVersion, language));
   if (rows.length) {
     // One statement for all events (D1 caps bound parameters per statement, so the rows travel as JSON).
     stmts.push(
@@ -412,6 +445,10 @@ export async function ingestApp(
       rejected++;
     }
   }
+  // Google Play purchases: checked with Google after the answer (googleplay.ts). The payment row comes from that check.
+  // One token once, and at most MAX_PLAY_CHECKS a batch: the SDK sends each purchase once, so more is a misbehaving client.
+  const checks = [...new Map(plays.map((p) => [p.token, p])).values()].slice(0, MAX_PLAY_CHECKS);
+  if (checks.length) playCheck?.(checks.map((p) => ({ token: p.token, kind: p.kind, product: p.product, visitorId: vid, sessionId: p.sid })));
   for (const a of ads) defer(applyAdsToken(db, site.id, a.sid, a.token));
   return { rejected, written };
 }
@@ -423,7 +460,8 @@ function insertSession(
   sid: string,
   s: SessionAcc,
   geo: Geo,
-  osVersion: string | null,
+  host: string,
+  os: string,
   device: string,
   appVersion: string | null,
   language: string | null,
@@ -442,7 +480,7 @@ function insertSession(
       vid,
       s.start,
       s.last,
-      `ios:${site.app_bundle_id}`,
+      host,
       source,
       channel,
       utm.source,
@@ -456,7 +494,7 @@ function insertSession(
       geo.city,
       coarseCoord(geo.lat, 90),
       coarseCoord(geo.lon, 180),
-      osVersion ? `iOS ${osVersion}` : 'iOS',
+      os,
       device,
       appVersion,
       s.props ?? null,

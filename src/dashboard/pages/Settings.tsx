@@ -280,7 +280,7 @@ function SettingsBody({ site, setSite, save, origin }: { site: Site; setSite: (s
             )}
             {group.id === 'site' && (
               <>
-                <GeneralCard key={`${site.id}-${site.domain}-${site.app_bundle_id}-${site.app_store_id ?? ''}`} site={site} save={save} />
+                <GeneralCard key={`${site.id}-${site.domain}-${site.app_bundle_id}-${site.app_store_id ?? ''}-${site.android_package ?? ''}-${site.google_push_email ?? ''}`} site={site} save={save} />
                 <ProductTypeSection site={site} onSaved={(product_type) => setSite({ ...site, product_type })} />
                 <ReportingTimezoneSection />
                 <PrimaryGoalSection site={site} />

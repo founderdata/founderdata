@@ -4,7 +4,7 @@ import { getSite, type AppEnv, type Site } from './env';
 import { appVisitorId } from './identity';
 import { passwordsMatch } from './lib/crypto';
 import { announce, pusherOf, type Pusher } from './notify';
-import { creditedSession, currencyDecimals, recordPayment, recordSignal, SANDBOX_PROVIDER, type MatchedBy, type SignalInput } from './payments';
+import { creditedSession, currencyDecimals, isTestProvider, recordPayment, recordSignal, SANDBOX_PROVIDER, type MatchedBy, type SignalInput } from './payments';
 import { recordSubscription, revenueCatSubscriptionEvent } from './subscriptions';
 
 /**
@@ -21,7 +21,8 @@ import { recordSubscription, revenueCatSubscriptionEvent } from './subscriptions
  * Every one of these with an expiration_at_ms also updates the subscription's row (subscriptions.ts).
  *
  * App Store transactions use the payment id apple_<transaction_id>, the same id the SDK's JWS and App Store Server
- * Notifications use, so one purchase reported through two of them is stored once. Visitor link: the subscriber
+ * Notifications use, so one purchase reported through two of them is stored once. Google Play transactions use
+ * gplay_<transaction_id> (the Play order id), the id googleplay.ts gives them. Visitor link: the subscriber
  * attribute founderDataVisitorId, then the earlier payments of the same subscription (customer id).
  */
 
@@ -70,18 +71,29 @@ export function revenueCatAmount(price: number, currency: string): number {
 }
 
 const isApple = (e: Obj) => APPLE_STORES.has(String(e.store ?? '').toUpperCase());
+/** Google Play: RevenueCat's transaction id is the Play order id (GPA.…), so the ids match googleplay.ts. */
+const isPlay = (e: Obj) => String(e.store ?? '').toUpperCase() === 'PLAY_STORE';
 const transactionId = (e: Obj) => str(e.transaction_id);
 const originalId = (e: Obj) => str(e.original_transaction_id) ?? str(e.transaction_id);
 
 function paymentId(e: Obj): string | null {
   const tx = transactionId(e);
   if (!tx) return null;
-  return isApple(e) ? `apple_${tx}` : `rc_${String(e.store ?? 'store').toLowerCase()}_${tx}`;
+  if (isApple(e)) return `apple_${tx}`;
+  if (isPlay(e)) return `gplay_${tx}`;
+  return `rc_${String(e.store ?? 'store').toLowerCase()}_${tx}`;
+}
+/** The id a Play payment had before gplay_ ids (rows stored then keep it), for deduplication and refunds. */
+function legacyPlayIds(e: Obj): { payment: string; refund: string } | null {
+  const tx = transactionId(e);
+  return tx && isPlay(e) ? { payment: `rc_play_store_${tx}`, refund: `rc_refund_play_store_${tx}` } : null;
 }
 function refundId(e: Obj): string | null {
   const tx = transactionId(e);
   if (!tx) return null;
-  return isApple(e) ? `apple_refund_${tx}` : `rc_refund_${String(e.store ?? 'store').toLowerCase()}_${tx}`;
+  if (isApple(e)) return `apple_refund_${tx}`;
+  if (isPlay(e)) return `gplay_refund_${tx}`;
+  return `rc_refund_${String(e.store ?? 'store').toLowerCase()}_${tx}`;
 }
 /** Same customer id as the App Store paths for Apple, so renewals and earlier payments match across sources. */
 function customerId(e: Obj): string | null {
@@ -134,8 +146,13 @@ async function storeSignal(db: D1Database, site: Site, e: Obj, type: SignalInput
 }
 
 async function recordRefund(db: D1Database, site: Site, e: Obj, push?: Pusher): Promise<RevenueCatOutcome> {
-  const pid = paymentId(e), rid = refundId(e);
+  let pid = paymentId(e), rid = refundId(e);
   if (!pid || !rid) return 'invalid';
+  // A Play payment stored before gplay_ ids keeps its old id; its refund takes the old refund id too.
+  const legacy = legacyPlayIds(e);
+  if (legacy && !(await db.prepare('SELECT 1 FROM payments WHERE id = ? AND site_id = ?').bind(pid, site.id).first())) {
+    if (await db.prepare('SELECT 1 FROM payments WHERE id = ? AND site_id = ?').bind(legacy.payment, site.id).first()) [pid, rid] = [legacy.payment, legacy.refund];
+  }
   const original = await db
     .prepare('SELECT * FROM payments WHERE id = ? AND site_id = ?')
     .bind(pid, site.id)
@@ -172,7 +189,7 @@ async function recordRefund(db: D1Database, site: Site, e: Obj, push?: Pusher): 
     event: 'refund',
     id: rid,
     provider: original.provider,
-    sandbox: original.provider === SANDBOX_PROVIDER,
+    sandbox: isTestProvider(original.provider),
     amount: original.amount,
     currency: original.currency,
     product: original.product,
@@ -216,6 +233,9 @@ async function storeEvent(db: D1Database, site: Site, e: Obj, push?: Pusher): Pr
     if (!id) return type === 'PRODUCT_CHANGE' ? 'signal' : 'invalid';
     if (price === null || price <= 0 || !/^[A-Z]{3}$/.test(currency)) return type === 'PRODUCT_CHANGE' ? 'signal' : 'free';
 
+    // Stored before gplay_ ids under rc_play_store_<transaction>: the same payment, so nothing is written again.
+    const legacy = legacyPlayIds(e);
+    if (legacy && (await db.prepare('SELECT 1 FROM payments WHERE id = ? AND site_id = ?').bind(legacy.payment, site.id).first())) return 'duplicate';
     const ts = eventTs(e);
     const customer = customerId(e);
     const prior = customer

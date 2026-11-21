@@ -1,6 +1,7 @@
 import type { Site } from './api';
 import { isPro } from './pro';
 import { hasWebsite } from './siteKind';
+import { hasApp } from '../../shared/platform';
 
 /** A site's pages, in the order the section row shows them. The section row and the command palette list them. */
 export const SECTION_LABELS = {
@@ -40,7 +41,7 @@ export const SECTION_GROUPS: { id: 'agent' | 'analytics' | 'organic' | 'paid' | 
 
 /** A provider that sends subscription events is set up, or subscriptions are stored already. */
 export const sellsSubscriptions = (s: Site) =>
-  !!(s.has_subscriptions || s.stripe_webhook_secret || s.revenuecat_auth || s.app_bundle_id || s.dodo_webhook_secret || s.lemonsqueezy_secret || s.polar_secret || s.paddle_secret);
+  !!(s.has_subscriptions || s.stripe_webhook_secret || s.revenuecat_auth || hasApp(s) || s.dodo_webhook_secret || s.lemonsqueezy_secret || s.polar_secret || s.paddle_secret);
 
 /** What a section needs before it can show anything, and where in Settings that step is. */
 export interface SectionSetup {
@@ -73,7 +74,7 @@ export function sectionState(site: Site, v: View): { muted: boolean; setup: Sect
   // Without Pro every section after the Overview is the Pro card, whatever the site has set up.
   if (!isPro && v !== 'overview') return { muted: false, setup: null };
   const web = hasWebsite(site);
-  const app = !!site.app_bundle_id;
+  const app = hasApp(site);
   switch (v) {
     case 'overview':
     case 'dropoff':

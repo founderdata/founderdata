@@ -31,6 +31,7 @@ import { handleDodoWebhook } from './dodo';
 import { pruneClickIds, pruneOldData, retentionOf } from './retention';
 import { dataLocation } from './location';
 import { handleRevenueCatWebhook } from './revenuecat';
+import { handleGoogleWebhook } from './googleplay';
 import { handleStripeWebhook } from './stripe';
 import { handleGumroadPing } from './gumroad';
 import { handleLemonSqueezyWebhook } from './lemonsqueezy';
@@ -126,21 +127,25 @@ app.use('/api/*', timed);
 app.use('/api/v1/*', dashboardLinks);
 app.use('/api/event', cors({ origin: '*', allowMethods: ['POST', 'OPTIONS'], maxAge: 86400 }));
 app.post('/api/event', handleEvent);
-// An app batch for a site without a bundle id gets a 403 (app.ts). Note it, at most every 10 minutes, so the
+// An app batch for a site without a bundle id (or package name, for Android) gets a 403 (app.ts). Note it, at most every 10 minutes, so the
 // dashboard can show a banner. Hono keeps the body the handler read.
 app.use('/api/app/events', async (c, next) => {
   await next();
   if (c.res.status !== 403) return;
-  const id = await c.req.json<{ w?: unknown }>().then((b) => b?.w, () => undefined);
+  const body = await c.req.json<{ w?: unknown; ctx?: { platform?: unknown } }>().catch(() => undefined);
+  const id = body?.w;
   if (typeof id !== 'string') return;
   const site = await getSite(c.env.DB, id);
-  if (site && !site.app_bundle_id) c.executionCtx.waitUntil(noteAppRejected(c.env.DB, site.id, Date.now()));
+  if (!site) return;
+  // Per platform: an Android batch is refused when the site has no package name (docs/APP-API.md section 9).
+  const android = body?.ctx?.platform === 'android';
+  if (android ? !site.android_package : !site.app_bundle_id) c.executionCtx.waitUntil(noteAppRejected(c.env.DB, site.id, Date.now(), android ? 'android' : 'ios'));
 });
 app.post('/api/app/events', handleAppEvents);
 // A webhook delivery refused for a bad signature or token (401) is counted per site and provider, at most one write
 // every 10 minutes per instance, and alerts once a day (budget.ts noteWebhookRefused, docs/GUIDE.md).
 const WEBHOOK_PROVIDERS: Record<string, string> = {
-  dodo: 'dodo', apple: 'app_store', stripe: 'stripe', revenuecat: 'revenuecat', lemonsqueezy: 'lemonsqueezy', polar: 'polar', paddle: 'paddle', gumroad: 'gumroad',
+  dodo: 'dodo', apple: 'app_store', stripe: 'stripe', revenuecat: 'revenuecat', google: 'google_play', lemonsqueezy: 'lemonsqueezy', polar: 'polar', paddle: 'paddle', gumroad: 'gumroad',
 };
 app.use('/api/webhooks/*', async (c, next) => {
   await next();
@@ -158,6 +163,8 @@ app.post('/api/webhooks/dodo/:siteId', handleDodoWebhook);
 app.post('/api/webhooks/apple/:siteId', handleAppleWebhook);
 app.post('/api/webhooks/stripe/:siteId', handleStripeWebhook);
 app.post('/api/webhooks/revenuecat/:siteId', handleRevenueCatWebhook);
+// Google Play real-time developer notifications through a Pub/Sub push subscription (googleplay.ts).
+app.post('/api/webhooks/google/:siteId', (c) => handleGoogleWebhook(c));
 // Lemon Squeezy, Polar, Paddle and Gumroad (src/worker/providers.ts; Gumroad's URL carries its secret).
 app.post('/api/webhooks/lemonsqueezy/:siteId', handleLemonSqueezyWebhook);
 app.post('/api/webhooks/polar/:siteId', handlePolarWebhook);
@@ -275,6 +282,9 @@ function cleanDomain(input: string): string {
 
 const BUNDLE_ID = /^[A-Za-z0-9][A-Za-z0-9.-]{0,154}$/;
 const APP_STORE_ID = /^\d{5,12}$/;
+/** A Google Play package name (application id): two or more parts of letters, digits and _, each starting with a letter. */
+const ANDROID_PACKAGE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
+const PUSH_EMAIL = /^[^\s@]{1,64}@[A-Za-z0-9.-]{1,190}$/;
 
 function validTimezone(tz: string) {
   try {
@@ -340,6 +350,8 @@ app.get('/api/sites', async (c) => {
       capped_at: usage.cappedAt(s),
       // An app batch was refused in the last 24 hours because the site has no bundle id (ms), else null.
       app_rejected_at: s.app_bundle_id ? null : (usage.appRejectedAt.get(s.id) ?? null),
+      // The same for an Android batch refused because the site has no package name.
+      android_rejected_at: s.android_package ? null : (usage.appRejectedAt.get(`${s.id}:android`) ?? null),
     })),
   );
 });
@@ -446,6 +458,17 @@ app.patch('/api/sites/:id', async (c) => {
     if (id && !APP_STORE_ID.test(id)) return c.json({ error: 'Enter the App Store id as digits, like 123456789' }, 400);
     next.app_store_id = id || null;
   }
+  // Google Play (docs/APP-API.md section 9): the Android app's package name and the Pub/Sub push service account.
+  if (typeof b.android_package === 'string' || b.android_package === null) {
+    const pkg = (b.android_package ?? '').trim();
+    if (pkg && (pkg.length > 255 || !ANDROID_PACKAGE.test(pkg))) return c.json({ error: 'Enter the package name like com.example.app' }, 400);
+    next.android_package = pkg || null;
+  }
+  if (typeof b.google_push_email === 'string' || b.google_push_email === null) {
+    const email = (b.google_push_email ?? '').trim().toLowerCase();
+    if (email && !PUSH_EMAIL.test(email)) return c.json({ error: 'Enter the service account email, like pubsub-push@project.iam.gserviceaccount.com' }, 400);
+    next.google_push_email = email || null;
+  }
   if (b.accept_sandbox !== undefined) next.accept_sandbox = b.accept_sandbox ? 1 : 0;
   if (b.stripe_unpinned !== undefined) next.stripe_unpinned = b.stripe_unpinned ? 1 : 0;
   if (typeof b.stripe_webhook_secret === 'string' && !b.stripe_webhook_secret.includes('•')) {
@@ -496,6 +519,8 @@ app.patch('/api/sites/:id', async (c) => {
   if ('app_commission' in b) extra.push(['app_commission', commissionOf(next)]);
   if ('vitals_sample' in b) extra.push(['vitals_sample', next.vitals_sample ?? 100]);
   if ('show_datacenter' in b) extra.push(['show_datacenter', next.show_datacenter ?? 0]);
+  if ('android_package' in b) extra.push(['android_package', next.android_package ?? null]);
+  if ('google_push_email' in b) extra.push(['google_push_email', next.google_push_email ?? null]);
   for (const col of RECORDING_FIELDS) if (col in b) extra.push([col, next[col]]);
   await c.env.DB.prepare(
     `UPDATE sites SET name = ?, domain = ?, timezone = ?, currency = ?, dodo_webhook_secret = ?, app_bundle_id = ?, accept_sandbox = ?,
@@ -545,6 +570,8 @@ app.delete('/api/sites/:id', async (c) => {
       c.env.DB.prepare('DELETE FROM sub_imports WHERE site_id = ?').bind(id),
       // Apple's sales rows are not the site's data: they stay, unmatched, and match again if the app comes back.
       c.env.DB.prepare('UPDATE asc_sales SET site_id = NULL WHERE site_id = ?').bind(id),
+      // Google Play's sales rows likewise (Pro's Play import).
+      c.env.DB.prepare('UPDATE play_sales SET site_id = NULL WHERE site_id = ?').bind(id),
       // Mail domains belong to the deployment: they stay, without the link to this site's email numbers.
       c.env.DB.prepare('UPDATE mail_domains SET site_id = NULL WHERE site_id = ?').bind(id),
       forgetAppRejected(c.env.DB, id),

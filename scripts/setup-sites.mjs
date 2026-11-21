@@ -27,6 +27,7 @@ import { pathToFileURL } from 'node:url';
 
 /**
  * @typedef {{ name: string, domain?: string, currency?: string, timezone?: string, app_bundle_id?: string | null,
+ *   android_package?: string | null, google_push_email?: string | null,
  *   bundle_id?: string, write_cap?: number | 'auto' | 'off' | null, gumroad_seller_id?: string,
  *   stripe_webhook_secret?: string, dodo_webhook_secret?: string, revenuecat_auth?: string,
  *   lemonsqueezy_secret?: string, polar_secret?: string, paddle_secret?: string, gumroad?: boolean }} SiteSpec
@@ -34,7 +35,7 @@ import { pathToFileURL } from 'node:url';
 
 /** Webhook secrets: write-only in the API (it answers with •••• when one is set). */
 export const SECRETS = ['stripe_webhook_secret', 'dodo_webhook_secret', 'revenuecat_auth', 'lemonsqueezy_secret', 'polar_secret', 'paddle_secret'];
-const SETTINGS = ['name', 'timezone', 'currency', 'app_bundle_id', 'gumroad_seller_id'];
+const SETTINGS = ['name', 'timezone', 'currency', 'app_bundle_id', 'android_package', 'google_push_email', 'gumroad_seller_id'];
 const KNOWN = new Set([...SETTINGS, ...SECRETS, 'domain', 'bundle_id', 'write_cap', 'gumroad']);
 
 /** Payment providers: the secret that turns each on, its name and its webhook URL key in urlsFor. */
@@ -179,6 +180,7 @@ export function urlsFor(origin, site) {
     scriptTag: `<script defer data-website-id="${site.id}" src="${origin}/js/script.js"></script>`,
     stripeWebhook: `${origin}/api/webhooks/stripe/${site.id}`,
     appleWebhook: `${origin}/api/webhooks/apple/${site.id}`,
+    googleWebhook: `${origin}/api/webhooks/google/${site.id}`,
     appEvents: `${origin}/api/app/events`,
     dodoWebhook: `${origin}/api/webhooks/dodo/${site.id}`,
     revenuecatWebhook: `${origin}/api/webhooks/revenuecat/${site.id}`,
@@ -290,6 +292,10 @@ async function main() {
     if (site.app_bundle_id) {
       console.log(`  Apple webhook   ${urls.appleWebhook}`);
       console.log(`  app events      ${urls.appEvents}`);
+    }
+    if (site.android_package) {
+      console.log(`  Android package ${site.android_package}`);
+      console.log(`  Google webhook  ${urls.googleWebhook} (Pub/Sub push endpoint and audience)`);
     }
     if (kept.length) console.log(`  kept            ${kept.join(', ')} (already set; --replace-secrets overwrites)`);
     for (const m of missing) console.log(`  missing         ${m}`);

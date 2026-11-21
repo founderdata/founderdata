@@ -17,6 +17,7 @@ import type { Context, Hono } from 'hono';
 import type { AppEnv, Env } from './env';
 import { proHooks } from './pro-hooks';
 import { refusedWebhooks } from './budget';
+import { parseServiceAccount } from './lib/google-auth';
 
 /** Seconds a test button waits before it works again. */
 export const TEST_GAP_MS = 15_000;
@@ -170,9 +171,11 @@ interface SiteRow {
   polar: string | null;
   paddle: string | null;
   revenuecat: string | null;
+  android_package: string | null;
+  google_push_email: string | null;
 }
 
-const PROVIDERS: { id: keyof Omit<SiteRow, 'id' | 'name'>; label: string; payments: string }[] = [
+const PROVIDERS: { id: keyof Omit<SiteRow, 'id' | 'name' | 'android_package' | 'google_push_email'>; label: string; payments: string }[] = [
   { id: 'stripe', label: 'Stripe', payments: 'stripe' },
   { id: 'dodo', label: 'Dodo Payments', payments: 'dodo' },
   { id: 'lemonsqueezy', label: 'Lemon Squeezy', payments: 'lemonsqueezy' },
@@ -189,7 +192,7 @@ export async function checklist(env: Env, origin: string, now: number): Promise<
     db
       .prepare(
         `SELECT id, name, stripe_webhook_secret AS stripe, dodo_webhook_secret AS dodo, lemonsqueezy_secret AS lemonsqueezy, polar_secret AS polar,
-                paddle_secret AS paddle, revenuecat_auth AS revenuecat FROM sites ORDER BY created_at, id`,
+                paddle_secret AS paddle, revenuecat_auth AS revenuecat, android_package, google_push_email FROM sites ORDER BY created_at, id`,
       )
       .all<SiteRow>(),
     refusedWebhooks(db, now),
@@ -218,6 +221,7 @@ export async function checklist(env: Env, origin: string, now: number): Promise<
   // Payment webhooks per site: the last payment each provider's webhook delivered, and bad-signature refusals.
   const last = payments;
   const bad = new Map(refused.map((r) => [`${r.siteId}|${r.provider}`, r]));
+  rows.push(...(await googlePlayRows(env, sites.results, bad, now)));
   for (const s of sites.results) {
     const set = PROVIDERS.filter((p) => !!s[p.id]);
     if (!set.length) {
@@ -254,6 +258,73 @@ export async function checklist(env: Env, origin: string, now: number): Promise<
       });
     }
   }
+  return rows;
+}
+
+/**
+ * Google Play (docs/APP-API.md section 9): one row for the service account, and one per site with a package name for
+ * its notifications. Reads the newest google_play payment per such site; calls nobody.
+ */
+async function googlePlayRows(env: Env, sites: SiteRow[], bad: Map<string, { count: number }>, now: number): Promise<Row[]> {
+  const guide = 'docs/APP-API.md#google-service-account';
+  const android = sites.filter((s) => s.android_package);
+  const set = has(env, 'GOOGLE_SERVICE_ACCOUNT_JSON');
+  const list = secrets(env, ['GOOGLE_SERVICE_ACCOUNT_JSON']);
+  let usable = set;
+  if (set) {
+    try {
+      parseServiceAccount(env.GOOGLE_SERVICE_ACCOUNT_JSON!);
+    } catch {
+      usable = false;
+    }
+  }
+  const rows: Row[] = [
+    !set
+      ? {
+          id: 'google_play',
+          label: 'Google Play purchases',
+          status: android.length ? 'warn' : 'off',
+          detail: android.length ? 'An Android app is set up, but no service account is set. Google Play purchases are skipped.' : 'Off. No service account is set.',
+          next: 'Set GOOGLE_SERVICE_ACCOUNT_JSON to the JSON key of a service account with "View financial data" on the app in Play Console.',
+          guide,
+          secrets: list,
+        }
+      : !usable
+        ? {
+            id: 'google_play',
+            label: 'Google Play purchases',
+            status: 'error',
+            detail: 'GOOGLE_SERVICE_ACCOUNT_JSON is set but has no client_email and private_key.',
+            next: 'Set GOOGLE_SERVICE_ACCOUNT_JSON again to the whole JSON key file of the service account.',
+            guide,
+            secrets: list,
+          }
+        : {
+            id: 'google_play',
+            label: 'Google Play purchases',
+            status: 'ok',
+            detail: android.length ? 'The service account is set.' : 'The service account is set. No site has an Android package name yet.',
+            next: null,
+            guide,
+            secrets: list,
+          },
+  ];
+  if (!set || !usable || !android.length) return rows;
+  const res = await env.DB.batch<{ ts: number }>(
+    android.map((s) => env.DB.prepare("SELECT ts FROM payments WHERE site_id = ?1 AND provider = 'google_play' ORDER BY ts DESC LIMIT 1").bind(s.id)),
+  );
+  android.forEach((s, i) => {
+    const at = res[i].results[0]?.ts;
+    const refusal = bad.get(`${s.id}|google_play`);
+    const base = { id: `webhook:${s.id}:google`, label: `${s.name}, Google Play notifications`, guide: 'docs/APP-API.md#real-time-developer-notifications-post-apiwebhooksgooglesiteid', site: { id: s.id, name: s.name } };
+    if (!s.google_push_email) {
+      rows.push({ ...base, status: 'warn', detail: 'No push service account is set, so notifications are refused.', next: "Enter the Pub/Sub push subscription's service account email in the site settings.", copy: `/api/webhooks/google/${s.id}` });
+    } else if (refusal) {
+      rows.push({ ...base, status: 'error', detail: `${refusal.count} deliveries failed the token check in the last 24 hours.`, next: "Check that the push subscription's audience is the webhook URL and its service account is the one in the site settings." });
+    } else {
+      rows.push({ ...base, status: at ? 'ok' : 'warn', detail: at ? `Last Google Play payment ${ago(now, at)}.` : 'Set up. No Google Play payment has arrived yet.', next: at ? null : 'Make a test purchase with a license tester, with accept sandbox on.' });
+    }
+  });
   return rows;
 }
 

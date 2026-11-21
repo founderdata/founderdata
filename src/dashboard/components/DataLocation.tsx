@@ -3,6 +3,7 @@ import { hasWebsite } from '../lib/siteKind';
 import { CopyButton, Disclosure, SettingsCard } from './setup/kit';
 import { useCardStatus } from './setup/status';
 import { Note, toast } from './ui';
+import { hasApp } from '../../shared/platform';
 
 type Location = NonNullable<Site['data_location']>;
 
@@ -21,7 +22,7 @@ function storedClause(l: Location): string {
  */
 export function dpaText(site: Site, l: Location): string {
   const web = hasWebsite(site);
-  const app = !!site.app_bundle_id;
+  const app = hasApp(site);
   const days = l.retention_days ?? 730;
   const out = [
     `${site.name} uses FounderData for analytics. We run it on our own Cloudflare account, so Cloudflare, Inc. is the only processor.`,

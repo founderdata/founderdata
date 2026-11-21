@@ -249,3 +249,145 @@ RevenueCat reserves attribute keys that start with `$` for its own attributes, s
 **Sandbox.** `environment: SANDBOX` is ignored unless the site's `accept_sandbox` is on; then payments use provider `app_store_sandbox` and signals carry `sandbox = 1`, and neither ever counts.
 
 **Signals** live in the table `subscription_signals` (`type`: `trial_start`, `cancellation`, `expiration`, `billing_issue`, `product_change`), with the visitor and the session credited the same way as a payment. The retention cron deletes them after 24 months (`RETENTION_MONTHS`), like events.
+
+## 9. Android apps
+
+The Android SDK is the `founderdata-android` Kotlin library in `android/`. It sends the same batches to the same
+`POST /api/app/events` as the iOS SDK. This section lists only what differs.
+
+### Batch context
+
+```json
+"ctx": { "platform": "android", "app_version": "1.4.0", "build": "57", "os_version": "16", "device": "Pixel 9",
+         "form_factor": "phone", "locale": "en_US", "bundle_id": "com.example.shipkit", "consent": true }
+```
+
+- `ctx.platform` is `"android"`. A batch without it, or with `"ios"`, is an iOS batch as before.
+- Set the session property `build_channel` to `debug` in debug builds (section 6), so test sessions can be filtered
+  out. The SDK does not set it by itself.
+- `bundle_id` is the application id (package name). It must equal the site's `android_package` setting (migration
+  `0080_android.sql`; `PATCH /api/sites/:id` with `{ "android_package": "com.example.app" }`, or Settings, General),
+  else `403` as for iOS. The two settings are separate because an app often has different ids
+  on the two stores.
+- `form_factor` is `"phone"` or `"tablet"` (smallest screen width 600 dp or more). It sets the device to Mobile or
+  Tablet, since an Android model name says nothing about the size.
+- The session hostname is `android:<package>`, and the os is `Android <os_version>`. Every query that asks "is this
+  an app session" uses `isAppHost` / `APP_HOST_SQL` in `src/shared/platform.ts`, which matches both `ios:` and
+  `android:`. Panels that split by platform show iOS, Android and Web. The `platform` filter takes `Web`, `iOS`,
+  `Android`, or `App` for both apps.
+- A refused Android batch (no `android_package`) shows its own banner in the dashboard, apart from the iOS one.
+
+### Install id
+
+The same three modes as iOS (section 3), with Android storage:
+
+- Default: a random UUID per process, in memory. Nothing is stored on the device.
+- After `setConsent(true)`: a random UUID in the app's private no-backup storage (`noBackupFilesDir`), so it is not
+  restored to another device. `setConsent(false)` deletes it and the queue file.
+- `installId = InstallId.VENDOR`: the App set ID (`play-services-appset`) when its scope is developer, hashed as for
+  iOS: the first 16 bytes of SHA-256(`"founderdata-vendor-v1:" + site id + ":" + app set id` in lowercase), version
+  nibble 8. Batches carry `ctx.id: "vendor"`. With app scope, without Google Play services, or on any error the
+  launch uses a random id. The SDK reads the value on each launch and never stores it. The App set ID arrives
+  asynchronously, so a launch starts under a random id and holds its first upload for up to 5 seconds; when the id
+  arrives, the events queued so far move to it, so the server never sees the random id.
+- The SDK never reads `Settings.Secure.ANDROID_ID`, the advertising id, or any hardware id. Google Play treats
+  ANDROID_ID as a persistent device identifier, which may not be linked to personal data, and `identify` sends some.
+
+### Attribution
+
+- On the first launch after install the SDK reads the Play Install Referrer once (`installreferrer:2.2`) and parses
+  its `installReferrer` string as a query string. `utm_*`, `ref` and the click ids of section 5, point 11 (`gclid`
+  and the others) go into that session's `src`, exactly as from a deep link. The SDK then remembers that it asked,
+  only when it has consent; without consent it asks on each launch, which the referrer API allows for 90 days.
+  The referrer only fills fields of `src` that are unset: a link the app was opened with wins, so a cold launch from
+  a campaign link keeps its `utm_*` when `utm_source=google-play&utm_medium=organic` arrives later. The first upload
+  waits up to 10 seconds for the referrer.
+- `FounderData.handle(intent)` reads App Links the same way as `handle(url:)` on iOS, including `rt_vid`.
+- There is no `ads_token`: Apple Search Ads has no Android equivalent.
+
+### Google Play purchases
+
+The app sends the purchase after Play Billing returns it (`FounderData.trackPurchase(purchase, kind)`):
+
+```json
+{ "t": "purchase", "sid": "...", "ts": 1761400050000,
+  "store": "google_play", "token": "<Purchase.purchaseToken>", "product": "<productId>", "kind": "subs" | "inapp",
+  "order": "<Purchase.orderId>" }
+```
+
+- The SDK omits `order` when `Purchase.orderId` is null. `product` is the first of `Purchase.products`. The server
+  takes the order id and the product from Google's answer, so both are hints only.
+- The SDK sends only purchases in the purchased state. A pending purchase sends nothing until it completes. Each
+  token is sent once per launch, and once ever with consent.
+- `token` is 10 to 4096 printable ASCII characters without spaces, and `kind` is `subs` or `inapp`. Otherwise,
+  or when the batch is not an Android batch, the event is skipped and counted in `rejected`. A deployment without
+  the service account (below) accepts the event and stores nothing.
+
+The app, not the SDK, calls `BillingFlowParams.Builder.setObfuscatedAccountId(FounderData.obfuscatedAccountId)`
+(or the SDK's builder extension `setFounderDataAccountId()`): the install id as a lowercase UUID (36 characters, the
+same role as `appAccountToken`). The SDK never builds the billing flow itself.
+
+The token proves nothing by itself, so the server checks it with Google before it stores money:
+
+1. The batch answers `202` at once. The check runs in `ctx.waitUntil`, never in the request path. A batch checks each
+   token once and at most 3 purchases, one after another.
+2. `kind: "subs"`: `purchases.subscriptionsv2.get`. `kind: "inapp"`: `purchases.productsv2.getproductpurchasev2`.
+   The call is made for the site's own `android_package`, so a token of another app is not found. The answers carry
+   no package name of their own.
+3. The amount comes from `orders.get` on the order id (`latestSuccessfulOrderId` for a subscription): `total`, the
+   price the buyer paid including tax and after discounts, in its own currency. This matches the App Store rows,
+   which are customer prices including tax. No order id, or `orders.get` fails: no payment row is written, and the
+   next notification for the token tries again.
+4. Test purchases (`testPurchase` or `testPurchaseContext`) are stored with provider `google_play_test` only when
+   `accept_sandbox` is on, and never count in revenue, like `app_store_sandbox`.
+5. A purchase that was never paid writes nothing: a one-time purchase whose `purchaseState` is not `PURCHASED`, a
+   subscription in `SUBSCRIPTION_STATE_PENDING` or `SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED`, or an order in
+   state `PENDING` or `CANCELED`. A subscription in `SUBSCRIPTION_STATE_CANCELED` (auto-renew off) or `EXPIRED` was
+   still paid for its period, so its order is recorded.
+6. An order total of 0 (a free trial or a $0 offer) is not revenue. For a subscription it is a `trial_start` signal
+   (`gplay_trial_<orderId>`), as for the App Store.
+7. An order that is stored already is not fetched again. The check only fills in a missing visitor.
+
+Payment rows: provider `google_play`, payment id `gplay_<orderId>`, `customer_id` `gplay:<first purchase token>`,
+`subscription_id` the first purchase token (`linkedPurchaseToken` chains are followed back, at most 3 hops: a token
+the site already stores as a `subscription_id` ends the walk, else Google is asked for the linked token), `renewal = 1`
+when the site already has an earlier payment with that `subscription_id`. A subscription also updates its row in the
+`subscriptions` table (id the first token): price per period from the order total and `expiryTime`, auto-renew off as
+canceled, on hold or in grace period as a billing issue, expired as ended. The payment time is the order's
+`createTime`. Google's service fee is not taken out: Apple's cut setting covers App Store amounts only. The visitor comes from `vid`/`sid` of the event, or
+from `obfuscatedExternalAccountId` through `app_aliases`, as for `appAccountToken`. The RevenueCat webhook stores a
+`PLAY_STORE` event as `gplay_<transaction_id>` (RevenueCat's Play transaction id is the order id, `GPA.…`), the way
+it stores App Store events as `apple_<transaction_id>`, so a Play order is stored once whichever arrives first.
+Rows stored before this change keep their `rc_play_store_<transaction>` id.
+
+### Real-time developer notifications: `POST /api/webhooks/google/:siteId`
+
+Point a Pub/Sub push subscription for the Play topic at this URL.
+
+- Setup: `PATCH /api/sites/:id` with `{ "android_package": "com.example.app", "google_push_email": "<service
+  account>" }`, or Settings, General. A site without either answers `400`.
+- Auth: the push subscription must send an OIDC token. The server checks the RS256 signature against Google's keys
+  (`https://www.googleapis.com/oauth2/v3/certs`, cached for an hour per isolate and fetched again for an unknown key
+  id), `iss` `https://accounts.google.com`, `aud` equal to the webhook URL (set the push subscription's audience to
+  it), a verified `email` equal to the site setting `google_push_email`, and `exp`. Anything else answers `401`. The
+  key fetch is the only Google call in the request path, and it is I/O, not CPU.
+- Body: the Pub/Sub envelope `{ message: { data } }`. `data` is base64 JSON with `packageName`, which must equal the
+  site's `android_package` (else `400`), and one of `subscriptionNotification`, `oneTimeProductNotification`,
+  `voidedPurchaseNotification`, `testNotification`.
+- The notification carries no price. Purchases and renewals (subscription types 1 RECOVERED, 2 RENEWED, 4
+  PURCHASED, 7 RESTARTED; one-time type 1) run the check above. A voided purchase writes a negative refund row for
+  `gplay_<orderId>` (`gplay_refund_<orderId>`), or `result: "no_original"` when the order was never recorded. A
+  quantity-based partial refund (`refundType` 2) carries no amount and answers `ignored: "partial_refund"`. Other
+  types and `testNotification` answer `200 { ok: true, ignored }`. A purchase notification answers
+  `{ ok: true, result: "checking" }`, or `ignored: "no_service_account"` without the secret.
+- The server answers `200` within the request and does the Google calls in `waitUntil`, so Pub/Sub does not retry a
+  delivery that was received.
+
+### Google service account
+
+One secret, `GOOGLE_SERVICE_ACCOUNT_JSON`, the service account's JSON key. The Worker signs an RS256 JWT with
+Web Crypto and exchanges it at `https://oauth2.googleapis.com/token` for an access token, cached for 50 minutes
+(`src/worker/lib/google-auth.ts`). Scopes: `https://www.googleapis.com/auth/androidpublisher` for the checks above.
+Pro reuses the helper for the Play sales report and Firebase push. In Play Console, invite the service account
+under Users and permissions with "View financial data" for the app. Without the secret, Google Play purchases and
+notifications are skipped and the setup checklist row says `off`.

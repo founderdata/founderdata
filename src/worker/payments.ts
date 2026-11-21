@@ -6,6 +6,7 @@ import { writeSiteOf } from './keys';
 import { resolveRange } from './lib/time';
 import { announce, pusherOf, type Pusher } from './notify';
 import { currencyDecimals } from '../shared/currency';
+import { isTestProvider, PLAY_TEST_PROVIDER, SANDBOX_PROVIDER, TEST_PROVIDERS, TEST_PROVIDERS_SQL } from '../shared/test-providers';
 
 export { currencyDecimals };
 
@@ -43,10 +44,13 @@ export type MatchedBy =
   /** RevenueCat subscriber attribute founderDataVisitorId. */
   | 'subscriber_attribute';
 
-/** Payments that are not revenue: App Store sandbox purchases, kept only so you can test the setup. */
-export const SANDBOX_PROVIDER = 'app_store_sandbox';
-/** Sandbox purchases are stored for testing but are never revenue. Lives here so Pro modules can build SQL with it at import time. */
-export const REAL = `p.provider != '${SANDBOX_PROVIDER}'`;
+/**
+ * Payments that are not revenue: App Store sandbox and Google Play test purchases, kept only so you can test the setup
+ * (src/shared/test-providers.ts).
+ */
+export { isTestProvider, PLAY_TEST_PROVIDER, SANDBOX_PROVIDER, TEST_PROVIDERS, TEST_PROVIDERS_SQL };
+/** Test purchases are stored for testing but are never revenue. Lives here so Pro modules can build SQL with it at import time. */
+export const REAL = `p.provider NOT IN ${TEST_PROVIDERS_SQL}`;
 
 /** A visit's channel, source and utm_campaign, copied onto a payment (migration 0064) so it outlives the visit. */
 export interface SourceSnapshot {
@@ -341,7 +345,7 @@ export async function recordPayment(db: D1Database, site: Site, p: PaymentInput,
       event: p.kind === 'refund' ? 'refund' : renewal ? 'renewal' : 'purchase',
       id: p.id,
       provider: p.provider,
-      sandbox: p.provider === SANDBOX_PROVIDER,
+      sandbox: isTestProvider(p.provider),
       amount: p.amount,
       currency: p.currency.toUpperCase(),
       product: p.product,
