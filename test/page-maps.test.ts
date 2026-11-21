@@ -295,6 +295,11 @@ describe('click maps through the Worker', () => {
       ['/rare', null, false],
       ['/nothing', null, false],
     ]);
+    // GET /api/v1/content (get_content without a path) carries the same two fields on each row.
+    const v1 = await (await w.fetch('/api/v1/content?period=7d', auth)).json<any>();
+    expect(v1.scroll_days).toBe(28);
+    expect(v1.rows.find((r: any) => r.page === '/pricing')).toMatchObject({ scroll_median_pct: null, has_click_map: true });
+    for (const r of v1.rows) expect(Object.keys(r)).toEqual(expect.arrayContaining(['scroll_median_pct', 'has_click_map']));
   });
 
   it('reads at most the newest 2,000 click map rows of a page for its scroll', async () => {

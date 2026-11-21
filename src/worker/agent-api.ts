@@ -29,7 +29,7 @@ import { CUSTOMER_KINDS, funnel, nativeBreakdown, customers, type CustomerKind, 
 import { dataLocation } from './location';
 import { canRead, LEGACY_SCOPES, SCOPE_TEXT, type Scope } from './keys';
 import { compactSources, siteTrust, trustForKey, type SiteTrust } from './sources';
-import { vitalsRoute } from './vitals';
+import { vitalsRoute, withPageScroll } from './vitals';
 import { proHooks } from './pro-hooks';
 import { partDefinitions } from './core-parts';
 import { VERSION } from '../shared/product';
@@ -490,7 +490,8 @@ export function registerAgentRoutes(app: Hono<AppEnv>) {
     'content',
     readRoute('content', { params: [...RANGE, 'prefix', 'limit'], money: 'strip' }, async (c) => {
       const out = await content(makeCtx(c), { prefix: c.req.query('prefix') || null, limit: Number(c.req.query('limit')) || 100 });
-      return tokenOf(c).show_revenue ? out : contentWithoutRevenue(out);
+      // Each row gains scroll_median_pct and has_click_map over the last 28 days (vitals.ts withPageScroll).
+      return withPageScroll(c.env.DB, c.get('site').id, tokenOf(c).show_revenue ? out : contentWithoutRevenue(out));
     }),
   );
   // A web funnel: a saved one by id, or ad hoc steps, as the Goals tab counts it (stats.ts funnel). Neither: the saved funnels.

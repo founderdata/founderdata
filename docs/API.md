@@ -1725,6 +1725,10 @@ on the page. Without one, `goal` is `null` at the top and the rows have no `goal
 Each period reads the 500 entry pages with the most visitors. `truncated` is `true` when a period has more, so a page
 with few visitors may be missing. `revenue_per_visitor` is rounded to whole minor units.
 
+Each row also has `scroll_median_pct` and `has_click_map`, over the last 28 days whatever the period (`scroll_days`).
+`scroll_median_pct` is the page's median scroll depth, picked as in `GET /api/v1/content/page`, and `null` below 10
+samples. `has_click_map` is `true` when the page has a click map in those days.
+
 The dashboard's Content tab reads the same answer from `GET /api/sites/<id>/content`, behind the login.
 
 #### `GET /api/v1/content/page`

@@ -3368,6 +3368,10 @@
                     "truncated": {
                       "type": "boolean"
                     },
+                    "scroll_days": {
+                      "type": "integer",
+                      "description": "Days behind scroll_median_pct and has_click_map: 28, whatever the period."
+                    },
                     "rows": {
                       "type": "array",
                       "items": {
@@ -3415,6 +3419,17 @@
                           "goal": {
                             "type": "integer",
                             "description": "Visitors who sent the primary goal in a visit that started on the page. Absent without a primary goal."
+                          },
+                          "scroll_median_pct": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "description": "The page's median scroll depth in percent over the last 28 days, picked as in /api/v1/content/page. null below 10 samples."
+                          },
+                          "has_click_map": {
+                            "type": "boolean",
+                            "description": "true when the page has a click map in the last 28 days."
                           }
                         },
                         "additionalProperties": true
