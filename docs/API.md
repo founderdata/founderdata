@@ -4389,6 +4389,7 @@ are kept 90 days, erased with the person (`POST /api/sites/<id>/erase`), and exp
 status and the alert are Pro: see "Errors (Pro)".
 
 The stack frames and the recorded mark `r` added 156 bytes to the script: 5,668 to 5,824 bytes minified and gzipped.
+With experiments, click maps and surveys, round 7 ended at 15,560 bytes minified and 6,674 gzipped.
 
 ## CSV export
 

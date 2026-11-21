@@ -16,7 +16,7 @@ analytics, iOS app reports, ads, SEO, AI visibility and the full agent layer for
 Not for you if you need it on your own server: it runs on Cloudflare Workers and D1 only, with no Docker image or
 Postgres option. Nor if you need single sign-on or per-site permissions. Core has one admin password and one shared
 read-only viewer password, set as `VIEWER_PASSWORD`. Pro adds teammates with their own login, each an owner or a viewer
-for every site. It has no heatmaps.
+for every site.
 
 ![The FounderData dashboard with visitors, revenue, sources and paying customers](docs/dashboard.png)
 
@@ -215,6 +215,11 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
 - Custom dashboards that your agent builds over MCP: numbers, lines, columns, bars, a country map, funnels and tables, run live when
   you open the page ([docs/MCP.md](docs/MCP.md#custom-dashboards-pro)).
 - Teammates with their own login, as owner or viewer.
+
+**What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
+builder. Flags and experiments are decided in the browser at the page view, with no server-side call for a backend or
+an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
+frames point at the minified file. App Store subscriptions send no cancel reason.
 
 ## Install
 
@@ -525,7 +530,7 @@ server.
 
 The code is laid out like this:
 
-- `public/js/script.js` is the tracker. The build minifies it to about 4 KB gzipped.
+- `public/js/script.js` is the tracker. The build minifies it to 15,560 bytes, 6,674 gzipped.
 - `src/worker` is a [Hono](https://hono.dev) app on Cloudflare Workers. It takes in events, webhooks and API calls and
   runs the stats queries on D1.
 - `src/dashboard` is the React dashboard (Vite, Tailwind, Recharts). The same Worker serves it as static files.

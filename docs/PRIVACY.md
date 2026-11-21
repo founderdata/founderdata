@@ -471,6 +471,10 @@ of that data. Before you turn it on:
 9. **Breach readiness.** Read the breach procedure below once, before you need it.
 10. **Recordings and Remember visitors (Pro).** Both are off by default. Before you turn either on, read "Recordings
     (Pro)" above and add them to your privacy policy.
+11. **Errors, surveys and click maps.** All three are off by default. Errors keep the message with the visit and
+    visitor id for 90 days and do not wait for consent. Survey answers are tied to the visitor, and to a named person
+    once `identify()` ran. Click maps keep link and button text with no visitor id, so erase cannot reach them. Read
+    "Errors", "Surveys" and "Click maps and scroll" above, and add what you turn on to your privacy policy.
 
 ### Legitimate interest balancing test
 
@@ -537,7 +541,11 @@ Replace the bracketed parts and delete what does not apply.
 >
 > The data is stored by Cloudflare, Inc. [in the European Union. The servers that receive each request run in the
 > Cloudflare data center nearest you, which can be outside the European Union.] [Alerts about purchases go to [Slack /
-> email via Resend] without your name or email.] To see or delete your data, write to [address].
+> email via Resend] without your name or email.] [When a page fails, we store the error message with the visit's
+> identifier for 90 days, to find and fix the fault.] [When you answer our question how you heard about us, or why you
+> cancel, we store your answer with your visit [and your account].] [We store where on a page visitors click and how
+> far they scroll, with the text of the link or button and no identifier of the visitor, for 90 days.] To see or
+> delete your data, write to [address].
 
 ## For procurement
 

@@ -47,6 +47,11 @@ Under them, one row holds every section of the site in four groups:
 In core, every section after Overview opens the Pro card, which explains what the section shows and how to get Pro.
 The rest of this part describes Pro.
 
+**What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
+builder. Flags and experiments are decided in the browser at the page view, with no server-side call for a backend or
+an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
+frames point at the minified file. App Store subscriptions send no cancel reason.
+
 Every section is one click away on every site. A section the site cannot use yet stays in the row in gray with a
 hollow dot. It opens a screen that names the missing step and links to it in Settings: a website for Content, SEO and
 AI visibility, an app for App, ASO and App Store, a payment provider for Subscriptions. Meta ads and Apple Search Ads
@@ -3737,7 +3742,7 @@ node scripts/setup-sites.mjs https://founderdata.example.com --replace-secrets  
 
 ## How it's built
 
-- `public/js/script.js`: the tracker, 13 KB (about 4.8 KB gzipped). It handles consent and cookies, pageviews, engaged time, goals, outbound links and checkout link tagging
+- `public/js/script.js`: the tracker, 34 KB of source that the build minifies to 15,560 bytes (6,674 gzipped). It handles consent and cookies, pageviews, engaged time, goals, outbound links and checkout link tagging
 - `src/worker`: a Hono app on Cloudflare Workers that handles web and app event ingestion, the Stripe, Dodo and App Store webhooks, the payments and goals API, and stats queries on D1 (SQLite). `lib/apple-jws.ts` and `lib/x509.ts` verify Apple's signed transactions with WebCrypto
 - `src/dashboard`: the React dashboard (Vite, Tailwind, Recharts), served as static files by the same Worker
 - `migrations/`: the database schema
