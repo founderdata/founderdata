@@ -4,6 +4,7 @@ import { verifyStandardWebhook } from './lib/crypto';
 import { pusherOf, type Pusher } from './notify';
 import { metaIds, minor, obj, providerSignal, providerSubscription, recordProviderPayment, setRefund, str, time } from './providers';
 import { priceOf, type Interval, type SubEvent } from './subscriptions';
+import { cancelReasonStatements } from './surveys';
 
 /**
  * Polar webhook: POST /api/webhooks/polar/:siteId, signed the Standard Webhooks way (webhook-id, webhook-timestamp,
@@ -112,6 +113,13 @@ export async function handlePolarEvent(db: D1Database, site: Site, event: Record
     case 'subscription.revoked':
     case 'subscription.past_due': {
       await providerSubscription(db, site, subscriptionEvent(id, o), ids);
+      // The reason the customer gave when canceling (customer_cancellation_reason and _comment): a cancel_reason answer
+      // (surveys.ts). Polar's reasons are Stripe's keys. Keyed by canceled_at, so .canceled then .revoked write it once.
+      const canceledAt = time(o.canceled_at);
+      if (canceledAt && (type === 'subscription.canceled' || type === 'subscription.revoked' || type === 'subscription.updated') && !(ids.siteId && ids.siteId !== site.id)) {
+        const answer = cancelReasonStatements(db, site, { provider: 'polar', subscriptionId: id, canceledAt, feedback: str(o.customer_cancellation_reason), comment: str(o.customer_cancellation_comment), visitorId: ids.visitorId });
+        if (answer.length) await db.batch(answer);
+      }
       if (type === 'subscription.updated' || type === 'subscription.active' || type === 'subscription.uncanceled') return 'updated';
       const signal =
         type === 'subscription.created' ? (o.status === 'trialing' ? 'trial_start' : null)

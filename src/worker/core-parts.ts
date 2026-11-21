@@ -18,6 +18,11 @@ export interface CorePart {
   retention?(db: D1Database, cutoff: number, now: number): D1PreparedStatement[];
   /** Statements that erase these visitors' rows (erase.ts), one chunk of ids at a time. */
   erase?(db: D1Database, siteId: string, visitorIds: string[]): D1PreparedStatement[];
+  /**
+   * Statements that erase rows tied to these payment customer ids (erase.ts, an erase by email or user id), run while
+   * the subscriptions still carry them: rows of a buyer who was never seen as a visitor.
+   */
+  eraseCustomers?(db: D1Database, siteId: string, customerIds: string[]): D1PreparedStatement[];
   /** PATCH /api/sites/:id: check the body's fields onto `next`; the error to answer, or null. */
   patch?(b: Record<string, unknown>, next: Site): string | null;
   /** The [column, value] pairs that PATCH writes after patch(). */
@@ -41,6 +46,10 @@ export const partRetention = (db: D1Database, cutoff: number, now: number): D1Pr
 /** Every part's erase statements for one chunk of visitor ids. */
 export const partErase = (db: D1Database, siteId: string, visitorIds: string[]): D1PreparedStatement[] =>
   CORE_PARTS.flatMap((p) => p.erase?.(db, siteId, visitorIds) ?? []);
+
+/** Every part's erase statements for one chunk of payment customer ids. */
+export const partEraseCustomers = (db: D1Database, siteId: string, customerIds: string[]): D1PreparedStatement[] =>
+  CORE_PARTS.flatMap((p) => p.eraseCustomers?.(db, siteId, customerIds) ?? []);
 
 /** Runs every part's PATCH check; the first error, or null. */
 export function partPatch(b: Record<string, unknown>, next: Site): string | null {

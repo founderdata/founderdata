@@ -515,7 +515,55 @@ describe('round 7: exp', () => {
 });
 
 describe('round 7: survey', () => {
-  it.todo('survey answer: 2 rows, 1 when the trait did not change; cancel reason from a webhook: 1 or 2');
+  // src/worker/surveys.ts: the answer row (no index) and the visitor's trait.
+  let w: TestWorker;
+  let site: any;
+  const count = async (fn: () => Promise<unknown>) => {
+    w.takeRowsWritten();
+    await fn();
+    await w.flush();
+    return w.takeRowsWritten();
+  };
+  const ev = (body: Record<string, unknown>) =>
+    w.fetch('/api/event', { method: 'POST', headers: { 'user-agent': UA, 'cf-connecting-ip': '198.51.100.90' }, body: JSON.stringify({ w: site.id, u: 'https://survey-cost.example/welcome', ...body }) });
+  const stripeSub = (object: Record<string, unknown>) => {
+    const body = JSON.stringify({ id: `evt_${Math.random()}`, type: 'customer.subscription.updated', created: Math.floor(Date.now() / 1000), data: { object } });
+    const t = Math.floor(Date.now() / 1000);
+    return w.fetch(`/api/webhooks/stripe/${site.id}`, { method: 'POST', headers: { 'stripe-signature': `t=${t},v1=${createHmac('sha256', SECRET).update(`${t}.${body}`).digest('hex')}` }, body });
+  };
+  beforeAll(async () => {
+    resetBudgetForTests(Infinity);
+    w = await startWorker();
+    site = await w.createSite({ domain: 'survey-cost.example', stripe_webhook_secret: SECRET });
+  });
+  afterAll(() => w.dispose());
+
+  it('survey answer: 2 rows, 1 when the trait did not change', async () => {
+    await ev({ t: 'pageview', vid: 'cost-svy-0001', sid: 'cost-svy-0001-s' });
+    const answer = () => ev({ t: 'survey', vid: 'cost-svy-0001', sid: 'cost-svy-0001-s', n: 'heard_about', p: { a: 'podcast' } });
+    expect(await count(answer)).toBe(2);
+    expect(await count(answer)).toBe(1);
+  });
+
+  it('cancel reason from a webhook: 2 rows with a visitor, 1 without, 0 for a retry', async () => {
+    const canceled = Math.floor(Date.now() / 1000) - 60;
+    const sub = (id: string, vid: string | null, why: unknown) => ({
+      id, object: 'subscription', customer: `cus_${id}`, status: 'active', start_date: canceled - 86400 * 40, cancel_at_period_end: true,
+      canceled_at: canceled, current_period_end: canceled + 86400 * 20, currency: 'usd',
+      metadata: { rt_site_id: site.id, ...(vid ? { rt_visitor_id: vid } : {}) },
+      items: { data: [{ price: { unit_amount: 2900, currency: 'usd', recurring: { interval: 'month', interval_count: 1 } }, quantity: 1 }] },
+      cancellation_details: why,
+    });
+    const why = { feedback: 'too_expensive', comment: 'Pricey', reason: 'cancellation_requested' };
+    // The same event without a reason first: the subscription's own rows, so the difference is the answer's.
+    for (const [id, vid] of [['sub_cost_svy_1', 'cost-svy-0001'], ['sub_cost_svy_2', null]] as const) {
+      await stripeSub(sub(id, vid, null));
+      await w.flush();
+      const base = await count(() => stripeSub(sub(id, vid, null)));
+      expect(await count(() => stripeSub(sub(id, vid, why)))).toBe(base + (vid ? 2 : 1));
+      expect(await count(() => stripeSub(sub(id, vid, why)))).toBe(base);
+    }
+  });
 });
 
 describe('round 7: pages', () => {

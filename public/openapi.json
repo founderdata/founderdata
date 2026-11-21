@@ -6497,6 +6497,298 @@
         }
       }
     },
+    "/api/v1/web/retention": {
+      "get": {
+        "operationId": "getWebRetention",
+        "summary": "Web retention",
+        "description": "People the website recognizes again (FounderData Pro): cohorts by the period people were first active, and the share active in each later period. split=channel groups them by first channel.",
+        "tags": [
+          "App"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/period"
+          },
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/site"
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "description": "day, week (Monday weeks) or month, in the site's time zone. Without it: days up to 14 days, months past 200, else weeks.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "day",
+                "week",
+                "month"
+              ]
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "known (default): people named by identify() or a payment, joined by user id, then email. all: every visitor id too.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "known",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "buckets",
+            "in": "query",
+            "description": "2 to 26 periods (lifecycle, default 12) or cohorts (retention, default 8), ending with the range's last period.",
+            "schema": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 26
+            }
+          },
+          {
+            "name": "customers",
+            "in": "query",
+            "description": "1: only people with a payment.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          },
+          {
+            "name": "split",
+            "in": "query",
+            "description": "channel: one grid per first channel, the 5 largest.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "channel"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "dashboard_url": {
+                      "$ref": "#/components/schemas/DashboardUrl"
+                    },
+                    "interval": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "hasData": {
+                      "type": "boolean"
+                    },
+                    "cohorts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "average": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    },
+                    "groups": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "more": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "headers": {
+              "X-Dashboard-Url": {
+                "$ref": "#/components/headers/DashboardUrl"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          }
+        }
+      }
+    },
+    "/api/v1/web/lifecycle": {
+      "get": {
+        "operationId": "getWebLifecycle",
+        "summary": "Web lifecycle",
+        "description": "New, returning, resurrecting and dormant people per period on the website (FounderData Pro).",
+        "tags": [
+          "App"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/period"
+          },
+          {
+            "$ref": "#/components/parameters/from"
+          },
+          {
+            "$ref": "#/components/parameters/to"
+          },
+          {
+            "$ref": "#/components/parameters/site"
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "description": "day, week (Monday weeks) or month, in the site's time zone. Without it: days up to 14 days, months past 200, else weeks.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "day",
+                "week",
+                "month"
+              ]
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "known (default): people named by identify() or a payment, joined by user id, then email. all: every visitor id too.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "known",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "buckets",
+            "in": "query",
+            "description": "2 to 26 periods (lifecycle, default 12) or cohorts (retention, default 8), ending with the range's last period.",
+            "schema": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 26
+            }
+          },
+          {
+            "name": "customers",
+            "in": "query",
+            "description": "1: only people with a payment.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "dashboard_url": {
+                      "$ref": "#/components/schemas/DashboardUrl"
+                    },
+                    "interval": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "people": {
+                      "type": "integer"
+                    },
+                    "hasData": {
+                      "type": "boolean"
+                    },
+                    "buckets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "totals": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "headers": {
+              "X-Dashboard-Url": {
+                "$ref": "#/components/headers/DashboardUrl"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooMany"
+          }
+        }
+      }
+    },
     "/api/v1/app/sources": {
       "get": {
         "operationId": "getAppSources",

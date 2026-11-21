@@ -545,6 +545,8 @@ async function apiBreakdown(c: Context<AppEnv>) {
             ...(tok.show_revenue ? { revenue: r.revenue, customers: r.customers } : {}),
             ...(tok.show_revenue && r.importedRevenue ? { imported_revenue: r.importedRevenue, imported_payments: r.importedPayments ?? 0 } : {}),
             ...(r.appStore ? { note: 'app_store_no_source' } : r.noVisit ? { note: 'no_visit' } : {}),
+            // heard_about rows (surveys.ts): the channels those visitors arrived by.
+            ...('tracked' in r ? { tracked: (r as { tracked: unknown }).tracked } : {}),
             // x_post rows (pro/worker/x-posts.ts): the post, and how many of its visits matched exactly or probably.
             ...(r.x ? { post_id: r.x.unmatched ? null : r.label, text: r.x.text, url: r.x.url, posted_at: r.x.posted_at, exact: r.x.exact, probable: r.x.probable, ...(tok.show_revenue ? { exact_customers: r.x.exact_customers, probable_customers: r.x.probable_customers, exact_revenue: r.x.exact_revenue, probable_revenue: r.x.probable_revenue } : {}), goals: r.x.goals, visits_considered: r.x.visits_considered, truncated: r.x.truncated, ...(r.x.unmatched ? { note: 'no_post' } : {}) } : {}),
           })),

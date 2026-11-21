@@ -3201,7 +3201,31 @@ lists what a recording stores.
 
 ### Retention and lifecycle
 
-<!-- r7 survey: written by lane survey -->
+People has two views: **People** (the list) and **Retention**, at `/people/retention`. Retention answers two questions
+about your website: does the base grow, and do people come back?
+
+- **Lifecycle** draws each week as a bar. Above the axis: new people (active for the first time), returning people
+  (active this week and the week before) and people back after a break (active, not the week before, but earlier).
+  Below the axis: people who went quiet (active the week before, not this week). The current week is still running, so
+  some of its quiet people may come back before it ends.
+- **Retention** groups people by the week they were first seen and shows the share of each group seen again in every
+  week after. The average row weighs each group by its size. **By first channel** splits it by the channel of each
+  person's first visit, so you can see whether people from X stay as long as people from Google.
+
+Pick days, weeks or months, and **Customers** to count only people who paid. The lifecycle shows 12 periods and the grid
+8 groups, ending with the period of the dashboard's date range.
+
+**Who counts.** Retention needs people your site recognizes on another day. **Known people**, the default, are the
+visitors your site named with [`identify()`](#identify-people) or a payment, joined by user id, then email, as on a
+person's page. **Every visitor id** adds everyone else, and counts a visitor id as new in the period the site first
+saw it. Use it only when your site keeps visitors in cookies (consent,
+or [Remember visitors](#cookies-and-consent)): without cookies a visitor gets a new id every day and counts as new each
+time. With nobody known yet, the view says so and offers both ways in. Your iOS app has its own retention in the App
+section.
+
+Agents read the same numbers with `get_app_funnel`, `report: "lifecycle"` or `report: "retention"` with
+`platform: "web"`, and scripts with `GET /api/v1/web/lifecycle` and `/api/v1/web/retention`
+([API.md](API.md#retention-and-lifecycle-pro)). Reading costs no rows.
 
 ## Errors (Pro)
 
@@ -3257,7 +3281,60 @@ costs 1 row, once. Creating, changing, starting or stopping an experiment writes
 
 ## Surveys
 
-<!-- r7 survey: written by lane survey -->
+Two questions, asked of the right people: **How did you hear about us?** right after signup, and **Why are you
+canceling?** when a customer cancels. The first fills the gap attribution leaves: a podcast, a friend or a newsletter
+arrives as Direct, and the answer names it. The second puts reasons next to churn.
+
+The questions are fixed so the answers add up across sites. You can change their wording and the labels of the
+answers, for a site in another language, but not add questions.
+
+| Survey | Answers |
+| --- | --- |
+| How did you hear about us? (`heard_about`) | Google, an AI assistant, X, Reddit, YouTube, LinkedIn, a friend, a podcast, a newsletter, somewhere else (with their own words) |
+| Why are you canceling? (`cancel_reason`) | Costs too much, missing something, switched to another product, not used enough, too hard to use, did not work well enough, support did not help, another reason (with their own words) |
+
+### Where answers come from
+
+- **Your own question.** If your signup or cancel flow already asks, keep it and send each answer with one line:
+  `founderdata('answer', 'heard_about', 'podcast')`. An option of yours that is not on the list arrives as "somewhere
+  else" with its label as the text. This works in both editions ([API.md](API.md#survey-answers)).
+- **Stripe's cancel reasons.** In Stripe, open Settings, Billing, Customer portal and turn on Cancellation reasons.
+  Customers who cancel in the portal pick a reason and may add a comment. FounderData reads both from the webhook it
+  already gets, with no code. Polar sends its cancellation reason the same way.
+- **The survey card (Pro).** A small card at the bottom right of the page (a sheet at the bottom on a phone) asks the
+  question. It uses no cookie and no storage. Closing it counts as "skipped", so the same visitor is not asked again;
+  without cookies the visitor's id changes daily, so someone who closed it may see it again on another day. It works by
+  keyboard: Tab reaches it, Esc closes it.
+
+Each answer is also saved on the person: their page lists `heard_about` or `cancel_reason` with the other traits.
+
+### Turn on the survey card (Pro)
+
+1. Settings, **Surveys**: turn on a question and enter the page it shows on, such as `/welcome` for the page after
+   signup or `/account/cancel` for your cancel page. Pages under that path count too. **Preview the card** shows what
+   visitors see; **Change the wording** sets the question and the labels.
+2. Or press **Copy AI prompt** and paste it into your coding assistant. It finds the welcome page or the step before
+   the cancellation, and calls `founderdata('survey', 'heard_about')` there, or wires a question your site already
+   asks to `founderdata('answer', ...)`. The Stripe step stays yours.
+
+The card shows on those pages, and where your code calls it, to visitors who have not answered or closed it yet.
+Checking that costs one read of the visitor row on each page view while a survey is on, and no row written. An answer
+writes 2 rows: the answer and the person's trait.
+
+### Read the answers
+
+- **Overview, Channel card, Heard about.** Visitors of the period by their answer, with their revenue and the channels
+  they arrived by ("Tracked as Direct, X"). Filter the Overview by Direct to see what the direct visitors said. Without
+  answers the tab says how to start.
+- **Subscriptions, Why they cancel (Pro).** The reasons of the period with the MRR those customers canceled, the reasons
+  per plan, and the newest comments in the customer's own words. Without reasons it shows the Stripe switch and the
+  prompt for your own cancel page.
+- **Settings, Surveys (Pro).** Answers of the last 30 days per question, and the share of people who answered out of
+  those who answered or closed the card. The card counts no views, so people who left it open are not in that number.
+- **Agents.** `get_breakdown` with `dim: "heard_about"`, and `get_subscriptions`, whose summary has `cancel_reasons`.
+  Text people typed comes marked as untrusted. CSV: `survey_answers` in the export.
+
+[PRIVACY.md](PRIVACY.md#surveys) lists what is stored and for how long.
 
 ## Click maps and scroll depth (Pro)
 

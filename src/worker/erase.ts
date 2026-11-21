@@ -7,7 +7,7 @@ import type { AppEnv, Site } from './env';
 import { apiKeyOf } from './keys';
 import { cleanNote, handlerOf, logErasure } from './privacy';
 import { proHooks } from './pro-hooks';
-import { partErase } from './core-parts';
+import { partErase, partEraseCustomers } from './core-parts';
 
 /** Visitor ids per batch: each statement binds them all, and D1 allows 100 bound parameters. */
 const IDS_PER_BATCH = 50;
@@ -100,11 +100,12 @@ export async function eraseVisitors(db: D1Database, site: Site, ids: string[], e
   // Subscriptions of this email's payments, by the customer ids read above.
   for (let i = 0; i < customers.length; i += IDS_PER_BATCH) {
     const chunk = customers.slice(i, i + IDS_PER_BATCH);
-    const subs = await db
-      .prepare(`${unlinkSubs} AND customer_id IN (${chunk.map(() => '?').join(', ')})`)
-      .bind(site.id, ...chunk)
-      .run();
-    out.subscriptions += subs.meta.changes;
+    // Round 7's rows of these customers' subscriptions (core-parts.ts: cancel reasons), before the unlink clears the id.
+    const res = await db.batch([
+      ...partEraseCustomers(db, site.id, chunk),
+      db.prepare(`${unlinkSubs} AND customer_id IN (${chunk.map(() => '?').join(', ')})`).bind(site.id, ...chunk),
+    ]);
+    out.subscriptions += res[res.length - 1].meta.changes;
   }
   if (rcCustomer) {
     // RevenueCat payments of this app user that no visitor links.

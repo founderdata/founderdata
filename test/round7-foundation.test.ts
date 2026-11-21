@@ -112,19 +112,19 @@ describe('round 7 foundation', () => {
     expect(exposureProps({ 'bad key': 'b', ok: '' })).toBeNull();
   });
 
-  it('accepts survey answers and, with the stub, writes nothing', async () => {
+  it('accepts survey answers: the answer and the trait (lane survey, test/surveys.test.ts)', async () => {
     const n = await rows(async () => {
       const r = await event({ t: 'survey', vid: 'r7visitor00001', sid: 'r7session00001', n: 'heard_about', p: { a: 'podcast' } });
       expect(r.status).toBe(202);
       expect(await r.text()).toBe('');
     });
-    expect(n).toBe(0);
+    expect(n).toBe(2);
   });
 
-  it('answers the heard_about breakdown with no rows, and lists it as a dimension and an Overview tab', async () => {
+  it('answers the heard_about breakdown with the answer above, and lists it as a dimension and an Overview tab', async () => {
     const r = await w.admin(`/api/sites/${site.id}/breakdown?dim=heard_about&period=30d`);
     expect(r.status).toBe(200);
-    expect(r.body).toEqual([]);
+    expect(r.body.map((x: { label: string }) => x.label)).toEqual(['podcast']);
     expect(BREAKDOWN_DIMS).toContain('heard_about');
     expect(BREAKDOWN_CARDS[0].at(-1)).toEqual({ label: 'Heard about', dim: 'heard_about' });
   });

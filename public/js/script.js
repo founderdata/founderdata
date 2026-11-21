@@ -418,7 +418,29 @@
 
   // ==== region surveys: the answer and survey commands, the survey loader (cfg.sv)
   // lane survey edits only inside this region
-  function cfgSurvey(sv) {}
+  // founderdata('answer', survey, answer, text) stores an answer (docs/API.md, "Survey answers"). founderdata('survey', key)
+  // shows FounderData Pro's widget when that survey is on: /js/survey.js loads once, with founderdata._sv.
+  var svOn = [], svWant;
+  function svAns(s, a, x, v) {
+    if (s && a) send('survey', { n: s + '', p: { a: a + '', x: x ? (x + '').slice(0, 200) : x, v: v } }, true);
+  }
+  function svGo() {
+    var k = svWant;
+    if (!k || svOn.indexOf(k) < 0) return;
+    svWant = 0;
+    if (api._sv) return api._sv.show && api._sv.show(k);
+    api._sv = { k: k, host: host, site: siteId, a: svAns };
+    var el = d.createElement('script');
+    el.src = host + '/js/survey.js';
+    (d.head || d.documentElement).appendChild(el);
+  }
+  cmds.answer = svAns;
+  cmds.survey = function (k) { svWant = k; svGo(); };
+  function cfgSurvey(sv) {
+    svOn = (sv && sv.on) || [];
+    svWant = (sv && sv.show) || svWant;
+    svGo();
+  }
   // ==== end of region surveys
 
   // (between regions)

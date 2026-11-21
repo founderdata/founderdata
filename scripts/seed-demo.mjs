@@ -1522,7 +1522,128 @@ const seoParts = (() => {
 }
 
 // ---------- Round 7: surveys, retention and lifecycle (lane survey)
+// ShipKit: 150 people who sign in over 14 weeks, so People > Retention has cohorts and the lifecycle chart has new,
+// returning, resurrecting and dormant people; about 60 "How did you hear about us" answers in the last 30 days, a
+// third from Direct visitors (a podcast, a friend), 5 with their own words; 15 cancel reasons from Stripe on the
+// cancelled subscriptions, 6 with a comment; Anna and Ben carry their answer as a trait. Own random sequence, so the
+// rows above stay the same. Late statements are one line each: test/round-trips.test.ts runs the file line by line.
 {
+  out.push(`DELETE FROM survey_answers WHERE site_id IN (${ids});`);
+  let s = 77;
+  const r = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+  const at = (list) => list[Math.floor(r() * list.length)];
+  const WEEK = 7 * DAY;
+  const ARRIVE = [
+    [{ source: 'Google', channel: 'Organic Search', referrer: 'www.google.com', domain: 'google.com' }, 30],
+    [{ source: 'X', channel: 'Organic Social', referrer: 't.co', domain: 't.co' }, 25],
+    [{ source: 'Direct/None', channel: 'Direct', referrer: null, domain: null }, 25],
+    [{ source: 'Indie Hackers', channel: 'Referral', referrer: 'www.indiehackers.com', domain: 'indiehackers.com' }, 10],
+    [{ source: 'ChatGPT', channel: 'AI', referrer: 'chatgpt.com', domain: 'chatgpt.com' }, 10],
+  ];
+  const pickArrive = () => {
+    let x = r() * 100;
+    for (const [v, w] of ARRIVE) if ((x -= w) <= 0) return v;
+    return ARRIVE[0][0];
+  };
+  const DIRECT = ARRIVE[2][0];
+  let payments = 0;
+  for (let i = 0; i < 150; i++) {
+    // More people joined in recent weeks: the product grew.
+    const joined = Math.min(13, Math.floor(14 * (1 - Math.sqrt(r()))));
+    const first = pickArrive();
+    const who = { name: `${at(FIRST)} ${at(LAST)}` };
+    who.email = `${who.name.toLowerCase().replace(/[^a-z]+/g, '.')}.${i}@example.com`;
+    const user = `usr_life_${i}`;
+    // Half keep one visitor id (cookies, Remember visitors); the others get a new id each visit, joined by identify().
+    const remember = r() < 0.5;
+    const stay = 0.25 + r() * 0.6;
+    const geo = at(COUNTRIES);
+    let lastWeek = joined;
+    for (let wk = joined; wk >= 0; wk--) {
+      // Coming back gets less likely the longer someone stayed away; a few return after a gap (resurrecting).
+      const gap = lastWeek - wk;
+      if (wk !== joined && !(r() < (gap <= 1 ? stay : stay * 0.35))) continue;
+      lastWeek = wk;
+      const start = now - wk * WEEK - Math.floor(r() * (wk ? WEEK : 3 * DAY)) - 3600_000;
+      const vid = remember ? `life-${i}` : `life-${i}-${wk}`;
+      const sid = `life-${i}-s${wk}`;
+      const src = wk === joined ? first : r() < 0.7 ? DIRECT : first;
+      if (!remember || wk === joined) {
+        insert('visitors', {
+          site_id: shipkit, id: vid, first_seen: start, user_id: user, name: who.name, email: who.email,
+          first_source: src.source, first_channel: src.channel, first_referrer: src.referrer, first_entry_page: wk === joined ? '/' : '/login',
+        });
+      }
+      const pages = wk === joined ? ['/', '/pricing', '/signup', '/welcome'] : ['/login', '/dashboard'];
+      const duration = 60_000 + Math.floor(r() * 400_000);
+      insert('sessions', {
+        site_id: shipkit, id: sid, visitor_id: vid, started_at: start, last_seen_at: start + duration, duration, pageviews: pages.length,
+        goals: wk === joined ? 1 : 0, hostname: 'shipkit.example.com', entry_page: pages[0], exit_page: pages.at(-1), referrer: src.referrer,
+        referrer_domain: src.domain, source: src.source, channel: src.channel, country: geo[0], region: geo[1], city: geo[2],
+        browser: 'Chrome', os: 'Mac OS', device: 'Desktop',
+      });
+      const events = pages.map((p, k) => ({ ts: start + k * Math.floor(duration / pages.length), type: 'pageview', path: p }));
+      if (wk === joined) events.push({ ts: start + duration - 1000, type: 'goal', name: 'signup', path: '/signup' });
+      insertEvents(shipkit, sid, vid, events);
+      // About a quarter buy a license in their first week.
+      if (wk === joined && i % 4 === 1) {
+        insert('payments', {
+          id: `pay_demo_life_${++payments}`, site_id: shipkit, provider: 'dodo', ts: Math.min(now - 1000, start + duration), amount: [4900, 9900, 9900, 16900][i % 4],
+          kind: 'payment', currency: 'USD', visitor_id: vid, session_id: sid, customer_id: `cus_life_${i}`, email: who.email, name: who.name, matched_by: 'metadata',
+        });
+      }
+    }
+  }
+
+  // Anna and Ben answered the widget on /welcome after they signed up.
+  insert('survey_answers', { site_id: shipkit, survey: 'heard_about', ts: now - 9 * DAY + 5 * 60_000, id: 'demo_ha_anna', visitor_id: 'people-anna-mac', session_id: 'people-anna-s2', subscription_id: null, answer: 'friend', text: null, via: 'widget' });
+  insert('survey_answers', { site_id: shipkit, survey: 'heard_about', ts: now - 6 * DAY + 6 * 60_000, id: 'demo_ha_ben', visitor_id: 'people-ben-1', session_id: 'people-ben-s1', subscription_id: null, answer: 'podcast', text: null, via: 'widget' });
+
+  const since = now - 30 * DAY;
+  // Identified visitors of the last 30 days, oldest visit first, one row each: n numbers them.
+  const people = (channel) =>
+    `SELECT s.site_id, s.visitor_id, s.id AS sid, MIN(s.started_at) AS started_at, s.channel, s.source, ROW_NUMBER() OVER (ORDER BY MIN(s.started_at), s.visitor_id) AS n FROM sessions s JOIN visitors v ON v.site_id = s.site_id AND v.id = s.visitor_id WHERE s.site_id = ${q(shipkit)} AND s.started_at > ${since} AND v.user_id IS NOT NULL AND v.id NOT LIKE 'people-%' AND s.channel ${channel} GROUP BY s.visitor_id`;
+  const OTHER = ['The Indie Hackers forum', 'A Discord server for founders', 'My accountant', 'A conference talk in Berlin', 'Hacker News'];
+  const insertAnswers = (rows, answer, text, limit, via) =>
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'heard_about', started_at + 240000, 'demo_ha_' || visitor_id, visitor_id, sid, NULL, ${answer}, ${text}, ${via} FROM (${rows}) ORDER BY n LIMIT ${limit};`;
+  // 20 Direct visitors: two in three heard it on a podcast, the rest from a friend. Attribution calls them all Direct.
+  late.push(insertAnswers(people("= 'Direct'"), "CASE WHEN n % 3 = 0 THEN 'friend' ELSE 'podcast' END", 'NULL', 20, "CASE WHEN n % 4 = 0 THEN 'js' ELSE 'widget' END"));
+  // 40 others, mostly naming the channel that brought them; every eighth says something else in their own words.
+  const otherText = `CASE n % 40 ${OTHER.map((t, k) => `WHEN ${k * 8} THEN ${q(t)}`).join(' ')} END`;
+  late.push(
+    insertAnswers(
+      people("!= 'Direct'"),
+      `CASE WHEN n % 8 = 0 THEN 'other' WHEN source = 'Google' THEN 'google' WHEN source = 'X' THEN 'x' WHEN source = 'Reddit' THEN 'reddit' WHEN source = 'YouTube' THEN 'youtube' WHEN source = 'LinkedIn' THEN 'linkedin' WHEN channel = 'AI' THEN 'ai' WHEN n % 3 = 0 THEN 'newsletter' ELSE 'friend' END`,
+      `CASE WHEN n % 8 = 0 THEN ${otherText} END`,
+      40,
+      "'widget'",
+    ),
+  );
+  // 9 more identified visitors closed the card without answering: skipped, so the card's response rate is not 100%.
+  late.push(
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'heard_about', started_at + 240000, 'demo_ha_' || visitor_id, visitor_id, sid, NULL, 'skipped', NULL, 'widget' FROM (${people('IS NOT NULL')}) WHERE visitor_id NOT IN (SELECT visitor_id FROM survey_answers WHERE site_id = ${q(shipkit)} AND visitor_id IS NOT NULL) ORDER BY n DESC LIMIT 9;`,
+  );
+  // 15 cancelled Stripe subscriptions say why, 6 of them in words, as the Customer Portal's cancellation reasons.
+  const REASONS = ['too_expensive', 'missing_features', 'unused', 'too_expensive', 'switched_service', 'too_complex', 'unused', 'too_expensive', 'missing_features', 'low_quality', 'unused', 'customer_service', 'too_expensive', 'other', 'switched_service'];
+  // Each comment by the reason it goes with (n is the row number in REASONS, from 1).
+  const COMMENTS = [[1, 'Fine product, the price is high for a side project.'], [2, 'No team seats yet. We need three logins.'], [3, 'We only need it during launches, not every month.'], [5, 'Moved to a boilerplate my cofounder already knew.'], [6, 'The setup took longer than building it myself.'], [7, 'Paused the project for now.']];
+  // The 60 days above cancel only a few; 12 more running monthly plans turn auto-renew off, a few days after a renewal.
+  late.push(
+    `UPDATE subscriptions SET status = 'canceled', canceled_at = MIN(${now - DAY}, renewed_at + 2 * ${DAY}), updated_at = MIN(${now - DAY}, renewed_at + 2 * ${DAY}) WHERE site_id = ${q(shipkit)} AND id IN (SELECT id FROM subscriptions WHERE site_id = ${q(shipkit)} AND provider = 'stripe' AND interval = 'month' AND canceled_at IS NULL AND ended_at IS NULL AND billing_issue_at IS NULL AND renewed_at IS NOT NULL ORDER BY id LIMIT 12);`,
+  );
+  const reason = `CASE n ${REASONS.map((x, k) => `WHEN ${k + 1} THEN ${q(x)}`).join(' ')} END`;
+  const comment = `CASE n ${COMMENTS.map(([n, x]) => `WHEN ${n} THEN ${q(x)}`).join(' ')} END`;
+  late.push(
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'cancel_reason', canceled_at, 'stripe:' || id || ':' || canceled_at, visitor_id, NULL, id, ${reason}, ${comment}, 'stripe' FROM (SELECT sub.*, ROW_NUMBER() OVER (ORDER BY sub.canceled_at DESC, sub.id) AS n FROM subscriptions sub WHERE sub.site_id = ${q(shipkit)} AND sub.provider = 'stripe' AND sub.canceled_at IS NOT NULL) WHERE n <= 15;`,
+  );
+  // Each answer is also the person's trait (visitors.traits), as surveys.ts writes it.
+  for (const survey of ['heard_about', 'cancel_reason']) {
+    late.push(
+      `UPDATE visitors SET traits = json_set(COALESCE(traits, '{}'), '$.${survey}', (SELECT sa.answer FROM survey_answers sa WHERE sa.site_id = visitors.site_id AND sa.survey = '${survey}' AND sa.visitor_id = visitors.id ORDER BY sa.ts DESC LIMIT 1)) WHERE site_id = ${q(shipkit)} AND id IN (SELECT visitor_id FROM survey_answers WHERE site_id = ${q(shipkit)} AND survey = '${survey}' AND visitor_id IS NOT NULL);`,
+    );
+  }
+  // Both surveys on: the widget asks on /welcome after signup, and on the cancel page.
+  late.push(`UPDATE sites SET surveys = ${q(JSON.stringify({ heard_about: { on: 1, paths: ['/welcome'] }, cancel_reason: { on: 1, paths: ['/account/cancel'] } }))} WHERE id = ${q(shipkit)};`);
 }
 
 // ---------- Round 7: click maps, scroll depth and paths (lane pages)
