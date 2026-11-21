@@ -52,7 +52,7 @@ import { registerMcpRoutes } from './mcp';
 import { keepErasures, registerPrivacyRoutes } from './privacy';
 import { dashboardLinks } from './dashboard-url';
 import { registerPrimaryGoal } from './primary-goal';
-import { registerProductType, typeOnCreate } from './product-type';
+import { productType, registerProductType, typeOnCreate } from './product-type';
 import { NO_MAIL_HANDLER } from './mail-reject';
 import { settings } from './reporting';
 import { patchRecording, RECORDING_FIELDS } from './recording';
@@ -378,10 +378,16 @@ app.post('/api/sites', async (c) => {
     write_cap: null,
     product_type: typed.type,
   };
+  // With FounderData Pro, a new website starts with Record visits and Remember visitors on (docs/GUIDE.md, "People and
+  // recordings (Pro)"); the owner turns either off in Settings, Data and privacy. Core has no switch for them, so its
+  // sites start with both off, as do apps, extensions and newsletters. Recording waits for the REPLAY_BUCKET binding.
+  const on = proHooks() && productType(site) === 'website' ? 1 : 0;
+  site.record_visits = on;
+  site.remember_visitors = on;
   await c.env.DB.prepare(
-    'INSERT INTO sites (id, name, domain, timezone, currency, api_key, dodo_webhook_secret, created_at, app_bundle_id, product_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO sites (id, name, domain, timezone, currency, api_key, dodo_webhook_secret, created_at, app_bundle_id, product_type, record_visits, remember_visitors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
-    .bind(site.id, site.name, site.domain, site.timezone, site.currency, site.api_key, null, site.created_at, site.app_bundle_id, site.product_type)
+    .bind(site.id, site.name, site.domain, site.timezone, site.currency, site.api_key, null, site.created_at, site.app_bundle_id, site.product_type, on, on)
     .run();
   return c.json(publicSite(site));
 });
