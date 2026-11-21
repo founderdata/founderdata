@@ -2778,8 +2778,12 @@ site's status chip, "down 3 weeks" says its weekly revenue (or visitors, without
 3 weeks in a row. It shows from 2 weeks.
 
 FounderData adds notes of its own: each new app version, and each start and stop of a web experiment, such as
-"Experiment started: Pricing headline" with "experiments" as who made it ([Experiments](#experiments-pro)). They get
-verdicts and reviews like your notes, and you can delete them the same way.
+"Experiment started: Pricing headline" with "experiments" as who made it ([Experiments](#experiments-pro)). A version
+note gets a verdict and a review like your notes. An experiment note gets no verdict: both versions run in the days
+after it, so before and after compare a mix of the two. Its row says "Judged on the experiment page" and has a **See
+results** button that opens the experiment, and the strip above the list counts it as "judged as experiments". A
+note_verdict alert never fires on it, and `GET /api/v1/notes/<id>/impact` answers `verdict` `null` with a link to the
+experiment ([API.md](API.md#experiments-pro)). You can delete either kind the same way.
 
 Deploy scripts and CI add notes with the site's API key ([API.md](API.md#post-apiv1notes)):
 
@@ -3358,7 +3362,9 @@ visitor, not only more clicks. Experiments from your iOS app (`FounderData.exper
    their share of visitors (the first is the control: the page as it is today), the pages and the goal it is judged on
    beside revenue. Pages are path prefixes: `/pricing` also covers `/pricing/annual`, `/` is the home page only, and
    empty means every page. The goal field offers the goals your site sent in the last 90 days, and warns when the name
-   you typed has not fired in that time. It saves a draft.
+   you typed has not fired in that time. Left empty, it is your primary goal. A site without a primary goal then has no
+   goal at all, and revenue per visitor alone judges the experiment: the page says "no goal, judged on revenue per
+   visitor" and shows no goal verdict. It saves a draft.
 2. **Copy AI prompt** on the experiment's page and paste it into your coding agent. It marks each version in your HTML
    with `data-fd-exp` and `data-fd-variant` (the other versions start `hidden`), adds one CSS line so page styles cannot
    show both versions, or reads the flag in code with `founderdata('flag', key)` or `founderdata('flags', fn)`. See
@@ -3368,9 +3374,11 @@ visitor, not only more clicks. Experiments from your iOS app (`FounderData.exper
    in both, and each result would include the other's effect. Within a minute new visitors on those pages get a
    version. Until the first one arrives the page says "Waiting for the first visitor on /pricing". The start also puts
    a chart note on the Overview chart, "Experiment started: Pricing headline", so the chart shows when the test ran.
+   That note gets no before and after verdict: see [Chart notes](#chart-notes).
 
-Visitors see the control until the page view's answer arrives, a few milliseconds after the page loads. Keep both
-versions the same size so nothing jumps.
+Visitors see the control until the page view's answer arrives. On a local server that took 4 to 17 ms. In production
+it also waits for a database write, and that time has not been measured. Keep both versions the same size so nothing
+jumps.
 
 **Read the result.** Each row of the list has one sentence, such as "b: $1.84 per visitor against $1.21, likely
 better", or "Too few customers to compare revenue: 12 of 30". The list shows every experiment of the site; one that ran
@@ -3383,18 +3391,19 @@ gap likely real when a gap that big would show up by chance less than 5 times in
 range. Revenue gets a verdict only once each version has 30 customers; the goal once each has 100 visitors. Pick that
 bar before you start and wait for it: stopping at the first good day finds wins that are not there.
 
-What counts as revenue: what a person paid after their first visit in the version, one-time payments and first
-subscription payments. Renewals are left out, and so is anyone who had paid before they saw the experiment. When
-revenue per visitor and MRR per visitor point different ways (a version that sells more one-time licenses and fewer
-subscriptions), the sentence says so. The page also counts the payments of the run and how many of them a version got.
+What counts as revenue: what a person paid on your website after their first visit in the version, one-time payments
+and first subscription payments. Renewals are left out, and so is anyone who had paid before they saw the experiment.
+Purchases in an app through the App Store, Google Play or RevenueCat are left out too: no web version showed there.
+When revenue per visitor and MRR per visitor point different ways (a version that sells more one-time licenses and
+fewer subscriptions), the sentence says so. The page also counts the web payments of the run and how many of them a
+version got.
 
 Four warnings replace the verdict when they apply:
 
 - **The split is off.** Visitors split 45/55 against the 50/50 you set. That means assignment or tracking broke in one
   version, so check the setup before you trust the result.
 - **The goal never fired.** Every version has 100 visitors and nobody reached the goal. Check its name.
-- **Too few purchases (app).** An app experiment gets a verdict once each version has 30 purchases. Its counts are
-  sessions, so one person counts once per session.
+- **Too few buyers (app).** An app experiment gets a verdict once each version has 100 installs and 30 buyers.
 - **Overlap.** The page lists running experiments on the same pages.
 
 Without cookies a visitor id lasts one day, so someone who comes back tomorrow can land in the other version. People
@@ -3433,7 +3442,12 @@ no server-side flag call, so the browser carries the version to your server:
 
 The Copy AI prompt adds these steps when the versions differ in price.
 
-**App experiments.** The control is the version named `control`, `baseline`, `default`, `original`, `off` or `a`,
+**App experiments.** They count installs, not sessions. Each install counts once, in the version of its first session
+in the period, and it is a buyer when it bought in a session with the version. An install that opens the app ten
+times still counts once, so a version whose users open the app more often does not look worse. The page shows the
+sessions beside the installs. A verdict compares buyers over installs and needs 100 installs and 30 buyers in each
+version. Without consent or the vendor install id, FounderData knows a device for one day only, so the same person
+counts again the next day. The control is the version named `control`, `baseline`, `default`, `original`, `off` or `a`,
 else the first name in alphabetical order; the experiment's page says which rule picked it. See
 [ios/README.md](../ios/README.md#session-properties-and-experiments).
 
