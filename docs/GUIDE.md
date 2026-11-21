@@ -3320,45 +3320,94 @@ visitor, not only more clicks. Experiments from your iOS app (`FounderData.exper
 **Start one.**
 
 1. Experiments > **New experiment**. Pick versions of a page or a feature flag, a name and a key, the versions with
-   their share of visitors (the first is the control: the page as it is today), the pages (`/pricing` also covers
-   `/pricing/annual`; empty means every page) and the goal it is judged on beside revenue. It saves a draft.
+   their share of visitors (the first is the control: the page as it is today), the pages and the goal it is judged on
+   beside revenue. Pages are path prefixes: `/pricing` also covers `/pricing/annual`, `/` is the home page only, and
+   empty means every page. The goal field offers the goals your site sent in the last 90 days, and warns when the name
+   you typed has not fired in that time. It saves a draft.
 2. **Copy AI prompt** on the experiment's page and paste it into your coding agent. It marks each version in your HTML
-   with `data-fd-exp` and `data-fd-variant` (the other versions start `hidden`), or reads the flag in code with
-   `founderdata('flag', key)` or `founderdata('flags', fn)`. See "Experiments in the tracker" in [API.md](API.md).
+   with `data-fd-exp` and `data-fd-variant` (the other versions start `hidden`), adds one CSS line so page styles cannot
+   show both versions, or reads the flag in code with `founderdata('flag', key)` or `founderdata('flags', fn)`. See
+   "Experiments in the tracker" in [API.md](API.md#experiments-in-the-tracker).
 3. Open each preview link (`/pricing?fd_exp=pricing_headline:b`). It shows that version and stores nothing.
-4. **Start**. Within a minute new visitors on those pages get a version. Until the first one arrives the page says
-   "Waiting for the first visitor on /pricing".
+4. **Start**. If another running experiment uses the same pages, FounderData names it and asks first: visitors would be
+   in both, and each result would include the other's effect. Within a minute new visitors on those pages get a
+   version. Until the first one arrives the page says "Waiting for the first visitor on /pricing".
+
+Visitors see the control until the page view's answer arrives, a few milliseconds after the page loads. Keep both
+versions the same size so nothing jumps.
 
 **Read the result.** Each row of the list has one sentence, such as "b: $1.84 per visitor against $1.21, likely
-better", or "Too few customers to compare revenue: 12 of 30". The experiment's page has each version's visitors,
-people who reached the goal, customers, revenue, revenue per visitor and MRR, the customers per version with links to
-their pages, and **Watch visits** for the recorded visits of a version. FounderData calls a gap likely real when a gap
-that big would show up by chance less than 5 times in 100. Revenue gets a verdict only once each version has 30
-customers; the goal once each has 100 visitors. Pick that bar before you start and wait for it: stopping at the first
-good day finds wins that are not there.
+better", or "Too few customers to compare revenue: 12 of 30". The list shows every experiment of the site; one that ran
+outside the period you picked says when it ran, and its link opens the experiment with its run as the period.
+
+The experiment's page has each version's visitors, people who reached the goal, customers, the paid rate, revenue,
+revenue per visitor, MRR and MRR per visitor. Each version links to the Overview filtered to its visitors over the run
+and to **Watch visits** for its recorded visits. The customers per version link to their pages. FounderData calls a
+gap likely real when a gap that big would show up by chance less than 5 times in 100, and shows the uplift and its 95%
+range. Revenue gets a verdict only once each version has 30 customers; the goal once each has 100 visitors. Pick that
+bar before you start and wait for it: stopping at the first good day finds wins that are not there.
+
+What counts as revenue: what a person paid after their first visit in the version, one-time payments and first
+subscription payments. Renewals are left out, and so is anyone who had paid before they saw the experiment. When
+revenue per visitor and MRR per visitor point different ways (a version that sells more one-time licenses and fewer
+subscriptions), the sentence says so. The page also counts the payments of the run and how many of them a version got.
+
+Four warnings replace the verdict when they apply:
+
+- **The split is off.** Visitors split 45/55 against the 50/50 you set. That means assignment or tracking broke in one
+  version, so check the setup before you trust the result.
+- **The goal never fired.** Every version has 100 visitors and nobody reached the goal. Check its name.
+- **Too few purchases (app).** An app experiment gets a verdict once each version has 30 purchases. Its counts are
+  sessions, so one person counts once per session.
+- **Overlap.** The page lists running experiments on the same pages.
 
 Without cookies a visitor id lasts one day, so someone who comes back tomorrow can land in the other version. People
-who sign in count once through `identify()`. Remember visitors keeps one version per person across days; the page
-says how many people it saw in two versions.
+who sign in count once through `identify()`. Without Remember visitors FounderData can only see people your site
+identifies in two versions, so the page says "at least" that many and names the share of identified visitors.
+Remember visitors keeps one version per person across days.
 
-**End it.** **Stop** and pick the winner. FounderData stops assigning versions, so every visitor sees the page as
-written (the control) until you change the code. The page then shows a cleanup prompt: paste it into your coding
-agent to keep the winner and remove the rest. A stopped experiment stays stopped; start a new one to test again. At
-most 10 run at once.
+**End it.** **Stop** and pick the winner. Every visitor on the experiment's pages then gets the winner: the variant
+elements show it and `founderdata('flag', key)` answers it, so nothing changes for visitors while the code catches up.
+The results stay as they were at the stop. The page shows a cleanup prompt: paste it into your coding agent to keep
+the winner and remove the rest, then delete the experiment. Stop without a winner and every visitor sees the page as
+written (the control). A stopped experiment without a winner gets **Pick winner**, which starts serving it. A stopped
+experiment stays stopped; start a new one to test again. At most 10 run at once, and at most 10 stopped ones serve a
+winner.
 
 **Change it.** **Edit** on the experiment's page changes the name and the goal, and on a draft the pages too. The
 versions stay as created.
 
 **Flags.** A flag has the versions `off` and `on` and a rollout, the percent who get `on`. **Change rollout** on the
-flag's page sets it while the flag runs. Raise it and people who had `on` keep it. Your code checks `founderdata('flag', 'new_checkout') === 'on'`; without
-an answer it is `null`, so keep the old path as the default.
+flag's page sets it while the flag runs. Raise it and people who had `on` keep it, as long as their visitor id stays
+the same. Without cookies or Remember visitors, a visitor gets a new id every day at 00:00 UTC, so a flag can switch for
+the same person the next day. Turn on Remember visitors to keep one version per person. Your code checks
+`founderdata('flag', 'new_checkout') === 'on'`; without an answer it is `null`, so keep the old path as the default.
+
+### Test a price
+
+A version that changes the price has to charge that price too, or the result looks valid and is not. FounderData has
+no server-side flag call, so the browser carries the version to your server:
+
+1. In the browser, read the version: `founderdata('flags', (x) => ...)` gives `x.pricing_test`.
+2. Send it with the checkout request, for example `{ plan: 'pro', version: 'b' }`.
+3. On the server, map the version to a price id from a fixed list (`{ control: 'price_123', b: 'price_456' }`). Any
+   other value gets the control's price, so nobody can pick their own price.
+4. Put the version in the checkout session's metadata, so each payment says which price it was sold at.
+
+The Copy AI prompt adds these steps when the versions differ in price.
+
+**App experiments.** The control is the version named `control`, `baseline`, `default`, `original`, `off` or `a`,
+else the first name in alphabetical order; the experiment's page says which rule picked it. See
+[ios/README.md](../ios/README.md#session-properties-and-experiments).
 
 **Agents.** `get_app_funnel` with `report` `experiments` answers web and app experiments with the verdicts. The skill
-`founderdata-experiments` reads them, waits for the minimums and recommends a winner. Starting and stopping stay in the
-dashboard.
+`founderdata-experiments` reads them, waits for the minimums and recommends a winner. A draft's answer carries the
+markup and preview links the coding agent needs. Keys cannot create, start or stop experiments: what to test and when
+to stop is the owner's call, so those stay in the dashboard.
 
 **Cost.** A visit's version rides on the row its first pageview writes (0 rows). A visit that reaches the pages later
-costs 1 row, once. Creating, changing, starting or stopping an experiment writes 2 rows.
+costs 1 row, once. A stopped experiment's winner writes nothing. Creating, changing, starting or stopping an
+experiment, or picking a winner, writes 2 rows.
 
 ## Surveys
 

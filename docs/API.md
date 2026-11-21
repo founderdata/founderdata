@@ -2356,11 +2356,11 @@ payload's `path` is the page, `reason` the message, `issue` the issue id and `cu
 
 Web experiments, flags and app experiments in one list. MCP: `get_app_funnel` with `report` `experiments` and
 `platform`. Definitions: `/api/v1/definitions` (`experiments`). The key needs `read`; fields with `revenue` in their
-name, and `mrr`, need `read:revenue`; names and emails are `null`.
+name, `mrr` and `mrr_per_visitor` need `read:revenue`; names and emails are `null`. Times are ISO strings in UTC.
 
 | Route | Parameters | Answers |
 | --- | --- | --- |
-| `GET /api/v1/experiments` | range, `platform` (`all`, `web`, `app`) | Web experiments that ran in the range and every draft (running first, at most 20), then the app experiments with sessions in the range. |
+| `GET /api/v1/experiments` | range, `platform` (`all`, `web`, `app`) | Every web experiment of the site (running first, then drafts, then stopped ones, newest first, at most 20), then the app experiments with sessions in the range. With none, `next_step` says where to create one. |
 | `GET /api/v1/experiments/<key>` | range, `platform` | One: the web experiment with this key and each arm's paying people (20 at most), else the app experiment of that name. `404` when neither exists. |
 
 ```json
@@ -2368,43 +2368,67 @@ name, and `mrr`, need `read:revenue`; names and emails are `null`.
   "experiments": [
     { "key": "pricing_headline", "name": "Pricing headline", "platform": "web", "kind": "experiment", "status": "running",
       "variants": [{ "key": "control", "weight": 50 }, { "key": "b", "weight": 50 }], "paths": ["/pricing"], "goal": null,
-      "started_at": 1767225600000, "stopped_at": null, "winner": null, "unit": "visitors",
-      "from": 1767225600000, "to": 1769040000000, "visitors": 1812, "switched": 23, "control": "control",
+      "started_at": "2026-01-01T00:00:00.000Z", "stopped_at": null, "winner": null, "created_at": "2025-12-31T09:12:00.000Z",
+      "unit": "visitors", "from": "2026-01-01T00:00:00.000Z", "to": "2026-01-22T00:00:00.000Z", "in_period": true,
+      "visitors": 1812, "switched": 23, "switched_is_floor": true, "identified_share": 0.21,
+      "control": "control", "control_reason": "first_version", "overlaps": [],
+      "split_check": { "expected": { "control": 906, "b": 906 }, "observed": { "control": 905, "b": 907 }, "p_value": 0.9626, "ok": true },
+      "run_payments": { "total": 92, "tied": 75 },
       "arms": [
         { "variant": "control", "control": true, "visitors": 905, "conversions": 118, "conversion_rate": 0.1304, "customers": 34,
-          "revenue": 109500, "revenue_per_visitor": 121, "mrr": 9800, "vs_control": null },
+          "paid_rate": 0.0376, "revenue": 109500, "revenue_per_visitor": 121, "mrr": 9800, "mrr_per_visitor": 11, "vs_control": null },
         { "variant": "b", "control": false, "visitors": 907, "conversions": 124, "conversion_rate": 0.1367, "customers": 41,
-          "revenue": 166900, "revenue_per_visitor": 184, "mrr": 14700,
+          "paid_rate": 0.0452, "revenue": 166900, "revenue_per_visitor": 184, "mrr": 14700, "mrr_per_visitor": 16,
           "vs_control": { "difference": 0.0063, "p_value": 0.69, "verdict": "not_yet", "sample_needed_per_arm": 46000,
-                          "revenue_difference": 63, "revenue_p_value": 0.012, "revenue_verdict": "likely" } } ] } ] }
+                          "revenue_difference": 63, "revenue_p_value": 0.012, "revenue_verdict": "likely",
+                          "revenue_uplift": 0.5207, "revenue_interval": [14, 112] } } ] } ] }
 ```
 
-- A web experiment's arms cover its own run, `from` its start `to` its stop (or now), whatever the period. The period
-  decides which experiments are listed. App arms count sessions in the period (`unit` `sessions`, `status` null).
+- Every web experiment is listed whatever the period, and its arms cover its own run, `from` its start `to` its stop
+  (or now). `in_period` is false when that run lies outside the range asked for. App arms count sessions in the period
+  (`unit` `sessions`, `status` null), so one person counts once per session.
 - A web arm counts people: the user id `identify()` set, else the visitor id. A person seen in two versions counts in
-  the first; `switched` says how many. Visits from hosting networks stay out unless the site shows them.
+  the first; `switched` says how many. Without cookies or Remember visitors only people with a user id can be matched,
+  so `switched_is_floor` is true and `switched` is a lower bound; `identified_share` is the share of people with a user
+  id. Visits from hosting networks stay out unless the site shows them.
 - `conversions`: people who reached the goal (`goal`, else the site's primary goal) in or after their first visit in the
-  version, until the stop. `revenue`: their payments in the same window, sandbox purchases out, including payments on
-  other devices joined by the user id. Refunds from their first counted payment on subtract, also those after the stop.
-  A person's revenue never goes below 0, so a refund of a purchase made before the experiment takes nothing away.
-  `revenue_per_visitor` is `revenue` over `visitors`, minor
-  units. `customers`: people with revenue above 0. `mrr`: subscriptions they started in the window that still pay.
+  version, until the stop. `revenue`: what they paid in the same window, one-time payments and first subscription
+  payments, sandbox purchases and renewals out, including payments on other devices joined by the user id. Refunds from
+  their first counted payment on subtract, also those after the stop. A person's revenue never goes below 0.
+  `customers`: people whose first payment came after they first saw the experiment. A person who paid before counts as
+  a visitor and adds no customer and no revenue. `paid_rate` is `customers` over `visitors`. `revenue_per_visitor` and
+  `mrr_per_visitor` divide by `visitors`, minor units. `mrr`: subscriptions they started in the window that still pay.
+- `run_payments`: the payments in the run on the whole site (`total`, counted as `revenue` counts them) and how many of
+  them belong to a person in a version (`tied`).
 - `vs_control.verdict` compares the conversion rate (two-proportion z-test): `small_sample` under 100 in an arm, then
   `likely` (p under 0.05) or `not_yet`. `revenue_verdict` compares revenue per visitor (Welch's test): `small_sample`
-  until each arm has 30 customers. App arms have `revenue_verdict` null.
+  until each arm has 30 customers. While a verdict is `small_sample`, its p-value and difference are `null`, and
+  `sample_needed_per_arm` is at least 100. `revenue_uplift` is `revenue_difference` over the control's revenue per
+  visitor; `revenue_interval` is the 95% range of `revenue_difference`. P-values have 4 decimals.
+- App arms: `verdict` is `small_sample` until each arm has 30 purchases. `revenue_verdict` is null. `control_reason`
+  is `name` when a version is called `control`, `baseline`, `default`, `original`, `off` or `a`, else `alphabetical`
+  (the first name in alphabetical order). Web experiments say `first_version`.
+- `split_check` (web experiments, not flags) compares the visitors per version with the weights you set (chi-square).
+  `ok` is false when `p_value` is under 0.001: assignment or tracking failed in a version, so the verdicts are not to
+  be trusted. `p_value` is `null` and `ok` true while a version expects fewer than 5 visitors.
+- `overlaps`: the other running experiments whose pages overlap this one's. Their visitors are in both.
+- A draft carries `setup`: the preview link of each version and the markup (or, for a flag, the code) the coding agent
+  writes. Keys cannot create or start experiments; the owner does that in the dashboard, Experiments > New experiment.
 - `cookieless` is true when Remember visitors is off: a visitor id then lasts one UTC day.
 
-The dashboard's routes take a login (an owner for changes; a viewer reads):
+The dashboard's routes take a login (an owner for changes; a viewer reads). They answer times in epoch milliseconds:
 
 | Route | Body | Does |
 | --- | --- | --- |
 | `GET /api/sites/<id>/experiments` and `/<key>` | | As above, with names and emails. |
 | `POST /api/sites/<id>/experiments` | `key`, `name`, `kind` (`experiment` or `flag`), `variants` (2 to 4 names, or `{ "key", "weight" }` with weights that add up to 100; the first is the control) or, for a flag, `rollout` (percent on), `paths` (one per line, at most 10), `goal` | Saves a draft. `409` when the key is in use. A key is `[a-z0-9_]{1,40}` and not `new`. |
-| `PATCH /api/sites/<id>/experiments/<key>` | `action` `start` or `stop`, `winner` (with `stop`), `name`, `paths`, `goal`, `variants` or `rollout` | `409` for an 11th running experiment, new versions on a running experiment (a running flag may change its rollout), or a start after a stop. |
+| `PATCH /api/sites/<id>/experiments/<key>` | `action` `start` or `stop`, `winner` (with `stop`, or later on a stopped one), `name`, `paths`, `goal`, `variants` or `rollout` | `409` for an 11th running experiment, an 11th stopped one that serves a winner, new versions on a running experiment (a running flag may change its rollout), or a start after a stop. The answer's `experiment.overlaps` names running experiments on the same pages; starting is not refused. |
 | `DELETE /api/sites/<id>/experiments/<key>` | | Deletes it. Visits keep their `exp_<key>`. |
 
-Each change writes the experiment's row and the site's `exp_live` (2 rows). Running experiments take effect within a
-minute, as the site row is cached. A stopped experiment assigns nothing, so every visitor sees the page as written.
+Each change writes the experiment's row and the site's `exp_live` (2 rows). Changes take effect within a minute, as the
+site row is cached. A stopped experiment with a winner keeps showing the winner to every visitor on its pages, and
+stores nothing, until you delete it. Stopped without a winner, it assigns nothing, so every visitor sees the page as
+written. At most 10 stopped experiments serve a winner at once.
 
 ### Retention and lifecycle (Pro)
 
@@ -3898,7 +3922,7 @@ In cookie mode the answer is `{ "cfg": { … } }`.
 | --- | --- |
 | `rm` | Remember visitors is on. The script keeps the visitor in cookies as after `founderdata('consent', true)`, with `rt_consent=r`. When a later answer has no `rm`, the script removes cookies it kept this way. A page that called `founderdata('consent', false)` stays without cookies. |
 | `rec` | Record this visit (Pro). The server decides per visit, by the site's share and daily maximum. A visit from a hosting network (see "Datacenter visits" in docs/GUIDE.md) is never recorded. The object holds the recorder's settings: `mask` and `block` are CSS selectors, and Pro may add short keys of its own, such as `v` for the recorder's version. `c: 1` means the site waits for consent (`record_consent`): the script records only once the visitor consented to cookies, with `data-cookies="on"`, an earlier `rt_consent=1` or `founderdata('consent', true)`. Until then it loads nothing and sends no clicks or errors. Remember visitors (`rt_consent=r`) is not consent. `x` is the site's list of pages that are never recorded (`record_skip`, migration 0076), as path prefixes such as `["/dashboard", "/account"]`, and is absent when the list is empty. A page whose path is a prefix, or starts with a prefix and `/`, loads no recorder and sends no clicks or errors. When a single-page app moves to such a page, the recorder stops for the rest of the page load. |
-| `x` | The experiments this page view entered (Pro), as `{ "<key>": "<variant>" }`. The server stores the same map on the visit as the session properties `exp_<key>`. See "Experiments in the tracker". |
+| `x` | The experiments this page view entered (Pro), as `{ "<key>": "<variant>" }`. The server stores the same map on the visit as the session properties `exp_<key>`, except the winners of stopped experiments, which it only shows. See "Experiments in the tracker". |
 | `e` | `1`: the site catches JavaScript errors, because Catch JavaScript errors or Record visits is on. The script sends the page's errors with its ping, also when the visit is not recorded. See "Errors". |
 | `m` | Click maps are on (Pro). `s` is the percent of page views that send a click map, as in `{ "s": 100 }`. See "Click maps and scroll". |
 | `sv` | Surveys (Pro). `on` lists the surveys that are on and that this visitor has not answered or closed, and `show` names the one to show on this page. Absent when there is none. See "Survey answers". |
@@ -3964,7 +3988,8 @@ A web experiment shows each visitor one version of a page; a flag turns new code
 create them in the dashboard (FounderData Pro, Experiments). The server picks each visitor's version when the pageview
 arrives: a hash of the experiment's key and the visitor id against the versions' shares, so the same visitor id always
 gets the same version. Visits from hosting networks, bots and `?rt_ignore` get none. The pageview's answer carries the
-picks as `cfg.x`, `{ "pricing_headline": "b" }`, for the experiments running on that page only.
+picks as `cfg.x`, `{ "pricing_headline": "b" }`, for the experiments running on that page only. An experiment's pages
+are path prefixes: `/pricing` also covers `/pricing/annual`, and `/` is the home page only (with any query or hash).
 
 Mark each version in the HTML. The control is the page as written, the other versions start `hidden`:
 
@@ -3975,8 +4000,18 @@ Mark each version in the HTML. The control is the page as written, the other ver
 
 When the answer arrives, the script sets `hidden` on every `[data-fd-exp]` element whose `data-fd-variant` is not the
 visitor's version, and removes it from the one that is. It does this again after each single-page navigation. Without
-an answer (an ad blocker, an error, a page outside the experiment) it changes nothing, so the control shows. Give the
-versions the same size, so nothing moves when they swap.
+an answer (an ad blocker, an error, a page outside the experiment) it changes nothing, so the control shows.
+
+Three things the markup needs:
+
+- Add `[data-fd-exp][hidden] { display: none !important }` to the site's CSS. A rule such as `display: flex` on the
+  element's class beats the browser's own `[hidden]` rule, and then both versions show.
+- The control shows until the pageview's answer arrives. That took 4 to 17 ms on a local server; in production it
+  includes the database write and has not been measured. Give the versions the same size, so nothing moves when they
+  swap.
+- The script sets `hidden` on the elements that are on the page when the answer arrives, and again after each
+  single-page navigation. A component that mounts later (a modal, a list rendered on the client) keeps the `hidden` it
+  was written with. Read `founderdata('flag', key)` or `founderdata('flags', fn)` when it renders instead.
 
 For versions that are logic rather than markup:
 
@@ -3985,9 +4020,14 @@ For versions that are logic rather than markup:
 | `founderdata('flag', 'new_checkout')` | The visitor's version, such as `'on'`, or `null` before this page's answer and for an experiment the visitor has not reached. A version picked on an earlier page of the same page load stays. |
 | `founderdata('flags', fn)` | Calls `fn({ key: version, ... })` once, when this page's answer arrives, or right away if it has. After a single-page navigation it waits for the new page's answer. After 2 seconds without an answer it calls `fn` with the versions it knows, often `{}`. |
 
-A flag's versions are `off` and `on`. A call queued before the script loaded (`window.founderdata.q`) runs when it
-loads, so `flags` works from inline code too. The script calls `fn` after it has applied the answer, so an error
-thrown in `fn` shows in the console and stops nothing else.
+A flag's versions are `off` and `on`. Without cookies or Remember visitors, a visitor gets a new id every day at
+00:00 UTC, so a flag can switch for the same person the next day. Turn on Remember visitors to keep one version per
+person. FounderData has no server-side flag call: the version exists only in the browser. To charge the price of a
+version, the browser sends the version with the checkout request ("Test a price" in [GUIDE.md](GUIDE.md#test-a-price)).
+
+A call queued before the script loaded (`window.founderdata.q`) runs when it loads, so `flags` works from inline code
+too. The script calls `fn` after it has applied the answer, so an error thrown in `fn` shows in the console and stops
+nothing else.
 
 When the script is turned off (`?rt_ignore=true`, a browser driven by automation, localhost without
 `data-allow-localhost`, a missing site id), `flags` calls `fn({})` and `flag` answers `null`, so the page shows the
@@ -3997,11 +4037,16 @@ control.
 version on this page load before any answer, and the pageview carries `xp: 1`. The server then picks nothing and
 stores nothing about experiments for that pageview.
 
+**After the stop.** An experiment stopped with a winner keeps `cfg.x` set to the winner on its pages for every
+visitor, so the variant elements show the winner and `flag()` answers it until the code change lands. Delete the
+experiment once the code keeps the winner. Stopped without a winner, it sends nothing, and every visitor sees the page
+as written.
+
 **What the server stores.** The version is the session property `exp_<key>` in `sessions.props`, the property the iOS
 SDK's `FounderData.experiment()` sets, so one report reads web and app. A new visit gets it in the row it writes anyway
 (0 rows more); a running visit that reaches the experiment's pages later gets 1 row, once. A session keeps at most 10
-properties. Without cookies or Remember visitors the visitor id changes at 00:00 UTC, so a person back on another day
-may get the other version.
+properties. A stopped experiment's winner is never stored. Without cookies or Remember visitors the visitor id changes at
+00:00 UTC, so a person back on another day may get the other version.
 
 ### Survey answers
 
