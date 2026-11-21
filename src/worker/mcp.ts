@@ -531,7 +531,8 @@ async function callTool(app: App, c: Context<AppEnv>, tool: Tool, a: Args) {
   // a different question than the one asked.
   const known = (tool.inputSchema as { properties?: Record<string, unknown>; additionalProperties?: boolean });
   if (known.additionalProperties === false) {
-    const extra = Object.keys(a).filter((k) => !(k in (known.properties ?? {})));
+    // site works on every tool: a key for several sites names the site with it, and the route refuses it where it does not apply.
+    const extra = Object.keys(a).filter((k) => k !== 'site' && !(k in (known.properties ?? {})));
     if (extra.length) {
       // Personal data never comes back, so a name or email argument says so (the wording of pro/shared/recordings.ts).
       const pii = extra.some((k) => /^(name|email|e-?mail|user_?id|user|visitor_?id|visitor|ip|phone)$/i.test(k));
