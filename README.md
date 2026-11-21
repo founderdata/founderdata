@@ -52,8 +52,8 @@ Cloudflare's free plan covers about 3,100 web visits a day. [What it costs](#wha
   so visitor counts leave them out until you turn them on ([datacenter visits](docs/GUIDE.md#datacenter-visits)).
 - Pages, entry pages, outbound links, button clicks, custom goals and funnels.
 - "How did you hear about us?" as a tab of the Channel card. Send the answer your signup form already asks for with
-  `founderdata('answer', 'heard_about', 'podcast')`, and Stripe and Polar cancel reasons arrive with their webhooks
-  ([Surveys](docs/GUIDE.md#surveys)).
+  `founderdata('answer', 'heard_about', 'podcast')`, and Stripe and Polar cancel reasons arrive with their webhooks,
+  the App Store's and Google Play's categories with RevenueCat's and Apple's ([Surveys](docs/GUIDE.md#surveys)).
 - Revenue per source. A payment is credited to the buyer's last visit that came from a real source, so "clicked the
   launch tweet, came back directly two weeks later and paid" counts for the tweet. Without cookies that needs the
   signup to call `identify()`, which joins one person's daily visitor ids. Renewals stay with the source that won the
@@ -188,7 +188,8 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
   [Click maps](docs/GUIDE.md#click-maps-heatmaps-and-scroll-depth-pro) and [Paths](docs/GUIDE.md#paths).
 - Two surveys: "How did you hear about us?" after signup and "Why are you canceling?" before a cancel, shown as a small
   card on the pages you pick. Answers fill in what Direct visits leave out, and cancel reasons sit next to churn with
-  the MRR they took. Stripe's portal and Polar send cancel reasons with no code. See [Surveys](docs/GUIDE.md#surveys).
+  the MRR they took. Stripe's portal and Polar send cancel reasons with no code, and the App Store and Google Play send
+their category (through RevenueCat or Apple's notifications). See [Surveys](docs/GUIDE.md#surveys).
 - An iPhone app with widgets and a push notification for every payment.
 - An alert inbox keeps every alert for 90 days, one row per message and site, so an agent can read what fired since its
   last run ([guide](docs/GUIDE.md#alert-inbox-pro)). A threshold rule's webhook can send an auth header or a GitHub
@@ -219,7 +220,8 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
 **What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
 builder. Flags and experiments are decided in the browser at the page view, with no server-side call for a backend or
 an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
-frames point at the minified file. App Store subscriptions send no cancel reason.
+frames point at the minified file. App Store and Google Play cancel reasons are the store's categories, never the
+customer's words.
 
 ## Install
 
@@ -427,6 +429,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Web: a running experiment (Pro) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
 | Experiment (Pro): created, changed, started, stopped or deleted | 2: its row and the site's list of running experiments |
 | Survey answer from the survey card or `founderdata('answer', ...)` / a cancel reason from a Stripe or Polar webhook | 2, 1 when the visitor's trait did not change, 0 for the same answer again that day / 1, plus 1 when the subscription has a visitor |
+| Cancel reason from the App Store or Google Play (RevenueCat, or Apple's notifications) | 1, no trait. The expiry that follows a cancellation of the same period, and a retry, 0 |
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on |
 | Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more / 0 |
 | Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |

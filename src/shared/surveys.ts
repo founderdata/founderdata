@@ -12,6 +12,26 @@ export const ANSWERS: Record<SurveyKey, readonly string[]> = {
   cancel_reason: ['too_expensive', 'missing_features', 'switched_service', 'unused', 'too_complex', 'low_quality', 'customer_service', 'other'],
 };
 
+/**
+ * Cancel reasons from the App Store and Google Play, as RevenueCat's webhook reports them (cancel_reason or
+ * expiration_reason; src/worker/revenuecat.ts). They are the store's fixed categories, never the customer's words, so
+ * they are stored under keys of their own beside the answers above, with `via` app_store or play_store.
+ */
+export const STORE_REASONS = ['unsubscribed', 'billing_error', 'price_increase', 'developer', 'refunded', 'unknown'] as const;
+export type StoreReason = (typeof STORE_REASONS)[number];
+/** Where a store's cancel reason came from (`survey_answers.via`). */
+export const STORE_VIAS = ['app_store', 'play_store'] as const;
+export const isStoreVia = (v: unknown) => typeof v === 'string' && (STORE_VIAS as readonly string[]).includes(v);
+
+export const STORE_REASON_LABELS: Record<StoreReason, string> = {
+  unsubscribed: 'Turned off renewal, no reason given',
+  billing_error: 'Payment failed',
+  price_increase: 'Did not accept a price increase',
+  developer: 'Canceled by you',
+  refunded: 'Refunded',
+  unknown: 'No reason from the store',
+};
+
 /** A dismissed widget. Stored like an answer so the same visitor is not asked again; never counted as one. */
 export const SKIPPED = 'skipped';
 

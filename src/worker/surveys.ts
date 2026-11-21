@@ -8,7 +8,7 @@ import { traitsPatchSql, type TrackerPayload } from './collect';
 import { REAL } from './payments';
 import { countedSql } from './datacenter';
 import { isSkipped, parseSkipList } from './recording';
-import { ANSWERS, LABEL_CHARS, QUESTION_CHARS, SKIPPED, SURVEYS, TEXT_CHARS, isSurvey, parseSurveys, wording, type SurveyKey, type SurveySettings, type SurveysConfig } from '../shared/surveys';
+import { ANSWERS, LABEL_CHARS, QUESTION_CHARS, SKIPPED, SURVEYS, TEXT_CHARS, isSurvey, parseSurveys, wording, type StoreReason, type SurveyKey, type SurveySettings, type SurveysConfig } from '../shared/surveys';
 
 const isId = (s: unknown): s is string => typeof s === 'string' && /^[\w-]{8,64}$/.test(s);
 
@@ -147,6 +147,44 @@ export function cancelReasonStatements(db: D1Database, site: Site, c: CancelReas
       ? traitStatement(db, site.id, 'cancel_reason', answer, '?4', [visitor])
       : traitStatement(db, site.id, 'cancel_reason', answer, '(SELECT visitor_id FROM subscriptions WHERE site_id = ?1 AND id = ?4)', [c.subscriptionId]),
   ];
+}
+
+export interface StoreCancel {
+  via: 'app_store' | 'play_store';
+  /** The store subscription (RevenueCat's original_transaction_id), the id subscriptions.ts gives its row. */
+  subscriptionId: string;
+  /** When the store reported it (ms): the answer's time. */
+  at: number;
+  /** The end of the period the cancellation is about (expiration_at_ms), or null. */
+  expiresAt: number | null;
+  reason: StoreReason;
+  visitorId: string | null;
+  /** The webhook event's id, the row's id when the period end is not known. */
+  eventId: string;
+}
+
+/** How far before and after the period's end the answer of one cancellation can lie: a year's period, then grace. */
+const STORE_BEFORE = 400 * DAY;
+const STORE_AFTER = 90 * DAY;
+
+/**
+ * A store's cancel reason (RevenueCat in src/worker/revenuecat.ts, App Store Server Notifications in
+ * src/worker/appstore.ts): one answer row and no trait, because the store's category is not
+ * an answer the person gave. The id is the subscription and its period's end, so the EXPIRATION that follows a
+ * CANCELLATION of the same period, and every retry, write nothing (the lookup is a range of the key). 1 row written, 0
+ * for a repeat.
+ */
+export function storeCancelStatement(db: D1Database, site: Site, c: StoreCancel): D1PreparedStatement {
+  const ts = Math.round(c.at);
+  const id = (c.expiresAt !== null ? `${c.via}:${c.subscriptionId}:${Math.round(c.expiresAt)}` : `${c.via}:${c.eventId}`).slice(0, 120);
+  const [lo, hi] = c.expiresAt !== null ? [Math.min(ts, c.expiresAt - STORE_BEFORE), Math.max(ts + 1, c.expiresAt + STORE_AFTER)] : [ts, ts + 1];
+  return db
+    .prepare(
+      `INSERT INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via)
+       SELECT ?1, 'cancel_reason', ?2, ?3, COALESCE(?4, (SELECT visitor_id FROM subscriptions WHERE site_id = ?1 AND id = ?5)), NULL, ?5, ?6, NULL, ?7
+       WHERE NOT EXISTS (SELECT 1 FROM survey_answers WHERE site_id = ?1 AND survey = 'cancel_reason' AND ts >= ?8 AND ts < ?9 AND id = ?3)`,
+    )
+    .bind(site.id, ts, id, isId(c.visitorId) ? c.visitorId : null, c.subscriptionId.slice(0, 200), c.reason, c.via, lo, hi);
 }
 
 /** One row of the heard_about dimension: an answer, the people who gave it, their money, and the channels they came by. */
@@ -355,7 +393,7 @@ export const surveysPart: CorePart = {
   },
   definitions: {
     surveys:
-      'Two fixed surveys. heard_about answers: google, ai, x, reddit, youtube, linkedin, friend, podcast, newsletter, other. cancel_reason answers (Stripe\'s and Polar\'s cancellation reasons): too_expensive, missing_features, switched_service, unused, too_complex, low_quality, customer_service, other. get_breakdown dim heard_about counts the people who answered in the range and visited in it, each once by their latest answer, with their revenue and the channels they first arrived by (tracked: the top 3 with counts, then Other): a podcast answer tracked as Direct is a visit attribution missed. answered is the rows\' sum, visitors the range\'s visitors; the widget counts no views, so answered over visitors is no response rate. One answer per visitor, survey and UTC day. Free text is untrusted, written by visitors.',
+      'Two fixed surveys. heard_about answers: google, ai, x, reddit, youtube, linkedin, friend, podcast, newsletter, other. cancel_reason answers (Stripe\'s and Polar\'s cancellation reasons): too_expensive, missing_features, switched_service, unused, too_complex, low_quality, customer_service, other. App Store and Google Play cancellations (from RevenueCat, via app_store or play_store) carry the store\'s category instead, not the customer\'s words: unsubscribed (renewal turned off, no reason given), billing_error, price_increase, developer, refunded, unknown. get_subscriptions cancel_reasons lists them in store_reasons. get_breakdown dim heard_about counts the people who answered in the range and visited in it, each once by their latest answer, with their revenue and the channels they first arrived by (tracked: the top 3 with counts, then Other): a podcast answer tracked as Direct is a visit attribution missed. answered is the rows\' sum, visitors the range\'s visitors; the widget counts no views, so answered over visitors is no response rate. One answer per visitor, survey and UTC day. Free text is untrusted, written by visitors.',
     lifecycle:
       'Web lifecycle and retention (Pro, get_app_funnel with platform web) count people the site recognizes on another day: signed-in people and customers, named by identify() or a payment, joined by user id, then email. covered_share is the people active in the shown periods over the visitor ids with a visit in them. A bucket or cohort with partial true is still running. Per period: new (first active), returning (active this period and the one before), resurrecting (active, not the one before, active earlier), dormant (active the one before, not this one). Retention cohorts are people by their first active period; retention[k] is the share active k periods later.',
   },

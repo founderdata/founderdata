@@ -50,7 +50,8 @@ The rest of this part describes Pro.
 **What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
 builder. Flags and experiments are decided in the browser at the page view, with no server-side call for a backend or
 an app. API keys read experiments but cannot create, start or stop them. Errors have no source map upload, so stack
-frames point at the minified file. App Store subscriptions send no cancel reason.
+frames point at the minified file. App Store and Google Play cancel reasons are the store's categories, never the
+customer's words.
 
 Every section is one click away on every site. A section the site cannot use yet stays in the row in gray with a
 hollow dot. It opens a screen that names the missing step and links to it in Settings: a website for Content, SEO and
@@ -370,6 +371,7 @@ number changes:
 | Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change, 0 for the same answer again that day. Each answer is 1 Worker request |
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on. `/js/survey.js` is 1 request, cached |
 | Cancel reason from a Stripe or Polar webhook | 1, plus 1 when the subscription has a visitor. The webhook request is already counted |
+| Cancel reason from the App Store or Google Play (a RevenueCat cancellation or expiration, Apple's renewal turned off or expired notice) | 1, no trait. The expiry that follows a cancellation of the same period, and a retry, 0 |
 | Web: click map of one page view ([Click maps](#click-maps-heatmaps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more. 0 with click maps off |
 | Web: scroll depth of one page load | 0, a column of the page speed row |
 | Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
@@ -387,7 +389,7 @@ number changes:
 | App: consented install (`ctx.consent`) | 0 extra, 1 fewer for the first `session_start` |
 | App Store purchase (app event or notification) | 6, a repeat delivery 0 to 1; 7 for a subscription (its row in `subscriptions`). Each payment credited to a visitor counts 1 for its entry in the index that tells the [live globe](MOBILE-API.md#9-live-visitors) who has paid before |
 | App Store free trial from the app (a `trial_start` signal, no payment) | 3, a repeat delivery 1; 5 with the subscription's row and its entry in the trial index |
-| App Store auto-renew off or on, failed renewal, expiry (notification) | 1, plus 1 [inbox](#alert-inbox-pro) row when a paying subscription fails to renew or is canceled |
+| App Store auto-renew off or on, failed renewal, expiry (notification) | 1, plus 1 [inbox](#alert-inbox-pro) row when a paying subscription fails to renew or is canceled, plus 1 for the cancel reason when renewal turns off or the subscription expires (once per period) |
 | App Store sales import (below): a day with 20 sales rows, first import / re-import | 63 / 82 |
 | Apple Search Ads import (below): 1 campaign and 2 keywords over 3 days, first import / unchanged re-import | 13 / 1 |
 | Meta ads import ([below](#meta-ads-pro)): 3 ad-days, 4 names and the 7-day frequency of 1 ad, first import / unchanged re-import | 11 / 1 |
@@ -397,7 +399,7 @@ number changes:
 | Stripe subscription payment (`invoice.paid`) | 9: the payment and its invoice id in `stripe_objects`, and the subscription's row |
 | Stripe `customer.subscription.*`, `invoice.payment_failed`, a subscription Checkout | 1 each (2 when it creates a subscription with a trial: the trial index), a repeat delivery 0. A failed payment or cancellation of a paying subscription adds 1 [inbox](#alert-inbox-pro) row |
 | RevenueCat purchase / refund | 6 / 4 (a subscription purchase updates its row), a repeat delivery (or a purchase the SDK already sent) 0 |
-| RevenueCat trial start / cancellation, expiration, billing issue | 4 (the signal, the subscription's row and its entry in the trial index) / 3 each (the signal and the subscription's row), 4 for a paying subscription (its [inbox](#alert-inbox-pro) row) |
+| RevenueCat trial start / cancellation, expiration, billing issue | 4 (the signal, the subscription's row and its entry in the trial index) / 3 each (the signal and the subscription's row), 4 for a paying subscription (its [inbox](#alert-inbox-pro) row). An App Store or Google Play cancellation or expiration adds 1 for its cancel reason, once per period |
 | Lemon Squeezy, Polar, Paddle or Gumroad payment / refund | 5 / 4, a repeat delivery 0 |
 | Dodo payment / a subscription's payment / a subscription event / a cancellation, expiry or failed renewal | 5 / 6 (the subscription's row) / 1 / 3 (the signal and the row), 4 for a paying subscription (its [inbox](#alert-inbox-pro) row), a repeat delivery 0 |
 | A payment that fills its visitor's empty email or name | 1 more for the visitor row, plus 1 for each of email and user id the visitor has after it (2 for a first email). 0 when both are already set |
@@ -3463,8 +3465,14 @@ answers, for a site in another language, but not add questions.
   without cookies the visitor's id changes daily, so someone who closed it may see it again on another day. It works by
   keyboard: Tab reaches it, Esc closes it.
 
-Reasons come from Stripe's Customer Portal, Polar and the card on your cancel page. App Store subscriptions send no
-reason: Apple does not tell the app why someone canceled.
+- **The App Store and Google Play.** The stores never pass on what a customer typed. They report a category: turned
+  off renewal with no reason given, payment failed, did not accept a price increase, canceled by you, or refunded.
+  FounderData stores that category from RevenueCat's webhook or from Apple's App Store Server Notifications, with no
+  code. "Why they cancel" lists these under **From the App Store and Google Play**, apart from the reasons customers
+  gave in their own words. Reasons RevenueCat sent before you updated are added once, for customers whose app visit is
+  known ([API.md](API.md#survey-answers)).
+
+Reasons come from Stripe's Customer Portal, Polar, the card on your cancel page and the stores' categories.
 
 Each answer is also saved on the person: their page lists `heard_about` or `cancel_reason` with the other traits.
 

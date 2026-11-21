@@ -4232,6 +4232,35 @@ of a site with a survey on.
 The row's id is the provider, the subscription id and the cancel time, so a retried or repeated event writes nothing. It
 costs 1 row, plus 1 for the trait of the subscription's visitor when it has one.
 
+**App Store and Google Play.** The stores never pass on what the customer typed. They report one of a few fixed
+categories, and FounderData stores that category as the answer, under keys of its own:
+
+| Key | The store says | From RevenueCat | From App Store Server Notifications |
+| --- | --- | --- | --- |
+| `unsubscribed` | The customer turned off renewal and gave no reason | `UNSUBSCRIBE` | `DID_CHANGE_RENEWAL_STATUS` `AUTO_RENEW_DISABLED`, `EXPIRED` `VOLUNTARY` |
+| `billing_error` | The payment failed | `BILLING_ERROR` | `EXPIRED` `BILLING_RETRY`, `GRACE_PERIOD_EXPIRED` |
+| `price_increase` | The customer did not accept a price increase | `PRICE_INCREASE` | `EXPIRED` `PRICE_INCREASE` |
+| `developer` | You canceled it | `DEVELOPER_INITIATED` | `EXPIRED` `PRODUCT_NOT_FOR_SALE` |
+| `refunded` | A refund ended it | `CUSTOMER_SUPPORT` on an `EXPIRATION` | |
+| `unknown` | No category | anything else | `EXPIRED` without a subtype |
+
+- RevenueCat: a `CANCELLATION` or `EXPIRATION` from the App Store or Google Play reads `cancel_reason` or
+  `expiration_reason` and stores `via: "app_store"` or `"play_store"`. Other stores, sandbox events and a paused Google
+  Play subscription (`SUBSCRIPTION_PAUSED`) store nothing. A `CANCELLATION` with `CUSTOMER_SUPPORT` is a refund, not a
+  reason.
+- App Store Server Notifications store `via: "app_store"`.
+- The row's id is the store, the subscription (the original transaction id) and the end of the period. The `EXPIRATION`
+  or `EXPIRED` that follows a cancellation of the same period, a retry, and the same cancellation through RevenueCat and
+  Apple both write nothing more.
+- 1 row, and no trait: the store's category is not an answer the person gave, so the card on your cancel page may still
+  ask them.
+- `text` stays empty. The visitor is the one RevenueCat names, else the subscription's.
+
+Reasons RevenueCat sent before this release are in `subscription_signals`. Migration 0099 copies them once, 1 row per
+subscription: a reason counts when its visitor has a canceled or ended subscription that started before it. Signals
+without a visitor are left out, because they do not name the subscription. Apple's notifications stored no reason
+before, so their reasons start with this release.
+
 **The setting.** `GET /api/sites/<id>` returns `surveys`, the two surveys as JSON text, or `null` when both are off.
 `PATCH /api/sites/<id>` (dashboard login) takes an object with either survey:
 
@@ -4288,17 +4317,22 @@ add `cancel_reasons` ([Subscriptions](#routes-for-agents-and-scripts)):
   "by_state": { "canceling": { "count": 13, "mrr_lost": 48500 }, "ended": { "count": 2, "mrr_lost": 3800 } },
   "reasons": [ { "reason": "too_expensive", "count": 5, "mrr_lost": 19500 } ],
   "by_plan": [ { "plan": "shipkit_pro_monthly", "count": 9, "mrr_lost": 44100, "reasons": [ { "reason": "too_expensive", "count": 3 } ] } ],
-  "via": { "stripe": 15 },
+  "store_reasons": [ { "reason": "unsubscribed", "count": 4, "mrr_lost": 1200 } ],
+  "via": { "stripe": 15, "app_store": 6 },
   "unmatched": { "count": 2, "reasons": [ { "reason": "too_expensive", "count": 2 } ] },
   "comments": [ { "at": 1795000000000, "reason": "unused", "plan": "shipkit_pro_monthly", "text": "Paused the project for now.", "via": "stripe", "untrusted": true } ] }
 ```
 
 Each answer counts against the subscription the webhook named, else the newest subscription of the visitor who
 answered; `mrr_lost` is its MRR. A subscription counts once: when one cancellation arrives twice (your cancel page,
-then Stripe's or Polar's reason), the provider's reason counts, else the newest. Only canceled or ended subscriptions
-count, so a customer who turned renewal back on drops out.
+then Stripe's or Polar's reason), the provider's reason counts, then the customer's own answer, then a store's
+category, else the newest. Only canceled or ended subscriptions count, so a customer who turned renewal back on drops
+out.
 
-- `total`, `mrr_lost`, `reasons`, `by_plan` and `via` count those subscriptions only.
+- `total`, `mrr_lost`, `by_plan` and `via` count those subscriptions only, whatever the source.
+- `reasons` counts the customers' own answers (Stripe, Polar, your card or `answer` call). `store_reasons` counts the
+  App Store's and Google Play's categories (the table above), which are not the customer's words. Each is empty when
+  that source sent nothing.
 - `by_state` splits them: `canceling` still pays until the period ends (the "won't renew" count under Paying
   subscriptions), `ended` has ended (Churned in the MRR line, when it ended in the range).
 - `unmatched` counts the people whose answer is tied to no canceled subscription, by reason. A card on your cancel page

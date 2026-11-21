@@ -6,6 +6,8 @@ import { passwordsMatch } from './lib/crypto';
 import { announce, pusherOf, type Pusher } from './notify';
 import { creditedSession, currencyDecimals, recordPayment, recordSignal, SANDBOX_PROVIDER, type MatchedBy, type SignalInput } from './payments';
 import { recordSubscription, revenueCatSubscriptionEvent } from './subscriptions';
+import { storeCancelStatement } from './surveys';
+import type { StoreReason } from '../shared/surveys';
 
 /**
  * RevenueCat webhook: POST /api/webhooks/revenuecat/:siteId, authorised by the per-site secret that RevenueCat
@@ -18,7 +20,8 @@ import { recordSubscription, revenueCatSubscriptionEvent } from './subscriptions
  *   REFUND                          a refund: a negative row for the payment it takes back.
  *   EXPIRATION, BILLING_ISSUE       signals.
  *   UNCANCELLATION                  auto-renew back on.
- * Every one of these with an expiration_at_ms also updates the subscription's row (subscriptions.ts).
+ * Every one of these with an expiration_at_ms also updates the subscription's row (subscriptions.ts). A CANCELLATION or
+ * EXPIRATION from the App Store or Google Play also stores the store's reason as a cancel_reason answer (storeReason).
  *
  * App Store transactions use the payment id apple_<transaction_id>, the same id the SDK's JWS and App Store Server
  * Notifications use, so one purchase reported through two of them is stored once. Visitor link: the subscriber
@@ -114,9 +117,37 @@ async function linkSignal(db: D1Database, site: Site, e: Obj, ts: number) {
   return { visitorId, sessionId };
 }
 
+/**
+ * RevenueCat's cancel_reason and expiration_reason, as the cancel reason keys of a store (src/shared/surveys.ts
+ * STORE_REASONS). CUSTOMER_SUPPORT on an EXPIRATION is a refund that ended it. A paused Google Play subscription
+ * (SUBSCRIPTION_PAUSED) was not canceled: no reason.
+ */
+const STORE_REASON: Record<string, StoreReason> = {
+  UNSUBSCRIBE: 'unsubscribed',
+  BILLING_ERROR: 'billing_error',
+  PRICE_INCREASE: 'price_increase',
+  DEVELOPER_INITIATED: 'developer',
+  CUSTOMER_SUPPORT: 'refunded',
+};
+export function storeReason(e: Obj): { via: 'app_store' | 'play_store'; reason: StoreReason } | null {
+  const store = String(e.store ?? '').toUpperCase();
+  const via = APPLE_STORES.has(store) ? 'app_store' : store === 'PLAY_STORE' ? 'play_store' : null;
+  if (!via) return null;
+  const raw = String(e.cancel_reason ?? e.expiration_reason ?? '').toUpperCase();
+  if (raw === 'SUBSCRIPTION_PAUSED') return null;
+  return { via, reason: STORE_REASON[raw] ?? 'unknown' };
+}
+
 async function storeSignal(db: D1Database, site: Site, e: Obj, type: SignalInput['type'], sandbox: boolean, reason: string | null = null, push?: Pusher) {
   const ts = type === 'trial_start' ? eventTs(e) : (num(e.event_timestamp_ms) ?? eventTs(e));
   const { visitorId, sessionId } = await linkSignal(db, site, e, ts);
+  // The store's cancel reason, for "Why they cancel" (1 row; none for a retry or the EXPIRATION of a period whose
+  // CANCELLATION came first).
+  const why = !sandbox && (type === 'cancellation' || type === 'expiration') ? storeReason(e) : null;
+  const sub = originalId(e);
+  if (why && sub) {
+    await storeCancelStatement(db, site, { ...why, subscriptionId: sub, at: ts, expiresAt: num(e.expiration_at_ms), visitorId, eventId: String(e.id).slice(0, 100) }).run();
+  }
   const tx = transactionId(e);
   await recordSignal(db, site, {
     // An App Store trial has the same id whether RevenueCat, the SDK or a notification reports it.

@@ -340,8 +340,8 @@ Two questions: how a visitor heard about you, and why a customer cancels
 ([GUIDE.md](GUIDE.md#surveys)). An answer is stored in `survey_answers` with the visitor and visit ids, and as a trait on
 the visitor row. Once the visitor is identified, the answer is personal data about a named person.
 
-- **What is kept.** The answer key, when it was given, where it came from (`widget`, `js`, `stripe`, `polar`) and, for
-  a cancel reason from a webhook, the subscription id. Free text ("Other", Stripe's and Polar's comment) keeps 200
+- **What is kept.** The answer key, when it was given, where it came from (`widget`, `js`, `stripe`, `polar`,
+  `app_store`, `play_store`) and, for a cancel reason from a webhook, the subscription id. Free text ("Other", Stripe's and Polar's comment) keeps 200
   characters. Emails, phone numbers and runs of 6 or more digits in it are replaced by `[removed]` before it is stored.
 - **How long.** As long as visits (`RETENTION_MONTHS`). The nightly job deletes older answers.
 - **Erase.** Erasing a person deletes their answers, and erasing by email or user id also deletes the cancel reasons of
@@ -352,7 +352,9 @@ the visitor row. Once the visitor is identified, the answer is personal data abo
   so the same visitor id is not asked again. Without cookies the visitor id changes every day at 00:00 UTC, so a visitor
   who closed it may see it again on another day.
 - **Cancel reasons** come from Stripe's Customer Portal and Polar's cancel flow, which your customer filled in. They
-  carry no more than the reason and the comment.
+  carry no more than the reason and the comment. From the App Store and Google Play (through RevenueCat or Apple's
+  notifications) comes only the store's category, such as "turned off renewal" or "payment failed": no text, and no
+  trait on the visitor.
 
 ## Click maps and scroll
 

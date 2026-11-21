@@ -288,7 +288,13 @@ describe('free-plan cost: D1 rows written per write path', () => {
       const payload = { notificationType: type, subtype, notificationUUID: crypto.randomUUID(), version: '2.0', signedDate: now + 2000, data: { bundleId: BUNDLE, environment: 'Production', signedTransactionInfo: await signJws(paid, chain) } };
       return w.fetch(`/api/webhooks/apple/${site.id}`, { method: 'POST', json: { signedPayload: await signJws(payload, chain) } });
     };
-    expect(await rows('App Store auto-renew off, failed renewal or expiry (notification), with its inbox row', () => notice('DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_DISABLED'))).toBe(2);
+    // Auto-renew off is a cancellation: its row, its inbox row and Apple's reason for "Why they cancel" (1 answer row,
+    // src/worker/surveys.ts storeCancelStatement). The EXPIRED of the same period finds that answer and writes none.
+    expect(await rows('App Store auto-renew off (notification), with its inbox row and the store reason', () => notice('DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_DISABLED'))).toBe(3);
+    expect(await rows('App Store failed renewal (notification), with its inbox row', () => notice('DID_FAIL_TO_RENEW', 'GRACE_PERIOD'))).toBe(2);
+    expect(await rows('App Store expiry of the same period (notification; its reason is stored already)', () => notice('EXPIRED', 'VOLUNTARY'))).toBe(1);
+    const reason = await w.db.prepare("SELECT answer, via, subscription_id, visitor_id FROM survey_answers WHERE site_id = ? AND survey = 'cancel_reason' AND subscription_id = '3100000001'").bind(site.id).all<any>();
+    expect(reason.results).toEqual([{ answer: 'unsubscribed', via: 'app_store', subscription_id: '3100000001', visitor_id: vid }]);
   });
 
   it('daily write cap counter', async () => {
@@ -329,7 +335,11 @@ describe('free-plan cost: D1 rows written per write path', () => {
     expect(await rows('RevenueCat purchase (INITIAL_PURCHASE)', () => rc('INITIAL_PURCHASE'))).toBe(6);
     expect(await rows('RevenueCat repeat of a purchase already stored (SDK or retry)', () => rc('INITIAL_PURCHASE'))).toBe(0);
     expect(await rows('RevenueCat trial start (stored as a signal, not revenue)', () => rc('INITIAL_PURCHASE', { period_type: 'TRIAL', transaction_id: '5000000002', original_transaction_id: '5000000002', price_in_purchased_currency: 0 }))).toBe(4);
-    expect(await rows('RevenueCat cancellation, expiration or billing issue (signal, subscription and inbox row)', () => rc('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }))).toBe(4);
+    expect(await rows('RevenueCat billing issue (signal and subscription)', () => rc('BILLING_ISSUE'))).toBe(3);
+    // A store cancellation also stores Apple's reason for "Why they cancel" (src/worker/surveys.ts storeCancelStatement):
+    // 1 answer row, no trait. The EXPIRATION of the same period finds that answer and writes none.
+    expect(await rows('RevenueCat cancellation (signal, subscription, inbox row and the store reason)', () => rc('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }))).toBe(5);
+    expect(await rows('RevenueCat expiration of the same period (signal and subscription; its reason is stored already)', () => rc('EXPIRATION', { expiration_reason: 'UNSUBSCRIBE' }))).toBe(3);
     expect(await rows('RevenueCat refund (CANCELLATION, CUSTOMER_SUPPORT)', () => rc('CANCELLATION', { cancel_reason: 'CUSTOMER_SUPPORT', price_in_purchased_currency: -9.99 }))).toBe(4);
   });
 

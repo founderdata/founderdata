@@ -204,15 +204,16 @@ function readNote(
  * Stores a note. With an idempotency key the site already has, it stores nothing and returns that note, with
  * `created` false: the unique index notes_site_idempotency decides, so two requests at once can't both store.
  */
-async function insertNote(
+/** A note as insertNote stores it, with its INSERT statement, for a write that rides in another batch. */
+export function noteStatement(
   db: D1Database,
-  site: Site,
+  site: Pick<Site, 'id'>,
   text: string,
   ts: number,
   kind: NoteKind,
   now = Date.now(),
   a: Partial<Annotation> = {},
-): Promise<{ note: Note; created: boolean }> {
+): { note: Note; statement: D1PreparedStatement } {
   const note: Note = {
     id: randomId(10),
     site_id: site.id,
@@ -234,7 +235,7 @@ async function insertNote(
     group_key: a.group_key ?? null,
     ends_at: a.ends_at ?? null,
   };
-  const res = await db
+  const statement = db
     .prepare(
       `INSERT INTO notes (id, site_id, ts, text, kind, created_at, actor, change_kind, target, before_text, after_text, idempotency_key, metric, window_days, group_key, ends_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -243,8 +244,21 @@ async function insertNote(
     .bind(
       note.id, note.site_id, note.ts, note.text, note.kind, note.created_at, note.actor, note.change_kind, note.target, note.before_text, note.after_text, note.idempotency_key,
       note.metric, note.window_days, note.group_key, note.ends_at,
-    )
-    .run();
+    );
+  return { note, statement };
+}
+
+async function insertNote(
+  db: D1Database,
+  site: Site,
+  text: string,
+  ts: number,
+  kind: NoteKind,
+  now = Date.now(),
+  a: Partial<Annotation> = {},
+): Promise<{ note: Note; created: boolean }> {
+  const { note, statement } = noteStatement(db, site, text, ts, kind, now, a);
+  const res = await statement.run();
   if (res.meta?.changes || !note.idempotency_key) return { note, created: true };
   const first = await db.prepare('SELECT * FROM notes WHERE site_id = ? AND idempotency_key = ?').bind(site.id, note.idempotency_key).first<Note>();
   return first ? { note: first, created: false } : { note, created: true };
