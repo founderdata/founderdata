@@ -31,6 +31,10 @@ own copy:
   (local). Tests use fake values.
 - **Features work for every self-hoster.** Data that comes from another tool enters through a documented API, the way
   the SEO tab takes a snapshot (`docs/SEO.md`). Each integration is optional and has a clear empty state.
+- **Ship only what users use.** Every release lands in the deployments of active users. A feature belongs here when a
+  stranger running their own copy would use it for their own sites and apps. Code that runs the FounderData business
+  itself (selling Pro, mailing its buyers, the launch offer) belongs in the maintainer's private tools, built on the
+  same public APIs. A feature the person you work for did not ask for needs their yes before you build it.
 - **Contracts are documented in the same commit.** A change to an API, a payload or the snapshot format updates its doc
   in `docs/` or `ios/README.md`.
 - **Credit stays.** `LICENSE` keeps the upstream minilytics copyright notice.
