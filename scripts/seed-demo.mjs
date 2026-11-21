@@ -1523,6 +1523,13 @@ const seoParts = (() => {
     );
   tag('pricing_headline', start, now + DAY, ['control', 'b']);
   tag('new_checkout', flagFrom, flagTo, ['off', 'on']);
+  // Each start and stop put a chart note on the Overview chart (pro/worker/experiments.ts experimentNote, owner item 13):
+  // the same text, actor and target the Worker writes, judged on visits over 7 days like a note aimed at /pricing.
+  const expNote = (id, ts, text) =>
+    insert('notes', { id, site_id: shipkit, ts, text, kind: 'manual', created_at: ts, actor: 'experiments', target: '/pricing', metric: 'visits', window_days: 7 });
+  expNote('note_demo_exp_1', flagFrom, 'Flag started: New checkout');
+  expNote('note_demo_exp_2', flagTo, 'Flag stopped: New checkout. Winner: on');
+  expNote('note_demo_exp_3', start, 'Experiment started: Pricing headline');
   late.push(`UPDATE sites SET exp_live = ${q(JSON.stringify([{ k: 'pricing_headline', v: [['control', 50], ['b', 50]], p: ['/pricing'] }]))} WHERE id = ${q(shipkit)};`);
 }
 
@@ -1647,6 +1654,12 @@ const seoParts = (() => {
       `UPDATE visitors SET traits = json_set(COALESCE(traits, '{}'), '$.${survey}', (SELECT sa.answer FROM survey_answers sa WHERE sa.site_id = visitors.site_id AND sa.survey = '${survey}' AND sa.visitor_id = visitors.id ORDER BY sa.ts DESC LIMIT 1)) WHERE site_id = ${q(shipkit)} AND id IN (SELECT visitor_id FROM survey_answers WHERE site_id = ${q(shipkit)} AND survey = '${survey}' AND visitor_id IS NOT NULL);`,
     );
   }
+  // Habitly's App Store subscriptions that turned renewal off or ended carry Apple's category (owner item 8), as Apple's
+  // notifications and RevenueCat send it (src/worker/surveys.ts storeCancelStatement): mostly renewal turned off, every
+  // seventh a failed payment, one a price increase. No text and no trait.
+  late.push(
+    `INSERT OR IGNORE INTO survey_answers (site_id, survey, ts, id, visitor_id, session_id, subscription_id, answer, text, via) SELECT site_id, 'cancel_reason', COALESCE(canceled_at, ended_at), 'app_store:' || id || ':' || expires_at, visitor_id, NULL, id, CASE WHEN n = 2 THEN 'price_increase' WHEN n % 7 = 4 THEN 'billing_error' ELSE 'unsubscribed' END, NULL, 'app_store' FROM (SELECT sub.*, ROW_NUMBER() OVER (ORDER BY COALESCE(sub.canceled_at, sub.ended_at) DESC, sub.id) AS n FROM subscriptions sub WHERE sub.site_id = ${q(habitly)} AND sub.provider = 'app_store' AND (sub.canceled_at IS NOT NULL OR sub.ended_at IS NOT NULL));`,
+  );
   // Both surveys on: the widget asks on /welcome after signup, and on the cancel page.
   late.push(`UPDATE sites SET surveys = ${q(JSON.stringify({ heard_about: { on: 1, paths: ['/welcome'] }, cancel_reason: { on: 1, paths: ['/account/cancel'] } }))} WHERE id = ${q(shipkit)};`);
 }
@@ -1744,7 +1757,7 @@ const seoParts = (() => {
 // that hit 4 people, 2 of them paying customers, and one recorded visit (pro/scripts/seed-replays.mjs records it, so
 // Watch opens at the error); "ResizeObserver loop..." on every page, ignored; "Script error." from a script on another
 // domain; and a failed module load, resolved 3 days ago and back since yesterday. A new_error rule on /checkout sent
-// one alert for the TypeError. `fp` is fingerprint(message, source, stack); test/errors.test.ts checks each one.
+// one alert for the TypeError; a rule on every page sent it too, and "Resolved error is back" for the module load. `fp` is fingerprint(message, source, stack); test/errors.test.ts checks each one.
 {
   out.push(`DELETE FROM errors WHERE site_id IN (${ids});`, `DELETE FROM error_issues WHERE site_id IN (${ids});`, `DELETE FROM error_first WHERE site_id IN (${ids});`);
   out.push(`DELETE FROM alert_events WHERE id LIKE 'evt_demo_err%';`);
@@ -1869,11 +1882,34 @@ const seoParts = (() => {
     text: [ERRORS.price.message, `First seen ${new Date(now - 6 * HOUR).toISOString().slice(0, 16).replace('T', ' ')} UTC on /checkout. 1 person so far.`, 'Rule: A new error on /checkout.', '', `An agent reads it with get_recordings, view error, issue ${ERRORS.price.fp}.`].join('\\n'),
     data: JSON.stringify({ type: 'alert.crossed', delivery_id: 'dlv_demo_err', rule_id: 'ar_demo_errors', rule_name: 'A new error on /checkout', metric: 'new_error', path: '/checkout', window: '24h', current: 1, previous: 0, change_pct: null }),
   });
+  // A second rule watches every page. It sent the TypeError too, and "Resolved error is back" for the module load when
+  // it came back 20 hours ago (owner item 12): the text pro/worker/alert-rules.ts alertMessage writes, without the
+  // link, since the seed does not know the dashboard's address. crossed keys a return by its resolve time.
+  const resolvedAt = now - 3 * DAY, backAt = now - 20 * HOUR, backSent = backAt + 20 * MIN;
+  const day = (t) => new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' });
+  insert('alert_rules', {
+    id: 'ar_demo_errors_all', site_id: site, name: 'A new JavaScript error', metric: 'new_error', path: null, comparison: 'rises_above', threshold: 0,
+    win: '24h', min_volume: 1, webhook_url: null, secret: null, channels: 1, push: 1, enabled: 1, crossed: JSON.stringify([ERRORS.price.fp, `${ERRORS.chunk.fp}:back:${resolvedAt}`]),
+    deliveries: JSON.stringify([
+      { id: 'dlv_demo_err_back', at: backSent, kind: 'alert', to: 'push', ok: true, code: 200, attempts: 1, path: '/dashboard', detail: '1 of 1 phone' },
+      { id: 'dlv_demo_err_all', at: sent, kind: 'alert', to: 'push', ok: true, code: 200, attempts: 1, path: '/checkout', detail: '1 of 1 phone' },
+    ]),
+    created_at: now - 10 * DAY, updated_at: now - 10 * DAY, check_every: '1h', actor: null, change_kind: null,
+  });
+  insert('alert_events', {
+    ts: backSent, id: 'evt_demo_err2', kind: 'threshold', site_id: site, title: 'Resolved error is back on ShipKit /dashboard',
+    text: [ERRORS.chunk.message, `You resolved it ${day(resolvedAt)} UTC, and it came back ${day(backAt)} UTC on /dashboard. 1 person since then. No paying customer yet.`, 'Rule: A new JavaScript error.', '', `An agent reads it with get_recordings, view error, issue ${ERRORS.chunk.fp}.`].join('\\n'),
+    data: JSON.stringify({
+      type: 'alert.crossed', delivery_id: 'dlv_demo_err_back', rule_id: 'ar_demo_errors_all', rule_name: 'A new JavaScript error', metric: 'new_error', path: '/dashboard', window: '24h',
+      current: 1, previous: 0, change_pct: null, from: new Date(backAt).toISOString(), to: new Date(Math.ceil(backSent / HOUR) * HOUR).toISOString(), reason: ERRORS.chunk.message,
+      issue: ERRORS.chunk.fp, issue_url: null, customers: 0, mrr: 0, regressed: true, resolved_at: new Date(resolvedAt).toISOString(), first_seen: new Date(now - 12 * DAY).toISOString(), notes: [],
+    }),
+  });
   late.push(`UPDATE sites SET errors_on = 1 WHERE id = ${q(site)};`);
   late.push(`UPDATE errors SET stack = replace(stack, '\\n', char(10)) WHERE site_id = ${q(site)} AND stack LIKE '%\\n%';`);
   // Each issue's first sighting, as the ping writes it (migration 0098): the time of its oldest row.
   late.push(`INSERT OR IGNORE INTO error_first (site_id, fp, first_seen) SELECT site_id, fp, MIN(ts) FROM errors WHERE site_id = ${q(site)} GROUP BY fp;`);
-  late.push(`UPDATE alert_events SET text = replace(text, '\\n', char(10)) WHERE id = 'evt_demo_err1';`);
+  late.push(`UPDATE alert_events SET text = replace(text, '\\n', char(10)) WHERE id IN ('evt_demo_err1', 'evt_demo_err2');`);
 }
 
 flushInserts();

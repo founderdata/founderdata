@@ -427,7 +427,7 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Recorded visit (Pro): a chunk that carries a changed digest / the same digest | 1 (an update of a column with no index) / 0. A visit too short to save its first snapshot sends a stub chunk 0: 3, as any first chunk |
 | Recording health (Pro): a refused upload or a recorder that could not load | 1 at most once an hour per site and Worker instance |
 | Web: a running experiment (Pro) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
-| Experiment (Pro): created, changed, started, stopped or deleted | 2: its row and the site's list of running experiments |
+| Experiment (Pro): created, changed or deleted / started or stopped | 2: its row and the site's list of running experiments / 5: those 2 and 3 for its [chart note](docs/GUIDE.md#chart-notes) |
 | Survey answer from the survey card or `founderdata('answer', ...)` / a cancel reason from a Stripe or Polar webhook | 2, 1 when the visitor's trait did not change, 0 for the same answer again that day / 1, plus 1 when the subscription has a visitor |
 | Cancel reason from the App Store or Google Play (RevenueCat, or Apple's notifications) | 1, no trait. The expiry that follows a cancellation of the same period, and a retry, 0 |
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on |

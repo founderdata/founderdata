@@ -204,10 +204,13 @@ function readNote(
  * Stores a note. With an idempotency key the site already has, it stores nothing and returns that note, with
  * `created` false: the unique index notes_site_idempotency decides, so two requests at once can't both store.
  */
-/** A note as insertNote stores it, with its INSERT statement, for a write that rides in another batch. */
+/**
+ * A note as insertNote stores it, with its INSERT statement, for a write that rides in another batch. Without a metric
+ * in `a`, the verdict's metric and window come from the kind and target, as for a note sent to POST /api/v1/notes.
+ */
 export function noteStatement(
   db: D1Database,
-  site: Pick<Site, 'id'>,
+  site: Pick<Site, 'id' | 'product_type' | 'app_bundle_id'>,
   text: string,
   ts: number,
   kind: NoteKind,
@@ -230,11 +233,12 @@ export function noteStatement(
     reviewed_at: null,
     review_outcome: null,
     review_comment: null,
-    metric: a.metric ?? null,
-    window_days: a.window_days ?? null,
+    metric: a.metric !== undefined ? a.metric : (metricsFor(a.change_kind ?? null, a.target ?? null, site)[0] ?? null),
+    window_days: null,
     group_key: a.group_key ?? null,
     ends_at: a.ends_at ?? null,
   };
+  note.window_days = a.window_days !== undefined ? a.window_days : note.change_kind === 'outage' ? null : windowFor(note.metric);
   const statement = db
     .prepare(
       `INSERT INTO notes (id, site_id, ts, text, kind, created_at, actor, change_kind, target, before_text, after_text, idempotency_key, metric, window_days, group_key, ends_at)

@@ -20,6 +20,8 @@ describe('alert rules: where a rule sends and its state', () => {
     expect(ruleState({ enabled: true, metric: 'visitors', crossed: ['*'] })).toEqual({ tone: 'error', text: 'Firing now' });
     expect(ruleState({ enabled: true, metric: 'page_google_clicks', crossed: ['/a', '/b'] }).text).toBe('Firing on 2 pages');
     expect(ruleState({ enabled: true, metric: 'new_error', crossed: ['9c48328265cd'] }).text).toBe('1 new error sent');
+    expect(ruleState({ enabled: true, metric: 'new_error', crossed: ['9c48328265cd', '11c9286a34fa:back:1795000000000'] }).text).toBe('1 new error, 1 returning error sent');
+    expect(ruleState({ enabled: true, metric: 'new_error', crossed: ['11c9286a34fa:back:1795000000000'] }).text).toBe('1 returning error sent');
     expect(ruleState({ enabled: true, metric: 'visitors', crossed: [] })).toEqual({ tone: 'ok', text: 'Not firing' });
     expect(ruleState({ enabled: false, metric: 'visitors', crossed: ['*'] }).text).toBe('Paused');
   });

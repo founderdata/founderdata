@@ -367,7 +367,7 @@ number changes:
 | Recorded visit (Pro): the first chunk / each later chunk | 3 (its row in `replays` and 2 index entries) / 0. Each chunk is 1 Worker request, about one every 30 seconds of the visit, and 1 R2 write |
 | Web: the ping when a page is hidden, with that page load's Core Web Vitals ([Page speed](#page-speed)) | 2: the ping and 1 row in `vitals`. At a lower sample, 1 for the loads it skips |
 | Web: a running experiment ([Experiments](#experiments-pro)) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
-| Experiment (Pro): created, changed, started, stopped or deleted | 2: its row and the site's list of running experiments |
+| Experiment (Pro): created, changed or deleted / started or stopped | 2: its row and the site's list of running experiments / 5: those 2 and 3 for its [chart note](#chart-notes) |
 | Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change, 0 for the same answer again that day. Each answer is 1 Worker request |
 | Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on. `/js/survey.js` is 1 request, cached |
 | Cancel reason from a Stripe or Polar webhook | 1, plus 1 when the subscription has a visitor. The webhook request is already counted |
@@ -2777,6 +2777,10 @@ notes clears it. The Monday report and
 site's status chip, "down 3 weeks" says its weekly revenue (or visitors, without revenue) ended below the week before
 3 weeks in a row. It shows from 2 weeks.
 
+FounderData adds notes of its own: each new app version, and each start and stop of a web experiment, such as
+"Experiment started: Pricing headline" with "experiments" as who made it ([Experiments](#experiments-pro)). They get
+verdicts and reviews like your notes, and you can delete them the same way.
+
 Deploy scripts and CI add notes with the site's API key ([API.md](API.md#post-apiv1notes)):
 
 ```bash
@@ -3309,8 +3313,10 @@ recordings pattern.
 **Alert me about new errors on /checkout** on the Errors page makes an alert rule in one click: metric `new_error`,
 the page and every page under it, sent to your notification channels and the iPhone app. Rules run once an hour, so
 the alert arrives up to an hour after the error. It fires once for each issue first seen in the last 24 hours, so the
-same bug never alerts twice. The alert names the message and the page, how many people it hit, how many of them pay
-you and what they pay a month, and links to the issue. Settings, Alert rules lists it,
+same bug does not alert twice. An issue you resolved that happens again fires once more, titled "Resolved error is
+back", with when you resolved it and when it came back. It fires again only if you resolve it again, or after a whole
+day without it. The alert names the message and the page, how many people it hit, how many of them pay you and what
+they pay a month, and links to the issue. Settings, Alert rules lists it,
 and the preset "A new error on the checkout" makes the same rule there. An AI agent reads the alert's issue with
 `get_recordings`, `view` `error`.
 
@@ -3360,7 +3366,8 @@ visitor, not only more clicks. Experiments from your iOS app (`FounderData.exper
 3. Open each preview link (`/pricing?fd_exp=pricing_headline:b`). It shows that version and stores nothing.
 4. **Start**. If another running experiment uses the same pages, FounderData names it and asks first: visitors would be
    in both, and each result would include the other's effect. Within a minute new visitors on those pages get a
-   version. Until the first one arrives the page says "Waiting for the first visitor on /pricing".
+   version. Until the first one arrives the page says "Waiting for the first visitor on /pricing". The start also puts
+   a chart note on the Overview chart, "Experiment started: Pricing headline", so the chart shows when the test ran.
 
 Visitors see the control until the page view's answer arrives, a few milliseconds after the page loads. Keep both
 versions the same size so nothing jumps.
@@ -3399,7 +3406,8 @@ Remember visitors keeps one version per person across days.
 elements show it and `founderdata('flag', key)` answers it, so nothing changes for visitors while the code catches up.
 The results stay as they were at the stop. The page shows a cleanup prompt: paste it into your coding agent to keep
 the winner and remove the rest, then delete the experiment. Stop without a winner and every visitor sees the page as
-written (the control). A stopped experiment without a winner gets **Pick winner**, which starts serving it. A stopped
+written (the control). The stop adds a chart note too, such as "Experiment stopped: Pricing headline. Winner: b". A
+stopped experiment without a winner gets **Pick winner**, which starts serving it. A stopped
 experiment stays stopped; start a new one to test again. At most 10 run at once, and at most 10 stopped ones serve a
 winner.
 
@@ -3435,8 +3443,8 @@ markup and preview links the coding agent needs. Keys cannot create, start or st
 to stop is the owner's call, so those stay in the dashboard.
 
 **Cost.** A visit's version rides on the row its first pageview writes (0 rows). A visit that reaches the pages later
-costs 1 row, once. A stopped experiment's winner writes nothing. Creating, changing, starting or stopping an
-experiment, or picking a winner, writes 2 rows.
+costs 1 row, once. A stopped experiment's winner writes nothing. Creating, changing or deleting an experiment, or
+picking a winner, writes 2 rows. Starting or stopping it writes 5: those 2 and 3 for its chart note.
 
 ## Surveys
 

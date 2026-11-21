@@ -2448,6 +2448,12 @@ payload's `path` is the page, `reason` the message, `issue` the issue id, `issue
 the paying customers it hit and their monthly revenue, and `current` the people so far. The rule's `crossed` holds the
 issues already sent.
 
+A resolved issue that happens again fires the same rule once more, as "back again". It fires when the issue has errors
+in the last 24 hours after it was resolved, and none in the day before them. The title reads "Resolved error is back
+on ShipKit /dashboard". The payload has the same fields plus `regressed: true`, `resolved_at` (when it was resolved)
+and `first_seen`. Its `from` is when it came back, and `current` and `customers` count from then. Each resolve fires
+once: `crossed` holds `<issue>:back:<resolved at, ms>`. After a whole day without the error, a return fires again.
+
 ### Experiments (Pro)
 
 Web experiments, flags and app experiments in one list. MCP: `get_app_funnel` with `report` `experiments` and
@@ -2522,7 +2528,12 @@ The dashboard's routes take a login (an owner for changes; a viewer reads). They
 | `DELETE /api/sites/<id>/experiments/<key>` | | Deletes it. Visits keep their `exp_<key>`. |
 
 Each change writes the experiment's row and the site's `exp_live` (2 rows). Changes take effect within a minute, as the
-site row is cached. A stopped experiment with a winner keeps showing the winner to every visitor on its pages, and
+site row is cached. `action` `start` or `stop` also writes a chart note in the same batch, 3 rows more (5 in all):
+`"Experiment started: Pricing headline"`, or `"Flag stopped: New checkout. Winner: on"` (`"No winner"` without one).
+The note has `actor` `experiments`, `origin` `manual`, and as `target` the experiment's page when it runs on one, else
+none. Its metric and window follow from that target, as for a note sent to `POST /api/v1/notes`. It shows on the
+Overview chart and in `GET /api/v1/notes` (`?actor=experiments`), and its impact reads like any note's. Deleting the
+experiment keeps its notes. A stopped experiment with a winner keeps showing the winner to every visitor on its pages, and
 stores nothing, until you delete it. Stopped without a winner, it assigns nothing, so every visitor sees the page as
 written. At most 10 stopped experiments serve a winner at once.
 
@@ -3643,7 +3654,8 @@ Three metrics have a fixed condition. For `page_decay` and `note_verdict` the bo
   until a `new_error` rule was made through the dashboard or the API, which saves the address), `customers` (the
   people it hit who paid) and `mrr` (what they pay a month now, minor units). `from` is the first sighting and `to` the
   newest error or the check's hour, whichever is later, so `to` is never before `from`. Its `crossed` holds the issues
-  already sent.
+  already sent. A resolved issue that comes back fires once per resolve, as "back again": `regressed: true`,
+  `resolved_at`, `first_seen`, and `from` set to its return (see "Errors (Pro)").
 
 ### `GET /api/v1/alerts/rules`
 
@@ -3709,7 +3721,8 @@ first. A page rule leaves out notes aimed at another page. `verdict` is `better`
 note's 7-day window has closed ([the verdict](#the-verdict)), and `measuring` until then.
 
 A rule for all sites sends one payload per site, with that site in `site`. A `page_decay` payload adds `reason`, and a
-`new_error` payload adds `reason`, `issue`, `issue_url`, `customers` and `mrr`:
+`new_error` payload adds `reason`, `issue`, `issue_url`, `customers` and `mrr`, plus `regressed`, `resolved_at` and
+`first_seen` when a resolved issue came back:
 
 ```json
 { "type": "alert.crossed", "metric": "new_error", "path": "/checkout", "window": "24h", "current": 4, "previous": 0, "change_pct": null,
@@ -3719,6 +3732,8 @@ A rule for all sites sends one payload per site, with that site in `site`. A `pa
 ```
 
 `current` is the people the issue hit so far. The rule's sample payload (`sample` in the rule) has the same fields.
+A returning issue reads `"text": "Resolved error is back on ShipKit /dashboard"`, `"regressed": true`,
+`"resolved_at": "2026-11-01T10:00:00.000Z"` and `"first_seen": "2026-10-20T08:12:00.000Z"`.
 A Search Ads payload has days in `from` and `to`, spend in minor units and ROAS as a fraction (`0.4` is 40%).
 
 **A verdict.** A `note_verdict` rule sends `"type": "alert.verdict"`, with the change in `note` (also the one entry
@@ -4252,8 +4267,8 @@ categories, and FounderData stores that category as the answer, under keys of it
 - The row's id is the store, the subscription (the original transaction id) and the end of the period. The `EXPIRATION`
   or `EXPIRED` that follows a cancellation of the same period, a retry, and the same cancellation through RevenueCat and
   Apple both write nothing more.
-- 1 row, and no trait: the store's category is not an answer the person gave, so the card on your cancel page may still
-  ask them.
+- It costs 1 row and sets no trait. The store's category is not an answer the person gave, so the card on your cancel
+  page may still ask them.
 - `text` stays empty. The visitor is the one RevenueCat names, else the subscription's.
 
 Reasons RevenueCat sent before this release are in `subscription_signals`. Migration 0099 copies them once, 1 row per

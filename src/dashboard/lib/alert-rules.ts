@@ -41,14 +41,20 @@ export function ruleDestinations(
   return out.length ? out.join(', ') : 'nowhere';
 }
 
-/** A rule's state chip: Paused, Firing now (on N pages or sites), N new errors sent, or Not firing. */
+/** A rule's state chip: Paused, Firing now (on N pages or sites), N new errors (and N returning) sent, or Not firing. */
 export function ruleState(r: { enabled: boolean; metric: string; crossed: string[]; all_sites?: boolean }): { tone: 'neutral' | 'error' | 'ok'; text: string } {
   if (!r.enabled) return { tone: 'neutral', text: 'Paused' };
   // A verdict rule's state is the changes it judged, not a line it crossed.
   if (r.crossed.length && r.metric !== 'note_verdict') {
     // A rule for all sites keys its state "<site id>|<page or *>".
     const keys = r.crossed.map((k) => (r.all_sites ? k.slice(k.indexOf('|') + 1) : k));
-    if (r.metric === 'new_error') return { tone: 'error', text: `${keys.length} new ${keys.length === 1 ? 'error' : 'errors'} sent` };
+    if (r.metric === 'new_error') {
+      // A resolved issue that came back is keyed "<fingerprint>:back:<resolved at>" (pro/worker/alert-rules.ts).
+      const back = keys.filter((k) => k.includes(':back:')).length;
+      const fresh = keys.length - back;
+      const parts = [fresh ? `${fresh} new ${fresh === 1 ? 'error' : 'errors'}` : '', back ? `${back} returning ${back === 1 ? 'error' : 'errors'}` : ''].filter(Boolean);
+      return { tone: 'error', text: `${parts.join(', ')} sent` };
+    }
     const pages = keys.filter((k) => k !== '*').length;
     const sites = r.all_sites ? new Set(r.crossed.map((k) => k.split('|')[0])).size : 0;
     const text = pages ? `Firing on ${pages} ${pages === 1 ? 'page' : 'pages'}` : sites ? `Firing on ${sites} ${sites === 1 ? 'site' : 'sites'}` : 'Firing now';
