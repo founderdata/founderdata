@@ -1,6 +1,8 @@
 // Round 7, lane exp, core part (plan 5.2): the variant assignment, the page rule, exposure on the visit at the free
 // plan's cost, and the tracker's flag commands and variant elements.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { transformSync } from 'esbuild';
@@ -132,6 +134,28 @@ describe('experiments: assignment', () => {
     expect(Object.keys(decide(live, 'v1', '/pricing')!).sort()).toEqual(['new_nav', 'pricing_headline']);
     expect(Object.keys(decide(live, 'v1', '/about')!)).toEqual(['new_nav']);
     expect(decide(parseExpLive('[{"k":"a","v":[["x",1],["y",1]],"p":["/pricing"]}]'), 'v1', '/about')).toBeNull();
+  });
+
+  it('serves the demo\'s stopped flag winner on /pricing beside the running experiment (critique 2, exp-7)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-seed-'));
+    try {
+      execFileSync(process.execPath, [path.resolve(__dirname, '../scripts/seed-demo.mjs')], { cwd: dir, stdio: 'ignore' });
+      const sql = fs.readFileSync(path.join(dir, '.wrangler/seed.sql'), 'utf8');
+      const line = /UPDATE sites SET exp_live = '(.*)' WHERE id = 'demo0001';/.exec(sql);
+      expect(line).not.toBeNull();
+      const live = parseExpLive(line![1].replace(/''/g, "'"));
+      expect(live.map((e) => e.k)).toEqual(['pricing_headline', 'new_checkout']);
+      const got = decide(live, 'any-demo-visitor', '/pricing')!;
+      expect(got.new_checkout).toBe('on');
+      expect(['control', 'b']).toContain(got.pricing_headline);
+      // The winner is served, not exposed: no visit stores new_checkout.
+      expect([...fixedOf(got)]).toEqual(['new_checkout']);
+      // The demo's experiment notes name their experiment, so their impact links it.
+      expect(sql).toContain("'experiment:pricing_headline'");
+      expect(sql).toContain("'experiment:new_checkout'");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('is a core part: emptied with the site, exported, explained to agents', () => {

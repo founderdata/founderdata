@@ -3,6 +3,7 @@ import { ReferenceLine } from 'recharts';
 import { api, isViewer, qs, type ChartNote, type NoteImpact } from '../lib/api';
 import { useDash } from '../lib/context';
 import { fmtDateTime } from '../lib/format';
+import { navigate } from '../lib/nav';
 import { useApi } from '../lib/useApi';
 import { Modal } from './Modal';
 import { Skeleton } from './ui/Skeleton';
@@ -43,6 +44,8 @@ export type Impact = NoteImpact & {
   /** scope "keyword": an ASO note judged by the keyword's App Store rank. change.keyword_rank is the mean places moved. */
   keyword?: { term: string; country: string | null } | null;
   review_after?: string | null;
+  /** An experiment's start or stop (FounderData Pro): no verdict, its own results judge it. */
+  experiment?: { key: string | null; dashboard_path: string; api_path: string } | null;
   note?: { review?: { reviewed_at: string; outcome: 'kept' | 'reverted' | 'iterated' | null; comment: string | null } | null };
 };
 type ImpactState = Impact | { error: string };
@@ -213,10 +216,11 @@ function scopeLabel(i: Impact): string | null {
 const OUTCOME = { kept: 'Kept', reverted: 'Reverted', iterated: 'Iterated' } as const;
 
 /** One status per note for the pill and the strip's tally. */
-type Status = Verdict | 'measuring' | 'thin' | 'measured' | 'loading' | 'error';
+type Status = Verdict | 'experiment' | 'measuring' | 'thin' | 'measured' | 'loading' | 'error';
 function statusOf(i: ImpactState | undefined): Status {
   if (!i) return 'loading';
   if ('error' in i) return 'error';
+  if (i.experiment) return 'experiment';
   // An open window has no verdict yet; the server says inconclusive, the pill counts the days.
   if (i.days_covered < 1 || !i.complete) return i.verdict && i.verdict !== 'inconclusive' ? i.verdict : 'measuring';
   if (i.verdict) return i.verdict;
@@ -258,6 +262,7 @@ function StatusPill({ impact, note }: { impact: ImpactState | undefined; note: C
       </StatusChip>
     );
   const i = impact as Impact;
+  if (status === 'experiment' && i.experiment) return <ExperimentLink to={i.experiment.dashboard_path} reason={i.reason ?? undefined} />;
   const title = [i.reason, impactText(i), scopeLabel(i)].filter(Boolean).join('\n');
   if (status === 'better' || status === 'worse' || status === 'inconclusive') {
     return (
@@ -284,6 +289,27 @@ function StatusPill({ impact, note }: { impact: ImpactState | undefined; note: C
   );
 }
 
+/**
+ * An experiment's start or stop has no verdict: both versions run after it. The pill opens the experiment, whose
+ * results judge it.
+ */
+function ExperimentLink({ to, reason }: { to: string; reason?: string }) {
+  return (
+    <a
+      href={to}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        navigate(to);
+      }}
+      title={reason}
+      className="inline-flex h-[22px] items-center whitespace-nowrap rounded-full bg-stone-100 px-2 text-xs font-medium text-stone-600 underline-offset-2 hover:text-ink hover:underline"
+    >
+      See results
+    </a>
+  );
+}
+
 /** The impact column: the headline change, and under it visitors, the scope or the day the window closes. */
 function ImpactCell({ impact, note }: { impact: ImpactState | undefined; note: ChartNote }) {
   const { site } = useDash();
@@ -295,6 +321,8 @@ function ImpactCell({ impact, note }: { impact: ImpactState | undefined; note: C
       </div>
     );
   if ('error' in impact) return <span className="text-xs text-stone-300">–</span>;
+  // Before and after mix both versions of an experiment, so no change is shown for its notes.
+  if (impact.experiment) return <span className="text-right text-xs text-stone-500">Judged on the experiment page</span>;
   if (impact.days_covered < 1) return <span className="text-xs text-stone-400">After the first day</span>;
   const h = headline(impact);
   const thin = !impact.enough_data;
@@ -476,6 +504,7 @@ export function ChangesStrip({
     { text: `${tally.measuring ?? 0} measuring`, cls: 'text-stone-500' },
     { text: `${tally.measured ?? 0} measured`, cls: 'text-stone-500' },
     { text: `${tally.thin ?? 0} with too little data`, cls: 'text-stone-500' },
+    { text: `${tally.experiment ?? 0} judged as experiments`, cls: 'text-stone-500' },
   ].filter((p) => !p.text.startsWith('0 '));
   const rpvChange = rpv && !rpv.noData && rpv.prev > 0 ? (rpv.cur - rpv.prev) / rpv.prev : null;
   return (

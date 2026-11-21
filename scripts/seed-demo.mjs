@@ -1455,7 +1455,9 @@ const seoParts = (() => {
 // exp_pricing_headline (sessions.props), the version the Worker would have stored. Extra pricing visitors bring each
 // version to about 900; version b sells the bigger licenses, so it leads on revenue per visitor (likely) while signups
 // stay level (not_yet). A flag, new_checkout, ran 50 to 30 days ago and stopped with on as the winner; hero_video is a
-// draft. sites.exp_live holds the running one (late). Habitly's exp_paywall (above) is the app experiment beside them.
+// draft. sites.exp_live holds the running one and the stopped flag's winner (late), as expLiveOf in
+// pro/worker/experiments.ts builds it, so a /pricing pageview gets new_checkout: "on". Habitly's exp_paywall (above) is
+// the app experiment beside them.
 {
   out.push(`DELETE FROM experiments WHERE site_id IN (${ids});`);
   let s = 91;
@@ -1524,13 +1526,18 @@ const seoParts = (() => {
   tag('pricing_headline', start, now + DAY, ['control', 'b']);
   tag('new_checkout', flagFrom, flagTo, ['off', 'on']);
   // Each start and stop put a chart note on the Overview chart (pro/worker/experiments.ts experimentNote, owner item 13):
-  // the same text, actor and target the Worker writes, judged on visits over 7 days like a note aimed at /pricing.
-  const expNote = (id, ts, text) =>
-    insert('notes', { id, site_id: shipkit, ts, text, kind: 'manual', created_at: ts, actor: 'experiments', target: '/pricing', metric: 'visits', window_days: 7 });
-  expNote('note_demo_exp_1', flagFrom, 'Flag started: New checkout');
-  expNote('note_demo_exp_2', flagTo, 'Flag stopped: New checkout. Winner: on');
-  expNote('note_demo_exp_3', start, 'Experiment started: Pricing headline');
-  late.push(`UPDATE sites SET exp_live = ${q(JSON.stringify([{ k: 'pricing_headline', v: [['control', 50], ['b', 50]], p: ['/pricing'] }]))} WHERE id = ${q(shipkit)};`);
+  // the same text, actor and target the Worker writes. The note gets no verdict; its impact links the experiment.
+  const expNote = (id, ts, text, key) =>
+    insert('notes', { id, site_id: shipkit, ts, text, kind: 'manual', created_at: ts, actor: 'experiments', target: `experiment:${key}`, metric: 'visits', window_days: 7 });
+  expNote('note_demo_exp_1', flagFrom, 'Flag started: New checkout', 'new_checkout');
+  expNote('note_demo_exp_2', flagTo, 'Flag stopped: New checkout. Winner: on', 'new_checkout');
+  expNote('note_demo_exp_3', start, 'Experiment started: Pricing headline', 'pricing_headline');
+  // Running ones first, then the stopped ones that keep serving their winner (f: 1), as expLiveOf orders them.
+  const live = [
+    { k: 'pricing_headline', v: [['control', 50], ['b', 50]], p: ['/pricing'] },
+    { k: 'new_checkout', v: [['on', 100]], p: ['/pricing'], f: 1 },
+  ];
+  late.push(`UPDATE sites SET exp_live = ${q(JSON.stringify(live))} WHERE id = ${q(shipkit)};`);
 }
 
 // ---------- Round 7: surveys, retention and lifecycle (lane survey)

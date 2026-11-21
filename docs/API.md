@@ -2469,7 +2469,7 @@ name, `mrr` and `mrr_per_visitor` need `read:revenue`; names and emails are `nul
 { "currency": "USD", "decimals": 2, "min_visitors_per_arm": 100, "min_customers_per_arm": 30, "cookieless": true, "truncated": false,
   "experiments": [
     { "key": "pricing_headline", "name": "Pricing headline", "platform": "web", "kind": "experiment", "status": "running",
-      "variants": [{ "key": "control", "weight": 50 }, { "key": "b", "weight": 50 }], "paths": ["/pricing"], "goal": null,
+      "variants": [{ "key": "control", "weight": 50 }, { "key": "b", "weight": 50 }], "paths": ["/pricing"], "goal": null, "goal_used": "signup",
       "started_at": "2026-01-01T00:00:00.000Z", "stopped_at": null, "winner": null, "created_at": "2025-12-31T09:12:00.000Z",
       "unit": "visitors", "from": "2026-01-01T00:00:00.000Z", "to": "2026-01-22T00:00:00.000Z", "in_period": true,
       "visitors": 1812, "switched": 23, "switched_is_floor": true, "identified_share": 0.21,
@@ -2487,29 +2487,40 @@ name, `mrr` and `mrr_per_visitor` need `read:revenue`; names and emails are `nul
 ```
 
 - Every web experiment is listed whatever the period, and its arms cover its own run, `from` its start `to` its stop
-  (or now). `in_period` is false when that run lies outside the range asked for. App arms count sessions in the period
-  (`unit` `sessions`, `status` null), so one person counts once per session.
+  (or now). `in_period` is false when that run lies outside the range asked for. App experiments cover the period
+  (`status` null) and count installs (`unit` `installs`), with `sessions` beside them; see the app arms below.
 - A web arm counts people: the user id `identify()` set, else the visitor id. A person seen in two versions counts in
   the first; `switched` says how many. Without cookies or Remember visitors only people with a user id can be matched,
   so `switched_is_floor` is true and `switched` is a lower bound; `identified_share` is the share of people with a user
   id. Visits from hosting networks stay out unless the site shows them.
-- `conversions`: people who reached the goal (`goal`, else the site's primary goal) in or after their first visit in the
-  version, until the stop. `revenue`: what they paid in the same window, one-time payments and first subscription
-  payments, sandbox purchases and renewals out, including payments on other devices joined by the user id. Refunds from
+- `conversions`: people who reached the goal in or after their first visit in the version, until the stop. The goal is
+  `goal_used`: the experiment's `goal`, else the site's primary goal. With neither, `goal_used` is `null` and revenue
+  per visitor alone judges the experiment: `conversions` stay 0, and `conversion_rate`, the goal's `verdict`,
+  `difference`, `p_value` and `sample_needed_per_arm` are `null`.
+- `revenue`: what they paid on the website in the same window, one-time payments and first subscription payments,
+  including payments on other devices joined by the user id. Sandbox purchases and renewals are left out, and so are
+  App Store, Google Play and RevenueCat purchases: those happen in an app, where no web version showed. Refunds from
   their first counted payment on subtract, also those after the stop. A person's revenue never goes below 0.
   `customers`: people whose first payment came after they first saw the experiment. A person who paid before counts as
   a visitor and adds no customer and no revenue. `paid_rate` is `customers` over `visitors`. `revenue_per_visitor` and
   `mrr_per_visitor` divide by `visitors`, minor units. `mrr`: subscriptions they started in the window that still pay.
-- `run_payments`: the payments in the run on the whole site (`total`, counted as `revenue` counts them) and how many of
-  them belong to a person in a version (`tied`).
+- `run_payments`: the web payments in the run on the whole site (`total`, counted as `revenue` counts them, so App
+  Store, Google Play and RevenueCat payments are not in it) and how many of them belong to a person in a version
+  (`tied`).
 - `vs_control.verdict` compares the conversion rate (two-proportion z-test): `small_sample` under 100 in an arm, then
   `likely` (p under 0.05) or `not_yet`. `revenue_verdict` compares revenue per visitor (Welch's test): `small_sample`
   until each arm has 30 customers. While a verdict is `small_sample`, its p-value and difference are `null`, and
   `sample_needed_per_arm` is at least 100. `revenue_uplift` is `revenue_difference` over the control's revenue per
   visitor; `revenue_interval` is the 95% range of `revenue_difference`. P-values have 4 decimals.
-- App arms: `verdict` is `small_sample` until each arm has 30 purchases. `revenue_verdict` is null. `control_reason`
-  is `name` when a version is called `control`, `baseline`, `default`, `original`, `off` or `a`, else `alphabetical`
-  (the first name in alphabetical order). Web experiments say `first_version`.
+- App arms count installs, because the sessions of one install are not independent: an install that opens the app ten
+  times would count ten times. `visitors` is the installs whose first session with the property in the period had the
+  version, and `sessions` the sessions with it. `conversions` and `customers` are the installs among them that bought:
+  a first purchase in a session with the property. `revenue` is what those installs paid in those sessions, and
+  `revenue_per_visitor` that over the installs. `verdict` compares buyers over installs: `small_sample` until each arm
+  has 100 installs and 30 buyers. `revenue_verdict` is null. Without consent or the vendor install id, the server knows
+  a device for one day only ([APP-API.md](APP-API.md) section 3), so such an install counts again the next day.
+- `control_reason` (app) is `name` when a version is called `control`, `baseline`, `default`, `original`, `off` or `a`,
+  else `alphabetical` (the first name in alphabetical order). Web experiments say `first_version`.
 - `split_check` (web experiments, not flags) compares the visitors per version with the weights you set (chi-square).
   `ok` is false when `p_value` is under 0.001: assignment or tracking failed in a version, so the verdicts are not to
   be trusted. `p_value` is `null` and `ok` true while a version expects fewer than 5 visitors.
@@ -2530,10 +2541,13 @@ The dashboard's routes take a login (an owner for changes; a viewer reads). They
 Each change writes the experiment's row and the site's `exp_live` (2 rows). Changes take effect within a minute, as the
 site row is cached. `action` `start` or `stop` also writes a chart note in the same batch, 3 rows more (5 in all):
 `"Experiment started: Pricing headline"`, or `"Flag stopped: New checkout. Winner: on"` (`"No winner"` without one).
-The note has `actor` `experiments`, `origin` `manual`, and as `target` the experiment's page when it runs on one, else
-none. Its metric and window follow from that target, as for a note sent to `POST /api/v1/notes`. It shows on the
-Overview chart and in `GET /api/v1/notes` (`?actor=experiments`), and its impact reads like any note's. Deleting the
-experiment keeps its notes. A stopped experiment with a winner keeps showing the winner to every visitor on its pages, and
+The note has `actor` `experiments`, `origin` `manual` and `target` `experiment:<key>`. It shows on the Overview chart and
+in `GET /api/v1/notes` (`?actor=experiments`). It gets no before and after verdict, because both versions run in the
+days after it: `GET /api/v1/notes/<id>/impact` answers `verdict` `null`, a `reason` that says so, and
+`experiment` (`key`, `dashboard_path` such as `/site/<id>/experiments/<key>`, `api_path` such as
+`/api/v1/experiments/<key>`). The visit numbers stay in the answer as context. A `note_verdict` alert rule never fires
+on these notes, and the per-actor tally counts them in no verdict column. Any note with `actor` `experiments` is treated
+this way. Deleting the experiment keeps its notes. A stopped experiment with a winner keeps showing the winner to every visitor on its pages, and
 stores nothing, until you delete it. Stopped without a winner, it assigns nothing, so every visitor sees the page as
 written. At most 10 stopped experiments serve a winner at once.
 

@@ -50,7 +50,25 @@ import { proHooks } from './pro-hooks';
  * and its window, picked from the kind and target, so an SEO change is judged on Search Console clicks over 28 days and
  * an ads change on CPA. A note from before keeps the visit rule over 7 days. `group` makes locale copies one change, and
  * kind `outage` marks a gap in the data until `ends_at`.
+ *
+ * An experiment's start or stop (FounderData Pro, actor `experiments`, target `experiment:<key>`) gets no verdict: both
+ * versions run in the days after it, so before and after compare nothing. Its impact links the experiment instead
+ * (experimentOfNote), and a note_verdict alert rule, which reads impactOf, never fires on it.
  */
+
+/** The actor of the notes an experiment's start and stop write (pro/worker/experiments.ts experimentNote). */
+export const EXPERIMENT_ACTOR = 'experiments';
+/** The target of an experiment's note: experiment:<key> (src/worker/experiments.ts EXPERIMENT_KEY). */
+const EXPERIMENT_TARGET = /^experiment:([a-z0-9_]{1,40})$/;
+
+/**
+ * Whether a note is an experiment's start or stop, and which experiment: `{ key }` (null when its target names none),
+ * or null for any other note.
+ */
+export function experimentOfNote(n: Pick<Note, 'actor' | 'target'>): { key: string | null } | null {
+  if (n.actor !== EXPERIMENT_ACTOR) return null;
+  return { key: EXPERIMENT_TARGET.exec(n.target ?? '')?.[1] ?? null };
+}
 
 /** Where a note came from: added in the dashboard, sent to POST /api/v1/notes, or the daily version cron. */
 export type NoteKind = 'manual' | 'api' | 'version';
@@ -872,6 +890,9 @@ export async function impactOf(
     v = { verdict: 'inconclusive', verdict_metric: v.verdict_metric, reason: `An outage covers ${percent(share)} of the window, so the numbers have a gap. "${first.text}" ran from ${first.from.slice(0, 16).replace('T', ' ')} to ${first.to.slice(0, 16).replace('T', ' ')} UTC.` };
   }
   const visitScope = kw ? 'keyword' : path ? 'page' : 'site';
+  // An experiment's start or stop: its own results judge it, so the note gets no verdict, only the link to them.
+  const exp = experimentOfNote(note);
+  if (exp) v = { verdict: 'inconclusive', verdict_metric: null, reason: experimentReason(exp.key) };
   return {
     site_id: site.id,
     timezone: site.timezone,
@@ -889,9 +910,11 @@ export async function impactOf(
     days_covered: daysCovered,
     complete,
     review_after: reviewAfter,
-    verdict: v.verdict,
+    // null for an experiment's note only, which `experiment` links instead.
+    verdict: exp ? null : v.verdict,
     verdict_metric: v.verdict_metric,
     reason: v.reason,
+    ...(exp ? { experiment: experimentLink(site.id, exp.key) } : {}),
     before: b,
     after: a,
     change: {
@@ -919,7 +942,7 @@ export async function impactOf(
           ...(kw ? { min_places: ASO_MIN_PLACES, min_rank_share: ASO_MIN_SHARE } : {}),
         }) as Record<string, number>,
     outages: gapped.map(({ start: _s, end: _e, ...x }) => x),
-    data_gap: dataGap,
+    data_gap: !exp && dataGap,
     overlapping: overlap
       .filter((n) => !path || targetPath(n.target) === null || targetPath(n.target) === path)
       .map((n) => apiNote(n)),
@@ -927,6 +950,21 @@ export async function impactOf(
 }
 
 export type NoteImpact = Awaited<ReturnType<typeof impactOf>>;
+
+/** Why an experiment's note has no verdict, and where its result is. */
+export function experimentReason(key: string | null): string {
+  const where = key ? `GET /api/v1/experiments/${key}` : 'GET /api/v1/experiments';
+  return `An experiment start or stop gets no before and after verdict, because both versions run in the days after it. The experiment's own results judge it: ${where}.`;
+}
+
+/** The experiment an experiment's note links to: its page in the dashboard and its read route, or the list's without a key. */
+export function experimentLink(siteId: string, key: string | null) {
+  return {
+    key,
+    dashboard_path: key ? `/site/${siteId}/experiments/${key}` : `/site/${siteId}/experiments`,
+    api_path: key ? `/api/v1/experiments/${key}` : '/api/v1/experiments',
+  };
+}
 
 /**
  * D1 calls one impactOf makes at most, each statement and batch counted once: the overview, the notes around it
@@ -951,7 +989,8 @@ export function impactWithoutRevenue(i: NoteImpact) {
   const side = ({ from, to, visitors }: NoteImpact['after']) => ({ from, to, visitors });
   const counts = (s: NoteImpact['after']) => ({ visitors: s.visitors, customers: 0, revenue: 0 });
   const visitRule = i.scope !== 'keyword' && (i.metric === null || i.metric === 'visits');
-  const keep = !visitRule || i.data_gap || i.note.kind === 'outage';
+  // An experiment's note keeps its null verdict: the visit rule never judges it.
+  const keep = !visitRule || i.data_gap || i.note.kind === 'outage' || i.verdict === null;
   // A verdict on money (CPA, ROAS): a key without revenue gets none.
   const money = i.metric === 'cpa' || i.metric === 'roas';
   const { ads: _ads, ...rest } = i as NoteImpact & { ads?: unknown };
@@ -1262,11 +1301,13 @@ export async function actorStats(db: D1Database, site: Site, o: { days: number; 
     if (n.reviewed_at && (!reviewOf.has(k) || n.reviewed_at < reviewOf.get(k)!.reviewed_at!)) reviewOf.set(k, n);
   }
   const notes = changes.filter((n) => !n.group_key || firstOf.get(`${n.actor}\n${n.group_key}`) === n).slice(0, ACTOR_MAX_NOTES);
-  const verdicts: (Verdict | 'measuring')[] = [];
+  // An experiment's start or stop has no verdict (null): it counts as a change and in no verdict column.
+  const verdicts: (Verdict | 'measuring' | null)[] = [];
   // Ten at a time, so a long list doesn't open 50 overviews at once.
   for (let i = 0; i < notes.length; i += 10) {
     const part = await Promise.all(
       notes.slice(i, i + 10).map(async (n) => {
+        if (experimentOfNote(n)) return null;
         if (reviewAfterOf(n, o.window) > now) return 'measuring' as const;
         const impact = await impactOf(db, site, n, o.window, now);
         return (o.showRevenue ? impact : impactWithoutRevenue(impact)).verdict;
