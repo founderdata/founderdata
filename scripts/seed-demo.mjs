@@ -1510,10 +1510,12 @@ const seoParts = (() => {
   // Every other visit that saw /pricing in a run gets its version by the first character of its visitor id, as a hash
   // would split them: the arms then add up to the visitors of /pricing in the window.
   const tag = (key, from, to, variants, chars) =>
-    late.push(`UPDATE sessions SET props = json_set(COALESCE(props, '{}'), '$.exp_${key}',
-      CASE WHEN instr('${chars}', substr(visitor_id, 1, 1)) > 0 THEN '${variants[0]}' ELSE '${variants[1]}' END)
-      WHERE site_id = ${q(shipkit)} AND datacenter = 0 AND json_extract(COALESCE(props, '{}'), '$.exp_${key}') IS NULL
-        AND id IN (SELECT session_id FROM events WHERE site_id = ${q(shipkit)} AND type = 'pageview' AND (path = '/pricing' OR path LIKE '/pricing/%') AND ts >= ${from} AND ts < ${to});`);
+    // One line: the loaders split seed.sql into statements by line.
+    late.push(
+      `UPDATE sessions SET props = json_set(COALESCE(props, '{}'), '$.exp_${key}', CASE WHEN instr('${chars}', substr(visitor_id, 1, 1)) > 0 THEN '${variants[0]}' ELSE '${variants[1]}' END)` +
+        ` WHERE site_id = ${q(shipkit)} AND datacenter = 0 AND json_extract(COALESCE(props, '{}'), '$.exp_${key}') IS NULL` +
+        ` AND id IN (SELECT session_id FROM events WHERE site_id = ${q(shipkit)} AND type = 'pageview' AND (path = '/pricing' OR path LIKE '/pricing/%') AND ts >= ${from} AND ts < ${to});`,
+    );
   tag('pricing_headline', start, now + DAY, ['control', 'b'], '01234567');
   tag('new_checkout', flagFrom, flagTo, ['off', 'on'], '02468ace');
   late.push(`UPDATE sites SET exp_live = ${q(JSON.stringify([{ k: 'pricing_headline', v: [['control', 50], ['b', 50]], p: ['/pricing'] }]))} WHERE id = ${q(shipkit)};`);
