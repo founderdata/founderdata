@@ -20,15 +20,16 @@ The app talks to one FounderData deployment. The user types the deployment URL a
   writes only two things outside its own device settings. The first is chart notes: `POST /api/sites/:id/notes`,
   `DELETE /api/sites/:id/notes/:nid` and `POST /api/sites/:id/notes/:nid/review`
   (`{ outcome: "kept" | "reverted" | "iterated", comment? }`, docs/API.md). The second is its mail actions under
-  `/api/mobile/mail/*`: read state, archive and replies in a thread (section 11). Other writes need the dashboard
-  cookie. Inside `/api/mobile/*` the token works for every route listed here.
+  `/api/mobile/mail/*`: read state, archive and replies in a thread (section 11). Inside `/api/mobile/*` it also acts
+  on Today's cards and settings (section 12). Other writes need the dashboard cookie. Inside `/api/mobile/*` the token
+  works for every route listed here.
 - A phone token reads no secrets. In every JSON answer to it, the site's write key `api_key`, the webhook signing
   secrets, `revenuecat_auth`, `gumroad_token` and any other `*_secret`, `*_token` or `*_auth` field is `null`. Share
   links and read keys (`/api/sites/:id/share`) and alert channels (`/api/alerts`) answer 403. A lost phone can read
   stats but can't post payments with the write key or open a read key.
 - A phone token sees names, emails, user ids and customer ids, like the dashboard. Set `PHONE_PII=0` on the Worker to
   get `null` for them instead. With `PHONE_PII=0` a phone also gets no mail: every `/api/mobile/mail/*` route answers
-  403 and no mail push goes out (section 11). Raw CSV exports (`/api/sites/:id/export/*`) always answer 403 to a phone.
+  403, no mail push goes out (section 11), and Today leaves out its Reply cards (section 12). Raw CSV exports (`/api/sites/:id/export/*`) always answer 403 to a phone.
 - The dashboard's mail routes, `/api/mail-admin/*`, answer 403 to a phone token whatever the method. A phone reads
   mail through `/api/mobile/mail/*` instead.
 - The viewer login (docs/GUIDE.md, "Viewer login") can't sign a phone in: `/api/mobile/login` takes the admin
@@ -176,6 +177,31 @@ site. A tap opens the Growth tab at that site:
 { "aps": { "alert": { "title": "Habitly: 2 questions", "body": "Which channels should we post on next week? (and 1 more)" },
            "sound": "default", "badge": 3, "thread-id": "questions-<siteId>" },
   "siteId": "<siteId>", "event": "questions", "count": 2 }
+```
+
+Today ([section 12](#12-today)) sends one push at 08:00 in the reporting timezone when Reply or critical Fix cards
+wait, with `event` `today`. `count` is the Reply cards plus the critical Fix cards that are not muted. A phone on a
+deployment with `PHONE_PII=0` counts only the critical Fix cards, because it sees no Reply cards. No push goes out at
+zero, or while the Today setting `push` is off. It goes to every phone with a live alert token, whatever its site
+switches, because Today covers every site. A tap opens Today:
+
+```json
+{ "aps": { "alert": { "title": "3 things need you", "body": "2 to answer, 1 to fix" },
+           "sound": "default", "thread-id": "today" },
+  "event": "today", "day": "2026-11-21", "count": 3 }
+```
+
+A critical Fix card that starts (payments stopped arriving, a webhook refused, a write cap reached) sends one push at
+once, within a tick of five minutes, with `event` `today_fix` and the card's `key`. It goes out as often as the alert
+channels get the same alert: a refused webhook once a day per site and provider, a write cap once a day, stopped
+payments on the first day and then once a week. A muted card and the Today setting `fix` off send nothing. The title
+and body are the alert's own words, cut at 80 and 140 characters. It goes to the phones that have not muted the site
+(every phone for the shared write cap). A tap opens Today:
+
+```json
+{ "aps": { "alert": { "title": "Stripe webhooks refused on ShipKit", "body": "Stripe: 1 delivery to ShipKit refused today for a bad signature. Check that the…" },
+           "sound": "default", "thread-id": "today-fix" },
+  "event": "today_fix", "key": "webhook_refused:SITE_ID:stripe", "siteId": "SITE_ID" }
 ```
 
 Alert, one per payment, after the payment row is inserted for the first time (duplicates never push):
@@ -817,6 +843,8 @@ The answer is `{ "ok": true, "task": { id, site_id, status, outcome, answer }, c
 answered already, or closed by the agent, answers `409`; a wrong option or a missing text `400`; an unknown task `404`.
 One answer writes 1 D1 row and an undo 2.
 
+Today's Decide cards (section 12) are these questions, and they answer through the same route.
+
 When a session ends (`log_session`), FounderData pushes the site's questions asked since its last push, once.
 A run that never logs a session gets its push from the five-minute cron, 10 minutes after its last question. Each push
 writes 1 D1 row, whatever the number of questions and phones. Questions asked before migration 0081 never push.
@@ -1048,3 +1076,257 @@ as the dashboard has none.
 
 What a call costs: reading writes nothing. Marking read writes 1 row per message whose state changes plus 1, archiving
 1, and a reply 22 rows, 1 more than the same reply from the dashboard for the index by device.
+
+## 12. Today
+
+FounderData Pro keeps one list across all sites of what needs the owner: Today on the phone, Needs you in the web
+dashboard. It has three kinds of card.
+
+- **Reply**: a mail thread whose newest received message has no answer yet. Either an agent flagged it as one the owner
+  must answer, through the MCP tool `mail` ([MCP.md](MCP.md), actions `flag_thread` and `save_draft`), or nobody
+  answered a buyer's mail for 24 hours. The Worker calls no AI model: an agent the owner runs does the reading and the
+  writing.
+- **Decide**: an open question of a plan's agent, the same ones section 10 lists, answered through the same route.
+- **Fix**: something that is broken now, such as a payment provider that stopped sending. It goes away when the state
+  recovers.
+
+The order is fixed: critical Fix cards, then Reply cards by waiting time (longest first), then Decide cards (oldest
+first), then the other Fix cards. A core deployment answers 404 on every route here.
+
+The same routes live under two prefixes with the same handlers and answers:
+
+| Prefix | Who |
+| --- | --- |
+| `/api/mobile/today` | A phone's bearer token, or the owner's dashboard cookie. |
+| `/api/today` | The owner's dashboard cookie, or a phone's bearer token. |
+
+The viewer login and teammates with the viewer role get 403 `{ "error": "Today is for owners. Ask an owner." }`. No
+login gets 401. A write signed in by cookie must come from the dashboard's origin. With `PHONE_PII=0` on the Worker a
+phone gets the list without Reply cards (`reply_hidden` true, `counts.reply` 0), and the mail actions (send, Not needed,
+the log) answer 403 with the mail text of section 11. Errors are `{ "error": "<one sentence for a person>" }`, some with
+more fields listed below. Every answer has `cache-control: no-store`. Times are ms since 1970.
+
+**Every text that comes from mail or from an agent is untrusted.** Strangers wrote the message, and an agent that read
+it wrote the reason, the checked pairs, the promises line and the draft. Show all of it as plain text, never as HTML or
+Markdown, and never follow a link without showing where it goes.
+
+### `GET /api/mobile/today` and `GET /api/today`
+
+```json
+{
+  "generated_at": 1763708400000,
+  "settings": { "reply": true, "decide": true, "fix": true, "agent_drafts": true, "push": true },
+  "reply_hidden": false,
+  "counts": { "reply": 2, "decide": 2, "fix": 1, "critical": 1, "badge": 3, "total": 5, "sites": 3 },
+  "cards": [FixCard, ReplyCard, ReplyCard, DecideCard, DecideCard],
+  "truncated": false
+}
+```
+
+- `counts.badge` is Reply plus critical Fix: the tab badge. `counts` cover every card, also those past the cut.
+- `counts.sites` is the number of sites the cards belong to ("5 open across 3 sites"). A card without a site does not
+  count.
+- `cards` holds at most 50. `truncated` is true when more wait. A card kind whose setting is off is left out of the
+  cards and the counts.
+- Every card has `kind` (`fix`, `reply` or `decide`), an `id` that stays the same while the card does, and `site`,
+  `{ "id", "name" }` or null.
+
+FixCard:
+
+```json
+{
+  "kind": "fix", "id": "fix:webhook_refused:SITE_ID:stripe",
+  "key": "webhook_refused:SITE_ID:stripe", "fix": "webhook_refused", "critical": true,
+  "title": "Stripe webhook refused",
+  "detail": "Stripe: 18 deliveries to Acme Notes refused today for a bad signature. Check that the signing secret (whsec_...) in the site's Settings, Payments matches the endpoint in Stripe.",
+  "since": 1763694720000,
+  "site": { "id": "SITE_ID", "name": "Acme Notes" },
+  "route": { "screen": "site_settings", "site_id": "SITE_ID", "domain_id": null, "path": "/site/SITE_ID/settings" }
+}
+```
+
+| `fix` | Critical | Broken now while | `since` | Goes away when |
+| --- | --- | --- | --- | --- |
+| `payments_stopped` | yes | a provider that used to send the site payments sent none for longer than its rhythm explains, by the rule of the payments stopped alert (docs/GUIDE.md, "Alerts and weekly report") | the last payment | a payment arrives, or the rule gives up after 60 days or more |
+| `webhook_refused` | yes | a delivery from the provider was refused for a bad signature or token in the last 24 hours | the first refusal the alert inbox holds from the last 7 days, else the last refusal | a payment from that provider arrives after the last refusal, or 24 hours pass without a refusal |
+| `cap` | yes | the site's own daily write cap, or the shared pool (`key` `cap:*`, `site` null), was reached today | when it was reached | 00:00 UTC |
+| `quiet` | no | the site had no visit or app session for 24 hours or more, up to 30 days | the last session | a session arrives |
+| `aso_collector` | no | the ASO collector sent no snapshot for 36 hours or more, up to 30 days, and DataForSEO does not cover every country | the last snapshot | a snapshot arrives |
+| `mail_domain` | no | the hourly mail health job alerted a problem with a domain's setup, and its last check still finds it | when the problems last changed | the check finds none |
+
+- `key` is stable while the state lasts. Mute takes it.
+- `title` and `detail` are written for a person, in English. `detail` says what to check.
+- `route.screen` is `home`, `site_settings`, `aso` or `mail_domain`, with the site or the mail domain it is about.
+  `route.path` is the dashboard path for the same screen. Treat a screen you don't know as `home`.
+- Fix states the Worker cannot judge cheaply are not cards: a failed payment, a cancellation, a rule alert, an App
+  Store review. Those stay in the alert inbox and the alert channels.
+
+ReplyCard:
+
+```json
+{
+  "kind": "reply", "id": "reply:thr_9c1d", "thread_id": "thr_9c1d", "source": "agent",
+  "site": { "id": "SITE_ID", "name": "Acme Notes" },
+  "subject": "Charged twice for the yearly plan",
+  "from": { "email": "dana@reyes.example", "name": "Dana Reyes" },
+  "to": "support@acme.example",
+  "message": { "id": "6f1c0e2a-...", "at": 1763644920000, "text": "Hi,\nI upgraded to the yearly plan on Tuesday...",
+               "text_cut": false, "text_from_html": false, "body_deleted": false },
+  "waiting_since": 1763644920000,
+  "flag": {
+    "reason": "A paying customer asks for money back. Nobody has answered in 19 h.",
+    "checked": [{ "label": "Orders", "value": "#1042 and #1043, $29 each" },
+                { "label": "Subscription", "value": "Yearly, active" }],
+    "promises": "Promises a refund of $29",
+    "by": "Juno", "at": 1763691240000
+  },
+  "draft": {
+    "text": "Hi Dana,\nYou're right, order #1043 charged you a second time...",
+    "to": "dana@reyes.example", "by": "Juno", "at": 1763691240000,
+    "new_links": ["acme.example/billing"]
+  },
+  "draft_outdated": false
+}
+```
+
+- `source` is `agent` for a thread an agent flagged, `unanswered` for a buyer's mail nobody answered in 24 hours. An
+  `unanswered` card has `flag` null and no draft.
+- A buyer is a sender whose address is the email of a recorded payment (not a sandbox one, not a refund) on any site.
+  The addresses are compared ignoring case. App Store buyers, whose payments carry no email, never make an
+  `unanswered` card.
+  Mail that looks automatic (an `Auto-Submitted` header, `Precedence: bulk`, `list` or `auto_reply`, a `List-Id` or
+  `List-Unsubscribe` header, a `noreply` sender) or likely spam (as for mail pushes, section 3) never does either.
+- `message` is the thread's newest received message, the one a reply answers. `text` is its full text, cut at 20,000
+  characters (`text_cut`). A message with HTML only comes as the words of its HTML (`text_from_html`).
+  `body_deleted` is true when retention deleted the body: `text` is empty then.
+- `to` is the address of yours that received the message, or null.
+- `waiting_since` is the first received message after the last answer. "Waiting 19 h" counts from it.
+- `flag.by` and `draft.by` name the API key the agent used. `checked` holds at most 8 pairs.
+- `draft` is null when no agent wrote one, or when the draft answers an older message: `draft_outdated` is true then.
+  `draft.to` is the only address the reply can go to.
+- `draft.new_links` lists the links in the draft that appear in none of the thread's 20 newest messages, as written in
+  the draft. Mark each one in the draft and let the owner check it before sending. A link here is a host with a path
+  (`acme.example/billing`), or anything starting `http://`, `https://` or `www.`.
+- A card closes the moment any sent message exists in the thread after the message the agent flagged, whoever sent
+  it and from wherever: the dashboard, the phone, an agent or an app. A message the mail service refused does not count.
+  A new received message after an answer opens a new waiting stretch, which needs a new flag or 24 hours.
+
+DecideCard:
+
+```json
+{
+  "kind": "decide", "id": "decide:SITE_ID:t1a2b3c4",
+  "site": { "id": "SITE_ID", "name": "Tidy Ledger" },
+  "question": { "id": "t1a2b3c4", "site_id": "SITE_ID", "title": "Which yearly price should the next test use?", "...": "..." }
+}
+```
+
+`question` is exactly a question of `GET /api/mobile/questions` (section 10). Answer it with
+`POST /api/mobile/questions/<siteId>/<taskId>/answer` on the phone, or `POST /api/sites/<siteId>/plan/tasks/<taskId>/answer`
+with the dashboard cookie (docs/API.md, "Plan (Pro)"), with the same body. Undo works the same way.
+
+### `POST .../reply/:threadId/send`
+
+```json
+{ "message_id": "6f1c0e2a-...", "text": "Hi Dana, ..." }
+```
+
+Sends the reply of a Reply card at once. The 30-second hold with Undo is the client's: wait, then call this route.
+
+- `message_id` is required: the card's `message.id`, the message the owner read.
+- `text` is optional, plain text up to 20,000 characters. Without it the card's draft goes. With it, that text goes,
+  which is how an edited draft or a reply to a card without a draft is sent.
+- The reply goes to the sender of that message (`from.email`) and nobody else, from the address that received the
+  thread, with `Re: ` and the threading headers, inside the thread, as plain text. It takes the reply path of section 11:
+  the suppression list, the Sent tab and delivery status, and the phone's daily reply cap. The dashboard's login has
+  no cap, as in section 11.
+- One card is sent once. A second send of the same card and message answers 409.
+
+Answers `{ "id": "8a2e...", "status": "sent", "thread_id": "thr_9c1d", "to": ["dana@reyes.example"], "from_draft": true, "edited": false }`.
+`from_draft` is true when the card had a draft for that message, `edited` when the text sent differs from it.
+
+Errors:
+
+- 400: no `message_id`, `text` not a string, an empty reply, a card without a draft and no `text`, a reply over 20,000
+  characters.
+- 403: a phone with `PHONE_PII=0`.
+- 404: an unknown thread.
+- 409: nothing in the thread waits for an answer any more (someone answered it, or it is archived), or a newer message
+  arrived after `message_id` (the answer adds `"message_id"` with the newest one: show it, then send again), or this
+  card was sent already.
+- 422 and 502 as for a reply in section 11, with `id`, `status` and `code` when the message was stored. The card stays,
+  and a second send may try again.
+- 429: the phone's daily cap, with `cap` and `sent_24h`.
+
+### `POST .../reply/:threadId/dismiss`
+
+Not needed. Body `{ "message_id": "6f1c0e2a-..." }`, the card's `message.id`. Answers `{ "ok": true }`. The card goes
+away until a newer message arrives in the thread. The agent's flag stays for the log. 409 with `message_id` when a
+newer message arrived, 409 when nothing waits, 404 for an unknown thread, 403 for a phone with `PHONE_PII=0`.
+
+### `POST .../fix/mute`
+
+Mute 24 h. Body `{ "key": "webhook_refused:SITE_ID:stripe" }`, the card's `key`. Answers
+`{ "ok": true, "key": "...", "since": 1763694720000, "until": 1763781120000 }`. The card leaves the list, the counts,
+the 08:00 push and the push for a critical Fix until `until`, or until the state recovers: the mute holds only while
+the card's `since` stays the same, so a state that recovers and breaks again shows at once. 404 when that key is not
+broken now. Muting takes no personal data, so a phone with `PHONE_PII=0` may mute.
+
+### `GET .../settings` and `PUT .../settings`
+
+```json
+{ "settings": { "reply": true, "decide": true, "fix": true, "agent_drafts": false, "push": true } }
+```
+
+The owner's settings, one set for the deployment, the same on every phone and in the dashboard.
+
+- `reply`, `decide`, `fix`: show that card kind. All start on.
+- `agent_drafts`: agents may save drafts. Starts off. While it is off, an agent's `save_draft` is refused with
+  `Agent drafts are off. ...` and cards carry no new drafts. Drafts saved before stay.
+- `push`: the 08:00 push. Starts on.
+
+`PUT` takes any of the five as true or false and answers the whole set. An unknown key or a value that is not a boolean
+answers 400.
+
+### `GET .../log`
+
+What agents wrote and what was sent from a card, newest first. Query: `limit` 1 to 200 (default 50) and `before`, the
+`next_before` of the page before.
+
+```json
+{
+  "entries": [
+    { "id": "send:thr_9c1d:6f1c0e2a-...", "at": 1763708430000, "kind": "send", "thread_id": "thr_9c1d",
+      "subject": "Charged twice for the yearly plan", "message_id": "6f1c0e2a-...", "actor": "phone",
+      "detail": { "from_draft": true, "edited": true, "sent_id": "8a2e...", "status": "sent" } },
+    { "id": "log_k2j3h4g5f6", "at": 1763691240000, "kind": "draft", "thread_id": "thr_9c1d", "subject": "...",
+      "message_id": "6f1c0e2a-...", "actor": "Juno", "detail": { "text": "Hi Dana, ...", "new_links": ["acme.example/billing"] } },
+    { "id": "log_a1s2d3f4g5", "at": 1763691200000, "kind": "flag", "thread_id": "thr_9c1d", "subject": "...",
+      "message_id": "6f1c0e2a-...", "actor": "Juno",
+      "detail": { "important": true, "reason": "...", "checked": [{ "label": "Orders", "value": "..." }], "promises": "Promises a refund of $29" } }
+  ],
+  "next_before": null
+}
+```
+
+- `kind` is `flag`, `draft` or `send`. `actor` is the agent's API key name for `flag` and `draft`, and `phone` or
+  `dashboard` for `send`. Every draft an agent saved is here, also one a later draft replaced.
+- A `send` entry's `detail.status` is `sending` for a send still under way, else `sent`. A failed send leaves no entry.
+- Entries are kept 90 days, and go with their thread. 403 for a phone with `PHONE_PII=0`.
+
+### Rows and reads
+
+Reading the list writes nothing. It reads one D1 batch (settings, mutes, the Reply candidates, the open questions), the
+Fix states (the payments of silent providers, today's caps, the refused webhooks, the ASO collector and the mail health
+memory), one read of `payments` when a thread is old enough to be an `unanswered` card, and one R2 read per Reply card
+for its text.
+
+| Write | D1 rows |
+| --- | --- |
+| Send a Reply card | the reply's own (21 from the dashboard, 22 from a phone, section 11) + 2 |
+| Not needed | 1 |
+| Mute | 1 |
+| Change the settings | 1 |
+| An agent's flag, or its draft | 2 each |
+| The 08:00 push | 1 a day |
+| The push for a critical Fix | 1 per tick that finds a new one |

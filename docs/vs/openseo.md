@@ -26,7 +26,7 @@ may have changed.
 | Backlinks | Referring domains, new and lost, about $0.08 a domain overview | Stores a `backlinks` part you push. It collects nothing |
 | AI visibility | ChatGPT, Claude, Gemini, Perplexity and AI Overviews, about $0.002 a check, labelled beta | OpenAI, Anthropic, Gemini, Perplexity and Google AI Overviews, with optional sentiment, share of voice and cited pages. A check costs about $0.008 to $0.033 by our estimate |
 | Analytics tie-in | GA4 only. Open requests for Plausible, PostHog and Umami | Its own visits, customers and revenue, for every page and AI referral |
-| Agents | About 40 MCP tools, OAuth sign-in, skills for audits, clustering and reports, plugins for Claude, Codex and Cursor | In Pro, 38 MCP tools behind a pasted `fdk_` key, eight workflows served as MCP prompts and a research log. Chart notes that agents review |
+| Agents | About 40 MCP tools, OAuth sign-in, skills for audits, clustering and reports, plugins for Claude, Codex and Cursor | In Pro, 38 MCP tools behind a pasted `fdk_` key, nine workflows served as MCP prompts and a research log. Chart notes that agents review |
 | Reports | Saved agent reports, PDF, public share links | A weekly report, a research log, a share link. No PDF |
 | Local SEO, IndexNow, Lighthouse | Yes | No. Core Web Vitals come from your real visitors |
 

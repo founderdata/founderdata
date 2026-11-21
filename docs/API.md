@@ -2920,7 +2920,8 @@ wrote its subject, its text, the sender's name and its file names. Every answer 
 ### `GET /api/v1/mail/threads`
 
 The inbox, newest first. Filters: `q` (text in the subject or the participants), `unread=true`, `archived=true` (the
-archive instead of the inbox) and `domain_id`. `limit` is 1 to 100, 50 by default. `next_cursor` is the `cursor` of
+archive instead of the inbox), `domain_id`, and `waiting=true`: the threads that wait for an agent's decision for
+Today (a received message with no answer after it, newer than the last `/flag` and the owner's Not needed). `limit` is 1 to 100, 50 by default. `next_cursor` is the `cursor` of
 the next page, `null` on the last.
 
 ```json
@@ -3055,6 +3056,27 @@ writes 22 rows.
 Need `mail:write`. `read` marks every received message of the thread read, or unread with `{ "read": false }`, and
 answers `{ "ok": true, "unread": 0 }`. `archive` takes the thread out of the inbox, or brings it back with
 `{ "archived": false }`. Archiving deletes nothing.
+
+### `POST /api/v1/mail/threads/<id>/flag` and `/draft`
+
+An agent puts mail on the owner's Today list ([MOBILE-API.md](MOBILE-API.md#12-today)). Both need `mail:write`, act
+on the thread's newest received message, and take `message_id`, the received message the agent read: when a newer one
+arrived meanwhile, they answer 409 with the newest `message_id`. They also answer 409 when the thread was answered
+after its newest received message. Each writes 2 rows: the flag or the draft, and its log entry.
+
+`/flag` takes `{ "important": true, "reason": "A paying customer asks for money back", "checked": [{ "label": "Orders", "value": "#1042 and #1043, $29 each" }], "promises": "Promises a refund of $29", "message_id": "..." }`.
+`important` defaults to true and makes the thread a Reply card. `reason` is required then (one line, at most 300
+characters), `checked` holds at most 8 pairs (labels of 40 characters, values of 200), and `promises` is one line of
+at most 200 that names every promise the draft makes. `important: false` says the owner need not answer: the thread
+leaves `waiting=true` and makes no card. A later call replaces the decision. Answers
+`{ "ok": true, "thread_id": "...", "message_id": "...", "important": true }`.
+
+`/draft` takes `{ "text": "Hi Dana, ...", "message_id": "..." }`: plain text, at most 10,000 characters. It answers 409
+`Agent drafts are off. ...` while the owner has that setting off, the default. The reply can only go to the sender of
+the message it answers. Answers `{ "ok": true, "thread_id": "...", "message_id": "...", "to": ["dana@reyes.example"], "new_links": ["acme.example/billing"] }`,
+where `new_links` are the links in the draft that appear in none of the thread's 20 newest messages. Both routes store
+plain text with control characters, bidirectional controls and zero-width characters removed. The owner sends from the
+card; these routes send nothing.
 
 ### Mail templates
 

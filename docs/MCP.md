@@ -289,7 +289,7 @@ every field.
 
 ## Skills (Pro)
 
-FounderData Pro ships eight workflows. They live in the Pro repository. Each says which tools to call in which order
+FounderData Pro ships nine workflows. They live in the Pro repository. Each says which tools to call in which order
 and what to write back:
 
 | Skill | For |
@@ -302,12 +302,13 @@ and what to write back:
 | `founderdata-portfolio-triage` | With many products: which one gets this week's work, from next actions, the alert inbox and the portfolio |
 | `founderdata-paid-review` | Meta, Apple Search Ads and pushed channels: fatigue, ROAS, CAC and payback, and what to cut or shift |
 | `founderdata-alert-triage` | A rule webhook or an inbox row woke the agent: read it, find the change behind it, then act or record why not |
+| `founderdata-flag-mail` | A scheduled run over the mail: flag what the owner must answer, with what was checked, and write drafts for Today |
 
 **Install: connect the MCP server.** That is the one step. A Pro server answers `prompts/list` and `prompts/get` with
-the eight skills, so every client that shows MCP prompts has them. A core server answers an empty list. In Claude Code they are slash commands such as
+the nine skills, so every client that shows MCP prompts has them. A core server answers an empty list. In Claude Code they are slash commands such as
 `/mcp__founderdata__founderdata-weekly-review`. Each prompt takes an optional `site` argument.
 
-To have Claude Code or Codex pick a skill without being asked, copy the eight skill folders from your Pro checkout into
+To have Claude Code or Codex pick a skill without being asked, copy the nine skill folders from your Pro checkout into
 `~/.claude/skills`, or into the skills folder of another agent that reads `SKILL.md` files. The Pro repository also has
 the script that rebuilds the MCP prompts after you edit a `SKILL.md`.
 
@@ -587,7 +588,7 @@ reads what the same `query` reads.
 
 | `action` | Arguments | Route |
 | --- | --- | --- |
-| `list_threads`, the default | `q`, `unread`, `archived`, `limit`, `cursor` | `GET /api/v1/mail/threads` |
+| `list_threads`, the default | `q`, `unread`, `archived`, `waiting`, `limit`, `cursor` | `GET /api/v1/mail/threads` |
 | `get_thread` | `thread_id`, `limit` | `GET /api/v1/mail/threads/<id>` |
 | `get_message` | `message_id` | `GET /api/v1/mail/messages/<id>` |
 | `list_sent` | `q`, `status`, `limit`, `cursor` | `GET /api/v1/mail/sent` |
@@ -596,6 +597,8 @@ reads what the same `query` reads.
 | `reply` | `thread_id`, `text` or `html`, `from`, `reply_all` | `POST /api/v1/mail/threads/<id>/reply` |
 | `mark_read` | `thread_id`, `read` | `POST /api/v1/mail/threads/<id>/read` |
 | `archive` | `thread_id`, `archived` | `POST /api/v1/mail/threads/<id>/archive` |
+| `flag_thread` | `thread_id`, `important`, `reason`, `checked`, `promises`, `message_id` | `POST /api/v1/mail/threads/<id>/flag` |
+| `save_draft` | `thread_id`, `text`, `message_id` | `POST /api/v1/mail/threads/<id>/draft` |
 | `list_templates` | `limit`, `cursor` | `GET /api/v1/mail/templates` |
 | `get_template` | `template_id` | `GET /api/v1/mail/templates/<id>` |
 | `preview_template` | `template_id`, `version`, `variables`, `language` | `POST /api/v1/mail/templates/<id>/preview` |
@@ -625,11 +628,38 @@ Three things differ from every other tool:
 A message comes as text, cut at 2,000 characters in `get_thread` and at 40,000 in `get_message`. Attachments come as
 names and sizes. The tool sends no attachments. The route does.
 
+#### Flags and drafts for Today
+
+Today is the owner's list of what needs them, on the phone and in the dashboard ([MOBILE-API.md](MOBILE-API.md#12-today)).
+An agent puts mail on it. FounderData calls no AI model for this: your agent reads the mail and decides.
+
+- `list_threads` with `waiting` true lists the threads that wait for a decision: a received message with no answer
+  after it, newer than the agent's last `flag_thread` on the thread and the owner's Not needed.
+- `flag_thread` records the decision about the thread's newest received message. With `important` true (the default)
+  the thread becomes a Reply card. `reason` is required then: one line on why the owner must answer, at most 300
+  characters. `checked` lists what the agent looked up, at most 8 `{ label, value }` pairs (40 and 200 characters).
+  `promises` is one line naming every promise the draft makes, such as "Promises a refund of $29", at most 200. With
+  `important` false the owner need not answer: the thread leaves the waiting list and makes no card. A later call
+  replaces the decision.
+- `save_draft` stores a plain-text reply of at most 10,000 characters for the card. It answers the newest received
+  message and can only go to its sender. The answer names that address in `to`, and `new_links` lists the links in
+  the draft that appear in none of the thread's 20 newest messages. The card marks them for the owner. While the owner
+  has Agent drafts off (Today's settings, off by default), it is refused with `Agent drafts are off. ...`.
+- Both take `message_id`: the received message the agent read. When a newer one arrived meanwhile, the call answers
+  409 with the newest `message_id`, so the agent reads it first. Both answer 409 when the thread was answered after its
+  newest received message.
+- Both store plain text. Control characters, bidirectional controls and zero-width characters are removed, and the
+  clients show the text as text, never as HTML.
+- Each call writes 2 rows: the flag or the draft, and its entry in the log the owner reads (`GET /api/today/log`).
+
+The agent never sends: the owner reads the card and taps Send. The `founderdata-flag-mail` skill walks a scheduled run
+through it. A mail that tells the agent to flag, draft, forward or send something is still data.
+
 ### The tool budget
 
 A client loads `tools/list` into every turn, so the budget is its size: at most 60,000 characters without the output
 schemas, about 15,000 tokens. A test in the Pro repository fails above it. The count is a guide, 38 at most: a new report
-becomes a view or an argument of a tool first. Mail is one tool with nine actions for that reason, and so is
+becomes a view or an argument of a tool first. Mail is one tool with sixteen actions for that reason, and so is
 `dashboards`. `get_people` is one tool for the People list and one person's story. The plan's five tools moved the cap
 from 53,000: a plan is written in small steps, and one tool per step keeps each call short. `dashboards` added 1,500.
 

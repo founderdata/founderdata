@@ -14383,6 +14383,15 @@
             }
           },
           {
+            "name": "waiting",
+            "in": "query",
+            "required": false,
+            "description": "true: only threads that wait for an agent's flag decision for Today: a received message with no answer after it, newer than the last flag_thread decision and the owner's Not needed.",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "domain_id",
             "in": "query",
             "required": false,
@@ -15846,6 +15855,314 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/mail/threads/{id}/flag": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "flagMailThread",
+        "tags": [
+          "Mail"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          }
+        ],
+        "summary": "Flag a thread for the owner's Today (Pro)",
+        "description": "The agent's decision about the thread's newest received message. important true (the default) puts the thread in the owner's Today list as a Reply card, with the reason, what the agent checked and the promises line, until someone answers it or the owner taps Not needed. important false says the owner need not answer it: the thread leaves ?waiting=true and makes no card. A later decision replaces the last one. Everything is stored and shown as plain text: control characters are removed and each field has a length cap. Needs a scoped key with mail:write. A key kept to some mail domains acts on those domains only. Writes 2 rows.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "important": {
+                    "type": "boolean",
+                    "description": "Default true. false: the owner need not answer."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 300,
+                    "description": "One line on why the owner must answer. Required when important is true."
+                  },
+                  "checked": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "description": "What the agent looked up.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "maxLength": 40
+                        },
+                        "value": {
+                          "type": "string",
+                          "maxLength": 200
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "promises": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 200,
+                    "description": "One line naming every promise the draft makes, such as \"Promises a refund of $29\". Only with important true."
+                  },
+                  "message_id": {
+                    "type": "string",
+                    "description": "The received message the agent read. When a newer one arrived, the answer is 409."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "thread_id": {
+                      "type": "string"
+                    },
+                    "message_id": {
+                      "type": "string",
+                      "description": "The received message the decision is about."
+                    },
+                    "important": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "thread_id",
+                    "message_id",
+                    "important"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The key lacks the scope the route needs. The error names it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Nothing to decide: the thread has no received message, or it was answered after its newest one. Or a newer message than message_id arrived: message_id names it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message_id": {
+                      "type": "string",
+                      "description": "The newest received message, when a newer one than message_id arrived."
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mail/threads/{id}/draft": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "draftMailReply",
+        "tags": [
+          "Mail"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          }
+        ],
+        "summary": "Save a draft reply for the owner's Today (Pro)",
+        "description": "A plain-text reply to the thread's newest received message, which the owner reads, edits and sends from the thread's Reply card. The reply can only go to that message's sender. Refused with 409 while the owner has Agent drafts off (the Today settings). A later draft replaces the last one, and a draft is shown only while its message is the thread's newest received one. new_links lists the links in the draft that appear in none of the thread's 20 newest messages. The card marks them. Control characters are removed. Needs a scoped key with mail:write. A key kept to some mail domains acts on those domains only. Writes 2 rows.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 10000,
+                    "description": "The reply, plain text."
+                  },
+                  "message_id": {
+                    "type": "string",
+                    "description": "The received message the draft answers. When a newer one arrived, the answer is 409."
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "thread_id": {
+                      "type": "string"
+                    },
+                    "message_id": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The one address the reply can go to."
+                    },
+                    "new_links": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "thread_id",
+                    "message_id",
+                    "to",
+                    "new_links"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The key lacks the scope the route needs. The error names it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Agent drafts are off, or there is nothing to answer (no received message, or an answer after the newest one), or a newer message than message_id arrived: message_id names it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message_id": {
+                      "type": "string",
+                      "description": "The newest received message, when a newer one than message_id arrived."
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       }
