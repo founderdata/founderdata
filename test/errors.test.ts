@@ -233,3 +233,20 @@ describe('errors: the tracker sends stack frames as k', () => {
     expect(parseFrames(k)).toEqual([{ file: 'https://shop.example/app.js', line: 12, col: 7, fn: 'pay' }]);
   });
 });
+
+describe('errors: the demo data', () => {
+  // scripts/seed-demo.mjs writes the fingerprints of its four demo issues as constants: they must be what the Worker
+  // computes, or the demo's rows would not group like real ones.
+  const seed = fs.readFileSync(path.resolve(__dirname, '../scripts/seed-demo.mjs'), 'utf8');
+  const H = 'https://shipkit.example.com';
+  const BUNDLE = `${H}/assets/index-B3kZ9a1x.js`;
+  it('uses the fingerprints the Worker computes', () => {
+    const issues: [string, string | null, string | null][] = [
+      ["TypeError: Cannot read properties of undefined (reading 'priceId')", `${BUNDLE}:120`, `${BUNDLE}:120:14 handleCheckout\n${BUNDLE}:88:3 HTMLButtonElement.onclick`],
+      ['ResizeObserver loop completed with undelivered notifications', null, null],
+      ['Script error.', null, null],
+      [`TypeError: Failed to fetch dynamically imported module: ${H}/assets/Dashboard-4f2a9c1e.js`, `${BUNDLE}:12`, `${BUNDLE}:12:9 loadRoute`],
+    ];
+    for (const [m, s, k] of issues) expect(seed).toContain(`fp: '${fingerprint(m, s, k)}'`);
+  });
+});
