@@ -281,7 +281,7 @@ every field.
 
 ## Skills (Pro)
 
-FounderData Pro ships nine workflows. They live in the Pro repository. Each says which tools to call in which order
+FounderData Pro ships eleven workflows. They live in the Pro repository. Each says which tools to call in which order
 and what to write back:
 
 | Skill | For |
@@ -295,12 +295,14 @@ and what to write back:
 | `founderdata-paid-review` | Meta, Apple Search Ads and pushed channels: fatigue, ROAS, CAC and payback, and what to cut or shift |
 | `founderdata-alert-triage` | A rule webhook or an inbox row woke the agent: read it, find the change behind it, then act or record why not |
 | `founderdata-recordings-review` | Recorded visits: the three most common points of friction, each checked in two recordings, fixed in the code or proposed, and logged |
+| `founderdata-errors` | JavaScript errors: the issue that hits the most paying customers, read with its stack and a recording, fixed in the code, logged, and checked a day later |
+| `founderdata-experiments` | A web or app experiment: wait until each version has enough customers, recommend a winner or say nothing showed up yet, and log the owner's decision |
 
 **Install: connect the MCP server.** That is the one step. A Pro server answers `prompts/list` and `prompts/get` with
-the nine skills, so every client that shows MCP prompts has them. A core server answers an empty list. In Claude Code they are slash commands such as
+the eleven skills, so every client that shows MCP prompts has them. A core server answers an empty list. In Claude Code they are slash commands such as
 `/mcp__founderdata__founderdata-weekly-review`. Each prompt takes an optional `site` argument.
 
-To have Claude Code or Codex pick a skill without being asked, copy the nine skill folders from your Pro checkout into
+To have Claude Code or Codex pick a skill without being asked, copy the eleven skill folders from your Pro checkout into
 `~/.claude/skills`, or into the skills folder of another agent that reads `SKILL.md` files. The Pro repository also has
 the script that rebuilds the MCP prompts after you edit a `SKILL.md`.
 

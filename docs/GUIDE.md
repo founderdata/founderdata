@@ -361,13 +361,13 @@ number changes:
 | Recorded visit (Pro): the first chunk / each later chunk | 3 (its row in `replays` and 2 index entries) / 0. Each chunk is 1 Worker request, about one every 30 seconds of the visit, and 1 R2 write |
 | Web: the ping when a page is hidden, with that page load's Core Web Vitals ([Page speed](#page-speed)) | 2: the ping and 1 row in `vitals`. At a lower sample, 1 for the loads it skips |
 | Web: a running experiment ([Experiments](#experiments-pro)) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
-| Experiment (Pro): created, changed, started or stopped | 2: its row and the site's list of running experiments |
+| Experiment (Pro): created, changed, started, stopped or deleted | 2: its row and the site's list of running experiments |
 | Survey answer ([Surveys](#surveys)) from the survey card or `founderdata('answer', ...)` | 2: the answer and the visitor's traits. 1 when the trait did not change. Each answer is 1 Worker request |
-| Survey card shown (Pro) | 0. It reads the visitor row on the survey's pages only. `/js/survey.js` is 1 request, cached |
+| Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on. `/js/survey.js` is 1 request, cached |
 | Cancel reason from a Stripe or Polar webhook | 1, plus 1 when the subscription has a visitor. The webhook request is already counted |
-| Web: click map of one page view ([Click maps](#click-maps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, 0 with click maps off |
+| Web: click map of one page view ([Click maps](#click-maps-and-scroll-depth-pro)), in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more. 0 with click maps off |
 | Web: scroll depth of one page load | 0, a column of the page speed row |
-| Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, 0 without errors |
+| Web: errors of one page view ([Errors](#errors-pro)), in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
 | Error issue (Pro) resolved, ignored or reopened | 1 |
 | New error alert rule (Pro), checked hourly | As any rule: 1 when it fires, plus 1 [inbox](#alert-inbox-pro) row per alert |
 | Reading lifecycle, retention, paths, experiment results, error issues or a click map (Pro) | 0 |

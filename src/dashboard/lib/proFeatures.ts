@@ -8,7 +8,7 @@ export const PRO_SECTIONS: Partial<Record<View, { title: string; body: string; c
   },
   people: {
     title: 'People',
-    body: 'Everyone you know by name, email or payment, with one story from their first visit to what they paid. Watch a visit like a video and see where someone got stuck.',
+    body: 'Everyone you know by name, email or payment, with one story from their first visit to what they paid. Watch a visit like a video and see where someone got stuck. Retention shows who comes back.',
     collected: 'Core already stores who signed in and who paid, so the list shows your history the day you switch.',
   },
   recordings: {
@@ -26,7 +26,7 @@ export const PRO_SECTIONS: Partial<Record<View, { title: string; body: string; c
   },
   content: {
     title: 'Content',
-    body: 'Every page with its visitors, Google clicks and position, the revenue it brought, and the pages losing traffic.',
+    body: 'Every page with its visitors, Google clicks and position, the revenue it brought, and the pages losing traffic. Click maps show what people click on a page, and Paths how they move between pages.',
   },
   dropoff: {
     title: 'Drop-off',
@@ -96,6 +96,10 @@ export const PRO_CARDS: [group: string, name: string, line: string][][] = [
     ['Phone', 'iPhone app', 'Widgets for your numbers and a push notification for every payment.'],
     ['Funnel', 'Drop-off', 'Where sessions stop before they buy, on the website and in the app.'],
     ['People', 'Recordings', 'Watch a visit like a video. Typing is always hidden.'],
+    ['People', 'Web retention', 'Who comes back week after week, and who went quiet, for people your site knows.'],
+    ['Web', 'Errors', 'JavaScript errors grouped into issues, with the paying customers each one hit.'],
+    ['Web', 'Experiments', 'Two versions of a page, judged on revenue per visitor, not only clicks.'],
+    ['Web', 'Paths', 'Follow visits page by page, with the recordings of each step.'],
     ['Email', 'Resend', 'Sent, delivered, bounced, opened and clicked emails per day and sender.'],
     ['Team', 'Teammates', 'Each person gets their own login, as owner or viewer.'],
   ],
@@ -103,6 +107,8 @@ export const PRO_CARDS: [group: string, name: string, line: string][][] = [
     ['Ads', 'Meta ads', 'Spend per campaign, ad set and ad, next to the customers and revenue it brought.'],
     ['Ads', 'Conversions API', 'Sends Meta each web purchase, so a campaign can optimize for buyers.'],
     ['Ads', 'Paid overview', 'All ad spend against new customers: MER, blended CAC, ROAS and days to payback.'],
+    ['Web', 'Click maps', 'Where people click and how far they read, drawn over your real page.'],
+    ['Revenue', 'Surveys', 'Where customers heard about you, and why they cancel, next to churn.'],
     ['SEO', 'Search Console', 'Queries and pages, with the revenue each page brought.'],
     ['SEO', 'Rank tracking', 'Daily Google ranks for up to 200 keywords a site, on your own DataForSEO account.'],
     ['SEO', 'Page audit', 'Flags pages that are thin, orphaned, noindex or missing a meta description.'],
@@ -139,6 +145,7 @@ export const PRO_LIST = [
   'Search Console, Google rank tracking and a page audit',
   'AI visibility in ChatGPT, Claude, Gemini and Perplexity',
   'People with one story each, from first visit to payment, and recordings of their visits',
+  'Experiments judged on revenue per visitor, error issues with alerts, click maps, paths, web retention and two surveys',
   'Home across all your sites with next actions, and a verdict on every change you log',
   'A growth plan per site that your AI agent runs, with goals, tasks and the result of each change',
   'Mail on your own domains through Cloudflare, with an inbox, templates and an API that answers like Resend\'s',

@@ -24,7 +24,7 @@ its docs, read on 6 November. They may have changed.
 | Import in | Google Analytics 4 through its API, and CSV. GA4 revenue is not imported | A Plausible export ZIP. Other tools' files may work, and only Plausible's is tested |
 | Export out | A ZIP of CSVs, each capped at the top 300 rows, or a full-site export of daily CSVs | CSV export of every panel, visit, event, payment and subscription |
 | API | Stats API v2, 600 requests an hour on Business | A read API with scoped keys, 120 new answers a minute per key |
-| Agents | No official MCP server. A community one exists, with no support from Plausible | MCP with scoped keys, 9 tools in core. Pro has 39 tools and nine workflows |
+| Agents | No official MCP server. A community one exists, with no support from Plausible | MCP with scoped keys, 9 tools in core. Pro has 39 tools and eleven workflows |
 | iOS apps | Not covered | Swift SDK, StoreKit 2 and RevenueCat in core. Onboarding and paywall funnels, retention, Apple Search Ads and ASO in Pro |
 | AI referrals | Shows traffic from ChatGPT, Perplexity and Claude | The same, with the customers and revenue that followed. Pro adds an AI visibility runner |
 
@@ -55,9 +55,12 @@ We did not write pages for these. What we found, from their own docs and changel
 - **Fathom** keeps EU visitors on EU servers by default, added an AI assistant and an AI tab in October 2026, and
   imports GA4. It has no payment provider connection, only event values.
 - **Umami** is MIT and has added session replay, heatmaps, Web Vitals, annotations, revenue reports and a read-only MCP
-  server during 2026. FounderData Pro records visits, off until you turn it on. Neither edition has heatmaps.
+  server during 2026. FounderData Pro records visits and draws click maps over your real page, both off until you
+  turn them on.
 - **PostHog** is the tool people keep for replay, feature flags and experiments. Its revenue analytics was in beta, and
-  it reads Stripe through its data warehouse. FounderData Pro has People and recordings, but no feature flags or
-  experiments. If you need those, keep PostHog and use FounderData for revenue and sources.
+  it reads Stripe through its data warehouse. FounderData Pro has recordings, error issues, web retention, two fixed
+  surveys, and web experiments and flags judged on revenue per visitor. It has no survey builder, no server-side flags
+  for your backend or app, and no source maps for errors. If you need those, keep PostHog and use FounderData for
+  revenue and sources.
 
 Only a Plausible-format export imports into FounderData today.

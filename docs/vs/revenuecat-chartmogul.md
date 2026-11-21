@@ -25,7 +25,7 @@ have changed.
 | Alerts | One Slack message per event | Slack real-time or a digest at 09:00 UTC | Slack, Discord, Telegram, webhook or email for each payment, refund, failed renewal and cancellation. Pro adds the MRR lost and an optional daily message with MRR and change, new and churned subscriptions and the last Stripe check |
 | Phone | Free official iPhone app with a push per transaction | Not found in our research | In Pro, an iPhone app you build with your own Apple team, with widgets and a push per payment |
 | API and export | Charts API at 25 requests a minute, daily exports to S3, GCS, Azure or R2, CSV per chart | Import API, CSV | Read API, CSV export of every panel and subscription |
-| Agents | Hosted MCP with OAuth that reads and writes products and offerings | Experimental MCP with OAuth | MCP with a pasted key, 9 tools in core and 37 in Pro. Read mostly, with notes and the Pro research log as the writes |
+| Agents | Hosted MCP with OAuth that reads and writes products and offerings | Experimental MCP with OAuth | MCP with a pasted key, 9 tools in core and 39 in Pro. Read mostly, with notes and the Pro research log as the writes |
 
 ## What FounderData does not do
 

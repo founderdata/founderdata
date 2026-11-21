@@ -51,6 +51,9 @@ Cloudflare's free plan covers about 3,100 web visits a day. [What it costs](#wha
   ([first touch](docs/GUIDE.md#first-touch)). Visits from cloud networks such as AWS or Hetzner are almost always bots,
   so visitor counts leave them out until you turn them on ([datacenter visits](docs/GUIDE.md#datacenter-visits)).
 - Pages, entry pages, outbound links, button clicks, custom goals and funnels.
+- "How did you hear about us?" as a tab of the Channel card. Send the answer your signup form already asks for with
+  `founderdata('answer', 'heard_about', 'podcast')`, and Stripe and Polar cancel reasons arrive with their webhooks
+  ([Surveys](docs/GUIDE.md#surveys)).
 - Revenue per source. A payment is credited to the buyer's last visit that came from a real source, so "clicked the
   launch tweet, came back directly two weeks later and paid" counts for the tweet. Without cookies that needs the
   signup to call `identify()`, which joins one person's daily visitor ids. Renewals stay with the source that won the
@@ -166,8 +169,26 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
   at the moment. Your agent reads the same with the MCP tool `get_recordings`. Recording is off by default and never covers
   the iPhone app. Every input is masked, and `data-fd-mask` and `data-fd-block` hide more. The recordings sit in an R2
   bucket on your own account that `npm run setup -- --replay` creates; `--record <site id|all>` turns recording on in
-  the same run, and `--consent` records only visitors who accept your cookie banner. See
-  [People and recordings](docs/GUIDE.md#people-and-recordings-pro).
+  the same run, and `--consent` records only visitors who accept your cookie banner. Each recording gets a summary of
+  2 to 4 sentences built from what the recorder saw, and the list filters by error issue, experiment version, channel,
+  paying customers and funnel step. See [People and recordings](docs/GUIDE.md#people-and-recordings-pro).
+- Retention for your website: a lifecycle chart (new, returning, back after a break, gone quiet) and a weekly retention
+  grid for the people your site recognizes, split by their first channel. See
+  [Retention and lifecycle](docs/GUIDE.md#retention-and-lifecycle).
+- Errors: JavaScript errors grouped into issues, each with the people and paying customers it hit, the top stack
+  frames and, on a recorded visit, the moment it happened. Mark an issue resolved and it comes back if the bug does.
+  One click sets an alert for the first time a new error shows up on your checkout. Off until you turn it on. See
+  [Errors](docs/GUIDE.md#errors-pro).
+- Experiments and feature flags on your website. Create one in the dashboard and paste its prompt into your coding
+  agent. Each version is judged on revenue per visitor and on the goal you pick, and the result says "too few
+  customers" until every version has 30. Experiments from your iOS app sit in the same list. See
+  [Experiments](docs/GUIDE.md#experiments-pro).
+- Click maps and scroll depth on a page's Content detail: the elements people click, drawn over your real page, and
+  how far down they read. Paths follows visits page by page, up to 4 steps, with the recordings of each step. See
+  [Click maps](docs/GUIDE.md#click-maps-and-scroll-depth-pro) and [Paths](docs/GUIDE.md#paths).
+- Two surveys: "How did you hear about us?" after signup and "Why are you canceling?" before a cancel, shown as a small
+  card on the pages you pick. Answers fill in what Direct visits leave out, and cancel reasons sit next to churn with
+  the MRR they took. Stripe's portal and Polar send cancel reasons with no code. See [Surveys](docs/GUIDE.md#surveys).
 - An iPhone app with widgets and a push notification for every payment.
 - An alert inbox keeps every alert for 90 days, one row per message and site, so an agent can read what fired since its
   last run ([guide](docs/GUIDE.md#alert-inbox-pro)). A threshold rule's webhook can send an auth header or a GitHub
@@ -189,7 +210,7 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
   it was meant to move: an SEO edit on its page's Search Console clicks over 28 days, an ad budget change on CPA, an AI
   content change on the mention rate, an app price on paywall conversion.
 - All 39 MCP tools, with `query`, which answers metrics by up to 2 dimensions and a day, week or month for every site a
-  key covers in one call ([docs/MCP.md](docs/MCP.md#the-query-tool-pro)), alert rules, the research log and nine agent
+  key covers in one call ([docs/MCP.md](docs/MCP.md#the-query-tool-pro)), alert rules, the research log and eleven agent
   skills.
 - Custom dashboards that your agent builds over MCP: numbers, lines, columns, bars, a country map, funnels and tables, run live when
   you open the page ([docs/MCP.md](docs/MCP.md#custom-dashboards-pro)).
@@ -396,10 +417,11 @@ spend, and DataForSEO's price changes show up only after a call. DataForSEO's ow
 | Recorded visit (Pro): a chunk that carries a changed digest / the same digest | 1 (an update of a column with no index) / 0. A visit too short to save its first snapshot sends a stub chunk 0: 3, as any first chunk |
 | Recording health (Pro): a refused upload or a recorder that could not load | 1 at most once an hour per site and Worker instance |
 | Web: a running experiment (Pro) on the visit's first pageview / on the first later pageview that reaches it | 0, a column of the session row / 1 per experiment, once per visit |
-| Experiment (Pro): created, changed, started or stopped | 2: its row and the site's list of running experiments |
+| Experiment (Pro): created, changed, started, stopped or deleted | 2: its row and the site's list of running experiments |
 | Survey answer from the survey card or `founderdata('answer', ...)` / a cancel reason from a Stripe or Polar webhook | 2, or 1 when the visitor's trait did not change / 1, plus 1 when the subscription has a visitor |
-| Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample / 0 |
-| Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, 0 without errors |
+| Survey card shown (Pro) | 0. It reads the visitor row on each page view while a survey is on |
+| Web: click map of one page view (Pro) / scroll depth of one page load, in the ping it already sends | 1 at the default 100% sample, plus 1 each time the visitor comes back to the tab and clicks more / 0 |
+| Web: errors of one page view, in the ping it already sends | 1 per distinct error, 5 at most, plus 1 the first time an issue appears. 0 without errors |
 | Error issue (Pro) resolved, ignored or reopened / the new error alert rule | 1 / as any rule |
 | App: typical session of a known install | 36 |
 | App: a new install's first session / a relaunch the same day without consent. An install that Apple Search Ads attributes writes 2 rows more when Apple answers | 7 / 3 to 5 |
@@ -526,7 +548,7 @@ The code is laid out like this:
   subprocessors, a GDPR checklist, a balancing test template, a breach procedure and an answer sheet for procurement.
 - [MCP server](docs/MCP.md): connect Claude Code, Cursor or another agent to `/mcp` with one scoped key, and the OpenAPI
   spec at `/api/v1/openapi.json`. Pro adds a research log where agents record what they found and paid for, the
-  history of AI answer checks, and nine workflows as MCP prompts.
+  history of AI answer checks, and eleven workflows as MCP prompts.
 - [API](docs/API.md): the payments and goals API, the read API for stats, share links and badges, CSV export, and
   erasing one person.
 
