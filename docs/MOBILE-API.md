@@ -231,8 +231,7 @@ when empty. The body is the start of the text, at most 140 characters. The sende
 control characters, bidirectional overrides and zero-width characters, folds whitespace to single spaces and cuts the
 title at 80 characters and the subtitle at 120, ending a cut with `…`. Treat them as untrusted all the same. `badge` is
 the number of threads in the inbox (not archived, not in the trash) with unread mail on the domains this device has
-on. Open the thread on a tap with
-`GET /api/mobile/mail/threads/<threadId>` (section 11). There is no `siteId`.
+on. Open the thread on a tap with `GET /api/mobile/mail/threads/<threadId>` (section 11). There is no `siteId`.
 
 Scheduled push, daily and weekly. It has no `siteId`, so a tap opens Home:
 

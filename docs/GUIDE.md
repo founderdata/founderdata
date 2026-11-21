@@ -2221,6 +2221,13 @@ needed in a row above the browser's bar. The header has a **Needs you** button w
 Fix cards. Home shows the first three cards above the money cards, with **See all**. With nothing open, Home shows one
 line: "Nothing needs you".
 
+On the iPhone, Today is a tab. Its badge counts the Reply and critical Fix cards. A Reply card opens as a sheet with
+**Send**, **Edit** and **Not needed** at the bottom, and **Edit** opens the reply composer with the draft in it. After
+Send, a row takes the card's place, counts down 30 seconds and has **Undo**. If you leave the app in those 30 seconds,
+nothing is sent and the card comes back with your edit. **Open** on a Fix card goes to the site, its ASO screen or
+Mail, since the phone has no site settings. A Decide card sends a single-choice answer on one tap, with Undo for 6
+seconds. The 08:00 push and a critical Fix push open the tab. Account has the switches under **Today**.
+
 **Settings** on the page has a switch for each card kind and one for **Agent drafts**. Agent drafts start off: an agent
 can flag mail, but FounderData refuses its drafts until you turn the switch on. The iPhone app has the same switches
 plus the 08:00 push, which counts Reply and critical Fix cards and is skipped when there are none.
