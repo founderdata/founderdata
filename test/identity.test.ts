@@ -37,7 +37,7 @@ describe('cookieless events', () => {
   beforeAll(async () => {
     w = await startWorker();
     // Remember visitors off: these cases test the cookieless answer, which a new Pro website would not give.
-    site = await w.createSite({ domain: 'example.net', remember_visitors: 0 });
+    site = await w.createSite({ record_visits: 0, domain: 'example.net', remember_visitors: 0 });
   });
   afterAll(() => w.dispose());
 

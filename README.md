@@ -184,7 +184,7 @@ Pro with a `git merge`, so changes you made to your copy stay. [docs/PRO.md](doc
   customers" until every version has 30. Experiments from your iOS app sit in the same list. See
   [Experiments](docs/GUIDE.md#experiments-pro).
 - Click maps and scroll depth on a page's Content detail: the elements people click, drawn over your real page, and
-  how far down they read. Paths follows visits page by page, up to 4 steps, with the recordings of each step. See
+  how far down they read. Paths follows visits page by page, up to 3 pages, with the recordings of each step. See
   [Click maps](docs/GUIDE.md#click-maps-heatmaps-and-scroll-depth-pro) and [Paths](docs/GUIDE.md#paths).
 - Two surveys: "How did you hear about us?" after signup and "Why are you canceling?" before a cancel, shown as a small
   card on the pages you pick. Answers fill in what Direct visits leave out, and cancel reasons sit next to churn with

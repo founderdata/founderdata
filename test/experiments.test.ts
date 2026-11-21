@@ -191,7 +191,7 @@ describe('experiments: exposure on the visit', () => {
     resetBudgetForTests(Infinity);
     before = proHooks();
     w = await startWorker();
-    site = await w.createSite({ domain: 'exp.example' });
+    site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'exp.example' });
     // Pro's hook is these core functions over sites.exp_live (pro/worker/experiments.ts decideExperiments).
     installPro({ ...(before ?? {}), experimentDecision: (s, vid, p) => decide(parseExpLive(s.exp_live), vid, p) } as Pro);
     await w.db.prepare('UPDATE sites SET exp_live = ? WHERE id = ?').bind(LIVE.replace(',{"k":"new_nav","v":[["off",90],["on",10]]}', ''), site.id).run();
@@ -270,7 +270,7 @@ describe('experiments: exposure on the visit', () => {
   });
 
   it('empties the table with the site', async () => {
-    const other = await w.createSite({ domain: 'exp-gone.example' });
+    const other = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'exp-gone.example' });
     await w.db
       .prepare("INSERT INTO experiments (site_id, key, kind, name, variants, status, created_at, updated_at) VALUES (?, 'a', 'flag', 'A', '[]', 'draft', 1, 1)")
       .bind(other.id)

@@ -57,7 +57,7 @@ describe('free-plan cost: D1 rows written per write path', () => {
     // The daily cap's counter writes 2 rows per 200 rows (measured on its own below), not inside the other numbers.
     resetBudgetForTests(Infinity);
     w = await startWorker();
-    site = await w.createSite({ domain: 'example.org', app_bundle_id: BUNDLE, stripe_webhook_secret: SECRET, revenuecat_auth: RC_SECRET, currency: 'EUR' });
+    site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'example.org', app_bundle_id: BUNDLE, stripe_webhook_secret: SECRET, revenuecat_auth: RC_SECRET, currency: 'EUR' });
   });
   afterAll(async () => {
     setTrustedRootForTests(null);
@@ -439,8 +439,8 @@ describe('free-plan cost: D1 rows written per write path', () => {
     // Settle the sites the other cases made, so every count below is this case's own sites.
     await refreshTrackingSince(w.db, T);
     expect(await rows('tracking start: nightly scan, nothing new on any site', () => refreshTrackingSince(w.db, T))).toBe(0);
-    const scan = await w.createSite({ domain: 'scan.example.org', app_bundle_id: 'com.example.scan' });
-    const appOnly = await w.createSite({ domain: 'app-only.example.org', app_bundle_id: 'com.example.apponly' });
+    const scan = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'scan.example.org', app_bundle_id: 'com.example.scan' });
+    const appOnly = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'app-only.example.org', app_bundle_id: 'com.example.apponly' });
     const at = (site: any, id: string, ms: number, app = false) =>
       w.db
         .prepare(`INSERT INTO sessions (site_id, id, visitor_id, started_at, last_seen_at, hostname, source, channel) VALUES (?, ?, ?, ?, ?, ?, 'x', 'Direct')`)
@@ -503,7 +503,7 @@ describe('round 7: exp', () => {
   beforeAll(async () => {
     resetBudgetForTests(Infinity);
     w = await startWorker();
-    site = await w.createSite({ domain: 'exp-cost.example' });
+    site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'exp-cost.example' });
     hooks = await import('../src/worker/pro-hooks');
     const { decide, parseExpLive } = await import('../src/worker/experiments');
     before = hooks.proHooks();
@@ -546,7 +546,7 @@ describe('round 7: survey', () => {
   beforeAll(async () => {
     resetBudgetForTests(Infinity);
     w = await startWorker();
-    site = await w.createSite({ domain: 'survey-cost.example', stripe_webhook_secret: SECRET });
+    site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'survey-cost.example', stripe_webhook_secret: SECRET });
   });
   afterAll(() => w.dispose());
 
@@ -599,7 +599,7 @@ describe('round 7: pages', () => {
   beforeAll(async () => {
     resetBudgetForTests(Infinity);
     w = await startWorker();
-    site = await w.createSite({ domain: 'maps.example' });
+    site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'maps.example' });
     await w.admin(`/api/sites/${site.id}`, { method: 'PATCH', json: { maps_on: true } });
     forgetSite(site.id);
   });
@@ -625,7 +625,7 @@ describe('round 7: errors', () => {
     resetBudgetForTests(Infinity);
     const w = await startWorker();
     try {
-      const site = await w.createSite({ domain: 'errors-cost.example' });
+      const site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'errors-cost.example' });
       const web = (payload: Record<string, unknown>) =>
         w.fetch('/api/event', {
           method: 'POST',

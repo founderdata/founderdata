@@ -211,7 +211,7 @@ describe('errors: ingest', () => {
   beforeAll(async () => {
     resetBudgetForTests(Infinity);
     w = await startWorker();
-    site = await w.createSite({ domain: 'errors.example' });
+    site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'errors.example' });
     await event({ t: 'pageview', vid: 'errvisitor0001', sid: 'errsession0001' });
     await w.flush();
   });

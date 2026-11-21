@@ -39,7 +39,7 @@ describe('round 7 foundation', () => {
   beforeAll(async () => {
     resetBudgetForTests(Infinity);
     w = await startWorker();
-    site = await w.createSite({ domain: 'r7.example' });
+    site = await w.createSite({ record_visits: 0, remember_visitors: 0, domain: 'r7.example' });
     const fake: Pro = {
       ...(before ?? {}),
       // A stand-in for lane exp's hook: every page under /pricing enters pricing_headline, arm b.
