@@ -120,6 +120,66 @@ export function mapStatement(
     .bind(site.id, m.path, now, Math.floor(random() * 2 ** 31), device, m.width, m.height, m.scroll, m.clicks.length ? JSON.stringify(m.clicks) : null);
 }
 
+// ---------- reading (the content page answer here; the full report is Pro's, pro/worker/page-maps.ts)
+
+export interface MapElement {
+  /** The element's tag with its first class or id, such as a.cta; '' when the tracker sent none that passed. */
+  element: string;
+  /** Its visible text, 40 characters at most; '' for masked or text-less elements. */
+  label: string;
+  clicks: number;
+  /** Mapped page views with at least one click on it. */
+  views: number;
+  /** views over all mapped page views of the page, 0 to 1. */
+  share: number;
+}
+
+export type MapWhere = { siteId: string; path: string; from: number; to: number; device?: string | null };
+
+/** The WHERE of page_maps rows of one page in a window, optionally one device, as SQL and its bindings from ?1. */
+export function mapWhere(w: MapWhere, alias = ''): { sql: string; args: unknown[] } {
+  const a = alias ? `${alias}.` : '';
+  return {
+    sql: `${a}site_id = ?1 AND ${a}path = ?2 AND ${a}ts >= ?3 AND ${a}ts < ?4${w.device ? ` AND ${a}device = ?5` : ''}`,
+    args: w.device ? [w.siteId, w.path, w.from, w.to, w.device] : [w.siteId, w.path, w.from, w.to],
+  };
+}
+
+/** Mapped page views of one page: one statement. */
+export function mapViewsStatement(db: D1Database, w: MapWhere): D1PreparedStatement {
+  const where = mapWhere(w);
+  return db.prepare(`SELECT COUNT(*) AS n FROM page_maps WHERE ${where.sql}`).bind(...where.args);
+}
+
+/** The most clicked elements of one page, counted in D1 (json_each), `limit` rows at most. */
+export function mapElementsStatement(db: D1Database, w: MapWhere, limit: number): D1PreparedStatement {
+  const where = mapWhere(w, 'm');
+  return db
+    .prepare(
+      `SELECT COALESCE(json_extract(j.value, '$[2]'), '') AS element, COALESCE(json_extract(j.value, '$[3]'), '') AS label,
+         COUNT(*) AS clicks, COUNT(DISTINCT m.ts || ':' || m.id) AS views
+       FROM page_maps m, json_each(m.clicks) j
+       WHERE ${where.sql} AND m.clicks IS NOT NULL
+       GROUP BY 1, 2 ORDER BY clicks DESC, views DESC, label LIMIT ${Math.max(1, Math.min(100, Math.floor(limit)))}`,
+    )
+    .bind(...where.args);
+}
+
+/** Rounds a share to 3 decimals; 0 without a base. */
+export const mapShare = (x: number, n: number) => (n ? Math.round((x / n) * 1000) / 1000 : 0);
+
+/**
+ * `clicks` of GET /api/v1/content/page: the page's mapped page views and its 10 most clicked elements over the window,
+ * or null when the page has no click map rows in it.
+ */
+export async function pageClicks(db: D1Database, w: MapWhere, limit = 10): Promise<{ views: number; elements: MapElement[] } | null> {
+  const [v, e] = await db.batch([mapViewsStatement(db, w), mapElementsStatement(db, w, limit)]);
+  const views = Number((v.results[0] as { n: number } | undefined)?.n ?? 0);
+  if (!views) return null;
+  const elements = (e.results as Omit<MapElement, 'share'>[]).map((r) => ({ ...r, share: mapShare(r.views, views) }));
+  return { views, elements };
+}
+
 /** Copies maps_on and map_sample from a PATCH body onto `next`, or returns the error to answer. */
 export function patchMaps(b: Record<string, unknown>, next: Site): string | null {
   if (b.maps_on !== undefined) next.maps_on = b.maps_on ? 1 : 0;

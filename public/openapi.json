@@ -3689,6 +3689,90 @@
                           }
                         ]
                       }
+                    },
+                    "scroll": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "description": "How far down the page visitors scrolled on loads of it in the last 28 days, in percent. null before the first page load that sent one; the numbers are null below 10 samples.",
+                      "properties": {
+                        "samples": {
+                          "type": "integer"
+                        },
+                        "median": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "reached_25": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "reached_50": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "reached_75": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "reached_100": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "clicks": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "description": "The click map of the last 28 days (Pro, Settings, Click maps): mapped page views and the 10 most clicked elements. null without a map in the window.",
+                      "properties": {
+                        "days": {
+                          "type": "integer"
+                        },
+                        "views": {
+                          "type": "integer"
+                        },
+                        "elements": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "element": {
+                                "type": "string",
+                                "description": "Tag with its first class or id, such as a.cta."
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "Visible text, 40 characters; empty when masked."
+                              },
+                              "clicks": {
+                                "type": "integer"
+                              },
+                              "views": {
+                                "type": "integer",
+                                "description": "Mapped page views with a click on it."
+                              },
+                              "share": {
+                                "type": "number",
+                                "description": "views over the page's mapped page views."
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                   },
                   "additionalProperties": true
@@ -14346,6 +14430,16 @@
             }
           },
           {
+            "name": "seq",
+            "in": "query",
+            "required": false,
+            "description": "1 to 3 page paths, comma-separated, such as /,/pricing: visits that viewed them one right after the other, and the pages they went to next. path is ignored with it.",
+            "schema": {
+              "type": "string",
+              "pattern": "^/[^,]*(,/[^,]*){0,2}$"
+            }
+          },
+          {
             "$ref": "#/components/parameters/period"
           },
           {
@@ -14401,6 +14495,54 @@
                     },
                     "truncated": {
                       "type": "boolean"
+                    },
+                    "sequence": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "With seq: the pages in a row."
+                    },
+                    "sessions": {
+                      "type": "integer"
+                    },
+                    "exits": {
+                      "type": "integer",
+                      "description": "With seq: visits that left right after the last page."
+                    },
+                    "exit_rate": {
+                      "type": "number"
+                    },
+                    "paid": {
+                      "type": "integer",
+                      "description": "With seq: visits whose visitor paid at the visit's start or later."
+                    },
+                    "paid_rate": {
+                      "type": "number"
+                    },
+                    "next": {
+                      "type": "array",
+                      "description": "With seq: the 10 pages visits went to next.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "string"
+                          },
+                          "sessions": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number"
+                          },
+                          "exit_rate": {
+                            "type": "number"
+                          },
+                          "paid_rate": {
+                            "type": "number"
+                          }
+                        }
+                      }
                     }
                   },
                   "additionalProperties": true

@@ -159,6 +159,31 @@ describe('click maps through the Worker', () => {
     expect(one.scroll.median).toBe(90);
   });
 
+  it('adds scroll and the 10 most clicked elements to the content page answer', async () => {
+    const now = Date.now();
+    const rows: unknown[] = [];
+    for (let i = 0; i < 12; i++) rows.push(site.id, '/docs', now - i * 60_000, i + 10, JSON.stringify(i < 9 ? [[500, 300, 'a.cta', 'Start'], [500, 300, 'a.cta', 'Start']] : [[100, 20, 'a.nav', 'Pricing']]));
+    await w.db
+      .prepare(`INSERT INTO page_maps (site_id, path, ts, id, clicks) VALUES ${Array(12).fill('(?, ?, ?, ?, ?)').join(', ')}`)
+      .bind(...rows)
+      .run();
+    const r = await w.fetch('/api/v1/content/page?path=/docs', { headers: { authorization: `Bearer ${key}` } });
+    expect(r.status).toBe(200);
+    const body = await r.json<any>();
+    expect(body.scroll).toMatchObject({ samples: 12, median: 90 });
+    expect(body.clicks).toEqual({
+      days: 28,
+      views: 12,
+      elements: [
+        { element: 'a.cta', label: 'Start', clicks: 18, views: 9, share: 0.75 },
+        { element: 'a.nav', label: 'Pricing', clicks: 3, views: 3, share: 0.25 },
+      ],
+    });
+    // A page with neither answers null for both.
+    const none = await (await w.fetch('/api/v1/content/page?path=/nothing-here', { headers: { authorization: `Bearer ${key}` } })).json<any>();
+    expect([none.scroll, none.clicks]).toEqual([null, null]);
+  });
+
   it('removes rows after 90 days, and empties them with the site', async () => {
     const now = Date.now();
     await w.db
