@@ -2912,7 +2912,10 @@ Content detail. The URL keeps the steps (`/content/paths?seq=/,/pricing`), so yo
 The page detail has a smaller version, **Before and after this page**: the 5 pages visits came from and went to next.
 
 Agents read the same numbers with `get_app_funnel`, `report: "paths"` and `sequence: ["/", "/pricing"]`
-([API.md](API.md#funnels-and-paths)). Paths writes no rows. It reads the page views of the period.
+([API.md](API.md#funnels-and-paths)). An agent's key without `read:revenue` gets no paid numbers. Paths writes no
+rows. It reads the page views of the period, about 20 database rows per visit. A period with more than 75,000 events
+(40,000 once you pick a page) reads only its newest visits, so one look stays under 1 million rows. The card says so
+under its table.
 
 ## Email (Resend) (Pro)
 
@@ -3521,13 +3524,17 @@ and Safari 16.4 or later. An older browser gets a `<style>` element inside the c
   stores one answer. A row with fewer than 20 answers has an amber dot: compare its count, not its share. Filter the
   Overview by Direct to see what the direct visitors said. Without answers the tab says how to start.
 - **Subscriptions, Why they cancel (Pro).** The reasons of the period with the MRR those customers canceled, the reasons
-  per plan, and the newest comments in the customer's own words. The header splits them like the tiles above it:
-  "13 won't renew" still pay until their period ends, "ended" ones are in Churned. Only canceled subscriptions count. A
-  card on your cancel page asks before the cancel runs, so people who answered and stayed are listed under the reasons
-  as "answers from people with no canceled subscription". Without reasons it shows where reasons come from.
+  per plan, and the newest comments in the customer's own words. It counts what the tiles above it count: "13 won't
+  renew" paid and still pay until their period ends, "ended" ones paid and are in Churned. A reason given up to a year
+  before the period counts, since a yearly plan can cancel long before it ends. The header adds how many of the tiles'
+  subscriptions gave no reason, so the card and the tiles add up. Trials that stopped before paying get one line of
+  their own, with no MRR. A card on your cancel page asks before the cancel runs, so people who answered and stayed are
+  counted under the reasons, apart from customers who turned renewal back on. Their comments are listed there too, not
+  under "In their words". Without reasons it shows where reasons come from.
 - **Settings, Surveys (Pro).** The people who answered in the last 30 days per question, the same count as the
   Overview's tab for that range, and the share of people who answered out of those who answered or closed the card.
-  The card counts no views, so people who left it open are not in that number.
+  The card counts no views, so people who left it open are not in that number. The App Store's and Google Play's
+  categories are not answers people gave, so they get a line of their own that links to Why they cancel.
 - **Agents.** `get_breakdown` with `dim: "heard_about"`, and `get_subscriptions`, whose summary has `cancel_reasons`.
   Text people typed comes marked as untrusted. CSV: `survey_answers` in the export.
 

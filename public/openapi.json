@@ -15795,7 +15795,7 @@
       "get": {
         "operationId": "getPaths",
         "summary": "Pages before and after a page",
-        "description": "With path: the sessions that viewed it, its views, entrances, exits and exit_rate, came_from and went_to (the 10 pages right before and after, with count and share). Without: the most viewed pages (limit, 20 by default, 50 at most) with their 5 top next pages. platform all (default), web or app. D1 counts every page view in the range; truncated is always false.",
+        "description": "With path: the sessions that viewed it, its views, entrances, exits and exit_rate, came_from and went_to (the 10 pages right before and after, with count and share). Without: the most viewed pages (limit, 20 by default, 50 at most) with their 5 top next pages. platform all (default), web or app. D1 counts every page view in the range; truncated is always false. A range with more than 75,000 events (40,000 with seq) reads its newest visits only: sampled is true and sessions_read says how many.",
         "tags": [
           "Read"
         ],
@@ -15909,6 +15909,17 @@
                     "truncated": {
                       "type": "boolean"
                     },
+                    "sampled": {
+                      "type": "boolean",
+                      "description": "True when the range had more events than one read takes, and only its newest visits were read."
+                    },
+                    "sessions_read": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "When sampled: the visits read. Null otherwise."
+                    },
                     "sequence": {
                       "type": "array",
                       "items": {
@@ -15928,7 +15939,7 @@
                     },
                     "paid": {
                       "type": "integer",
-                      "description": "With seq: visits whose visitor paid at the visit's start or later."
+                      "description": "With seq and read:revenue: visits whose visitor paid at the visit's start or later."
                     },
                     "paid_rate": {
                       "type": "number"
