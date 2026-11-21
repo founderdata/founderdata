@@ -1696,8 +1696,8 @@ import:
 ```
 
 In FounderData Pro a key with `read` also gets `switches` on each site: `recordings`, `errors`, `click_maps` and
-`surveys`, each with `on` and the `settings_url` of the Settings section that turns it on. An empty answer from one of
-these features then reads as off or as quiet. `errors` is on when Catch JavaScript errors or Record visits is on,
+`surveys`, each with `on` and the `settings_url` of the Settings section that turns it on. An agent can then tell a
+feature that is off from one that caught nothing yet. `errors` is on when Catch JavaScript errors or Record visits is on,
 because a recorded visit catches its errors. `surveys` is on when either survey is.
 
 ```json
