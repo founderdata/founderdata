@@ -911,8 +911,10 @@ curl -H "Authorization: Bearer rtr_..." "https://founderdata.example.com/api/v1/
 
 #### The verdict
 
-`verdict` is `better`, `worse` or `inconclusive`. `reason` says why in one sentence, with the numbers. Every metric
-starts the same way: while the window is open (`complete` is `false`), the verdict is `inconclusive` and `reason`
+`verdict` is `better`, `worse` or `inconclusive`. `reason` says why in one sentence, with the numbers. A note with
+actor `experiments` is different. Pro writes one when an experiment starts or stops, and both versions run after it, so
+it answers `verdict: null` and `experiment` ([Experiments (Pro)](#experiments-pro)). Every other note starts the same
+way: while the window is open (`complete` is `false`), the verdict is `inconclusive` and `reason`
 reads "Measuring, day 11 of 28. The window closes at 2026-11-28 20:00 UTC."
 
 **The visit rule** (`metric` `visits`, or `null` on an older note), in this order:

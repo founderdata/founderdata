@@ -274,8 +274,8 @@ clicks and the size of the window. Recording sets no cookie and stores nothing i
   field inside the element, and inside `data-fd-mask` or `data-fd-block` it is the tag name. Your agents read the
   digest with a read key; it holds no name, email or user id. It goes with the recording: same days, same erase.
 - **Clicks and errors.** A recorded visit also sends, with the ping it already sends, each page's clicks (the same
-  labels, and a rage click's element tag and class) and JavaScript error messages with their file and line. A web
-  address in a message loses its query and hash; nothing else in the message is removed. They are
+  labels, and a rage click's element tag and class) and JavaScript error messages with their file and line. The Worker
+  removes the query and hash of a web address in a message, and nothing else. They are
   `activity` rows in `events`, and live as long as the visit's other events: `RETENTION_MONTHS`, 24 months by
   default, not the recording's days. Erasing a person deletes them too.
 - **Who can watch.** People who sign in to the dashboard. Share links show no recordings.
@@ -420,10 +420,10 @@ No IP address, no form input and no page text beyond the message go in. A messag
 typed, when your own code puts it there. Mark that part of the page with `data-fd-mask` or keep it out of your error
 messages. Pages on the never-record list send no errors, and the Worker drops any that arrive for them.
 
-A recorded visit (Pro) keeps a second copy of each message in the page's `activity` row (see "Recordings (Pro)"). That
-copy is cut at 200 characters, and a web address in it loses its query and hash as above. It is not scrubbed: an email
-address or a long number in the message stays. It lives as long as the visit's other events, `RETENTION_MONTHS`, and
-erasing the person deletes it.
+A recorded visit (Pro) keeps a second copy of each message in the page's `activity` row (see "Recordings (Pro)"). The
+Worker cuts that copy at 200 characters and removes the query and hash of any web address in it, as above. It removes
+nothing else, so an email address or a long number in the message stays. The copy lives as long as the visit's other
+events, `RETENTION_MONTHS`, and erasing the person deletes it.
 
 Rows are kept 90 days, then the nightly job deletes them, and an issue's first sighting goes once its last row does. Erasing a person deletes their rows. FounderData Pro shows an
 issue's people with links to their person pages, and its paying customers with their revenue. A viewer login without
