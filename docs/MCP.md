@@ -750,9 +750,10 @@ becomes a view or an argument of a tool first. Mail is one tool with sixteen act
 view for the patterns, the list and one recording. The plan's five tools moved the cap
 from 53,000: a plan is written in small steps, and one tool per step keeps each call short. `dashboards` added 1,500.
 Round 7 added views and arguments, not tools, and cut field lists that the output schemas and `get_definitions` already
-carry. After its critique fixes `tools/list` is 59,571 characters without the output schemas, under a target of 59,600
-that the test pins, and 109,539 characters with them. A client that loads the output schemas into every turn pays the
-larger number.
+carry. After its critique fixes `tools/list` was 59,571 characters without the output schemas. Release 1.5 adds Today's
+`flag_thread`, `save_draft` and `waiting` to `mail`: 59,866 characters, under a target of 59,900 that the test pins. With
+the output schemas it is 110,426 characters. A client that loads the output schemas into every turn pays the larger
+number.
 
 Round 6 folded six tools into views. The old names answer one more release with an error that names the new call:
 
