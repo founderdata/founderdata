@@ -3475,10 +3475,11 @@ back to click more updates that row, 1 row more each time. Scroll depth writes n
 speed row. A site with 3,000 page views a day uses 3,000 of the free plan's 100,000 rows. The Click
 maps card has a share setting (100%, 50%, 25% or 10% of page views) for a busy site. Reading maps writes nothing.
 
-Reading costs rows too. Opening a page's card reads about 13 rows per mapped page view in its 28 days. A read takes
-the newest 2,000 mapped page views of the page at most, so one open reads about 26,000 rows or fewer, and the overlay
-the same again. The free plan allows 5 million rows read a day. When a page had more than 2,000 mapped page views, the
-card says it shows the newest 2,000. The Content list reads 1 row per page for its map label.
+Reading costs rows too. Opening a page's card reads about 15 rows per mapped page view in its 28 days: 6,615 for a
+page with 400. A read takes the newest 2,000 mapped page views of the page at most, so one open reads about 30,000
+rows or fewer, and the overlay about the same again. The free plan allows 5 million rows read a day. When a page had
+more than 2,000 mapped page views, the card says it shows the newest 2,000. The Content list reads 1 row per page for
+its **Click map** label.
 
 ### For agents
 

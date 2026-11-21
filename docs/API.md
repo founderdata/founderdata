@@ -1834,8 +1834,9 @@ The dashboard reads more behind the login:
   only your own pages can read it. A missing or wrong token gets `401`, an expired one `401` with `"expired": true`, a
   token for another page `403`. It reads the same newest 2,000 page views as the card.
 
-Opening a page's card reads about 13 D1 rows per mapped page view it covers, so at most about 26,000 rows with the
-2,000 cap. The overlay reads the same again. The free plan allows 5 million rows read a day.
+Opening a page's card reads about 15 D1 rows per mapped page view it covers: 6,615 rows for the demo's `/pricing`
+with 400, and 30,023 for a page capped at 2,000. The overlay reads about the same again. The free plan allows 5
+million rows read a day. `GET /api/sites/<id>/page-map/pages` reads about 1 row per mapped page view it counts.
 
 #### `GET /api/v1/seo/decay` (Pro)
 
