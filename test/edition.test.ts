@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { compareVersions, VERSION } from '../src/shared/product';
+// @ts-expect-error: a plain .mjs script without types
+import { renderChangelog, validate } from '../scripts/release.mjs';
 
 // Core and Pro are one tree (docs/PRO.md): Pro is core plus the pro/ folder and the two edition files. These checks
 // keep it that way, so a buyer's merge of Pro only conflicts where they changed a file themselves.
@@ -23,10 +25,25 @@ describe('editions', () => {
     expect(VERSION).toBe(JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version);
   });
 
-  it('release.json names a version that is not behind the package', () => {
+  it('release.json, CHANGELOG.md and the package version agree (npm run release writes all three)', () => {
     const release = JSON.parse(readFileSync(path.join(ROOT, 'release.json'), 'utf8'));
     expect(release.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(compareVersions(release.version, VERSION)).toBeGreaterThanOrEqual(0);
+    const changelog = readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
+    expect(validate(release, { packageVersion: VERSION, changelog })).toEqual([]);
+  });
+
+  it('the release check catches a feed out of step', () => {
+    const entry = (version: string, core: string[] = ['A fix.'], pro: string[] = []) => ({ version, date: '2026-12-01', core, pro });
+    const feed = (releases: ReturnType<typeof entry>[], over: object = {}) => ({ version: releases[0].version, date: '2026-12-01', notes: releases[0].core.join(' '), releases, ...over });
+    expect(validate(feed([entry('1.1.0'), entry('1.0.0')]), { packageVersion: '1.1.0' })).toEqual([]);
+    expect(validate(feed([entry('1.0.0'), entry('1.1.0')]))[0]).toMatch(/newer than 1.1.0/);
+    expect(validate(feed([entry('1.1.0', [], [])]))[0]).toMatch(/at least one change/);
+    expect(validate(feed([entry('1.1.0')], { version: '1.2.0' }))[0]).toMatch(/newest release is 1.1.0/);
+    expect(validate(feed([entry('1.1.0')]), { packageVersion: '1.0.0' })[0]).toMatch(/package.json says 1.0.0/);
+    expect(validate(feed([entry('1.1.0')]), { changelog: '# Changelog\n' })[0]).toMatch(/CHANGELOG.md is out of date/);
+    const pro = feed([entry('1.1.0', [], ['Pro only.'])], { notes: 'FounderData Pro: Pro only.' });
+    expect(validate(pro)).toEqual([]);
+    expect(renderChangelog(pro)).toContain('## 1.1.0 (2026-12-01)\n\nNo changes to core.\n\nFounderData Pro:\n\n- Pro only.\n');
   });
 
   it('compares versions part by part', () => {

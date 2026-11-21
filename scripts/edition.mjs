@@ -30,7 +30,7 @@ export const proUi: ProUi | null = null;
 `,
 };
 
-const edition = () => (existsSync(path.join(ROOT, 'pro/worker/index.ts')) && !readFileSync(path.join(ROOT, 'src/worker/edition.ts'), 'utf8').includes('= null') ? 'pro' : 'core');
+const edition = () => (existsSync(path.join(ROOT, 'pro/worker/index.ts')) && !/^export const pro\b[^\n]*= null/m.test(readFileSync(path.join(ROOT, 'src/worker/edition.ts'), 'utf8')) ? 'pro' : 'core');
 
 function run(cmd, args, cwd) {
   console.log(`\n$ ${cmd} ${args.join(' ')}`);

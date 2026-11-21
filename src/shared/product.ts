@@ -15,8 +15,14 @@ export const PRO_REPO = 'https://github.com/founderdata/founderdata-pro';
 /** Polar's customer portal for FounderData Pro. A buyer connects their GitHub account here to get the invitation. */
 export const PRO_PORTAL = 'https://polar.sh/founderdataapp/portal';
 
-/** The latest release, as JSON ({ version, date, notes }). The Updates card in Settings reads it in the browser. */
+/**
+ * The release feed, as JSON (release.json at the repository root): the latest version, date and notes, plus `releases`,
+ * every release newest first with its core and Pro changes. The Updates card in Settings reads it in the browser.
+ */
 export const RELEASE_URL = 'https://raw.githubusercontent.com/founderdata/founderdata/main/release.json';
+
+/** Every release with its changes, made from release.json by scripts/release.mjs. */
+export const CHANGELOG_URL = `${CORE_REPO}/blob/main/CHANGELOG.md`;
 
 /** The Polar checkout for the lifetime license. When it is empty, the Pro card links to PRO_PAGE instead. */
 export const PRO_CHECKOUT_URL = 'https://buy.polar.sh/polar_cl_VXmKrwlw4IIWM6GhohnTzJZN5nMhtpjbcy7I63PRvbm';
@@ -41,10 +47,21 @@ export const OFFER_PAGE = 'https://github.com/founderdata/founderdata/blob/offer
 /** What Pro adds and costs, in the core README. */
 export const PRO_PAGE = `${CORE_REPO}#founderdata-pro`;
 
+/** One release in release.json. `core` lists what changed for every deployment, `pro` what changed in Pro only. */
+export interface ReleaseEntry {
+  version: string;
+  date: string;
+  core: string[];
+  pro: string[];
+}
+
 export interface Release {
   version: string;
   date: string;
+  /** The latest release in one paragraph. Dashboards before 1.5.0 show only this. */
   notes?: string;
+  /** Every release, newest first. Missing from feeds before 1.5.0. */
+  releases?: ReleaseEntry[];
 }
 
 /** -1, 0 or 1 for two dotted versions such as 1.4.0 and 1.10.2. A part that is not a number counts as 0. */

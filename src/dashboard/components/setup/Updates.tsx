@@ -1,18 +1,23 @@
 import { useState } from 'react';
-import { RELEASE_URL, VERSION } from '../../../shared/product';
+import { CHANGELOG_URL, RELEASE_URL, VERSION, type ReleaseEntry } from '../../../shared/product';
 import { updatePrompt } from '../../../shared/pro-prompts';
 import { isPro } from '../../lib/pro';
-import { newerRelease, parseRelease } from '../../lib/updates';
+import { parseRelease, releaseOf, releasesSince } from '../../lib/updates';
 import { PRO_LIST } from '../../lib/proFeatures';
 import { Code } from '../Code';
 import { ProActions } from '../ProUpsell';
 import { SettingsCard } from './kit';
 
-type Check = { state: 'idle' } | { state: 'busy' } | { state: 'latest' } | { state: 'newer'; version: string; date: string; notes?: string } | { state: 'error'; message: string };
+type Check =
+  | { state: 'idle' }
+  | { state: 'busy' }
+  | { state: 'latest'; current: ReleaseEntry | null }
+  | { state: 'newer'; version: string; date: string; releases: ReleaseEntry[] }
+  | { state: 'error'; message: string };
 
 /**
- * Settings, Updates: this build's version and edition, and a check against the latest release. The browser fetches
- * RELEASE_URL on click only. In core, the Pro card next to it reads OFFER_URL while it is on screen (lib/offer.ts). The prompt hands the update to the owner's agent.
+ * Settings, Updates: this build's version and edition, and a check against the release feed. A newer release lists
+ * every release since this build with its changes for this edition. The browser fetches RELEASE_URL on click only. In core, the Pro card next to it reads OFFER_URL while it is on screen (lib/offer.ts). The prompt hands the update to the owner's agent.
  */
 export function UpdatesCard() {
   const edition = isPro ? 'pro' : 'core';
@@ -25,8 +30,8 @@ export function UpdatesCard() {
       if (!res.ok) throw new Error(`The release file answered ${res.status}.`);
       const release = parseRelease(await res.text());
       if (!release) throw new Error('The release file is not valid JSON with a version.');
-      const newer = newerRelease(VERSION, release);
-      setCheck(newer ? { state: 'newer', version: newer.version, date: newer.date, notes: newer.notes } : { state: 'latest' });
+      const newer = releasesSince(VERSION, release);
+      setCheck(newer.length ? { state: 'newer', version: release.version, date: release.date, releases: newer } : { state: 'latest', current: releaseOf(VERSION, release) });
     } catch (e) {
       setCheck({ state: 'error', message: e instanceof TypeError ? 'Could not reach the release file. Check your connection and try again.' : (e as Error).message });
     }
@@ -46,15 +51,35 @@ export function UpdatesCard() {
       <div className="space-y-4 text-sm">
         <div aria-live="polite">
           {check.state === 'idle' && <p className="text-stone-500">Not checked yet.</p>}
-          {check.state === 'latest' && <p className="text-stone-600">You run the latest release, {VERSION}.</p>}
+          {check.state === 'latest' && (
+            <div>
+              <p className="text-stone-600">You run the latest release, {VERSION}.</p>
+              {check.current && (
+                <div className="mt-3">
+                  <ReleaseChanges entry={check.current} title={`What ${VERSION} changed`} />
+                </div>
+              )}
+            </div>
+          )}
           {check.state === 'error' && <p className="text-red-700">{check.message}</p>}
           {check.state === 'newer' && (
             <div>
               <p className="font-medium text-ink">
                 Version {check.version} is out{check.date ? `, released ${check.date}` : ''}. You run {VERSION}.
               </p>
-              {check.notes && <p className="mt-1 whitespace-pre-line text-stone-600">{check.notes}</p>}
+              <div className="mt-3 space-y-4">
+                {check.releases.map((r) => (
+                  <ReleaseChanges key={r.version} entry={r} title={r.date ? `${r.version}, ${r.date}` : r.version} />
+                ))}
+              </div>
             </div>
+          )}
+          {(check.state === 'latest' || check.state === 'newer') && (
+            <p className="mt-3 text-[13px] text-stone-500">
+              <a className="underline underline-offset-2" href={CHANGELOG_URL} target="_blank" rel="noreferrer">
+                Every release in the changelog
+              </a>
+            </p>
           )}
         </div>
         <div>
@@ -63,6 +88,39 @@ export function UpdatesCard() {
         </div>
       </div>
     </SettingsCard>
+  );
+}
+
+/**
+ * One release's changes for this edition. Pro shows core and Pro changes under their own labels. Core shows its own
+ * changes, then what the same release brought to Pro.
+ */
+function ReleaseChanges({ entry, title }: { entry: ReleaseEntry; title: string }) {
+  const groups: { label: string; items: string[]; muted?: boolean }[] = isPro
+    ? [
+        { label: 'Core', items: entry.core },
+        { label: 'Pro', items: entry.pro },
+      ]
+    : [
+        { label: '', items: entry.core },
+        { label: 'In FounderData Pro', items: entry.pro, muted: true },
+      ];
+  const shown = groups.filter((g) => g.items.length);
+  return (
+    <div>
+      <p className="text-[13px] font-medium text-ink">{title}</p>
+      {!isPro && !entry.core.length && <p className="mt-1 text-[13px] text-stone-500">No changes to core in this release.</p>}
+      {shown.map((g) => (
+        <div key={g.label || 'own'} className="mt-1">
+          {g.label && <p className="mt-2 text-micro uppercase text-stone-400">{g.label}</p>}
+          <ul className={`list-disc space-y-0.5 pl-5 text-[13px] ${g.muted ? 'text-stone-500' : 'text-stone-600'}`}>
+            {g.items.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 

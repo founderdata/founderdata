@@ -96,5 +96,7 @@ Run these in order. Steps marked **(human)** need the person you work for, so as
 - **Free-plan CPU is 10 ms a request.** Keep heavy work out of the request path. The SEO snapshot is stored as text and
   summed in the browser for this reason.
 - Before a commit: `npm run typecheck && npm test`, plus `npm run check:core` in a Pro checkout. With `npm run dev:api` running, `npm run smoke` tests end to end.
+- **Releases** follow `docs/RELEASING.md`: list the changes in `release.json`, then `npm run release -- <version>`
+  bumps, writes `CHANGELOG.md`, checks, commits and tags. Never edit the version or `CHANGELOG.md` by hand.
 - **Copy** in the dashboard and docs is plain and specific: sentence case headings, one idea per sentence, numbers
   over adjectives.

@@ -272,8 +272,9 @@ Step-by-step instructions for each provider are in the [guide](docs/GUIDE.md#rev
 
 `FounderDataKit` is a Swift package with no dependencies for iOS 17 and later, built with Xcode 26 or later. In Xcode,
 choose File > Add Package Dependencies, paste `https://github.com/founderdata/founderdata` and choose Up to Next Major
-Version from 1.0.0. The repository is tagged `1.0.0`, and the server, the dashboard and the Swift SDK share that
-version. Your deployment still learns about updates from `release.json` ([docs/PRO.md](docs/PRO.md#updates)). Then:
+Version from 1.0.0. Every release is a git tag such as `1.4.0`, and the server, the dashboard and the Swift SDK share
+that version ([CHANGELOG.md](CHANGELOG.md)). Your deployment learns about updates from `release.json`
+([docs/PRO.md](docs/PRO.md#updates)). Then:
 
 ```swift
 import FounderDataKit
