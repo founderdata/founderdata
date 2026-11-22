@@ -4,7 +4,7 @@
 import type { CorePart } from './core-parts';
 import type { Site } from './env';
 import { AMOUNT, filterSql, type BreakdownRow, type Ctx } from './stats';
-import { traitsPatchSql, type TrackerPayload } from './collect';
+import { surveyTraitSql, type TrackerPayload } from './collect';
 import { REAL } from './payments';
 import { countedSql } from './datacenter';
 import { isSkipped, parseSkipList } from './recording';
@@ -48,14 +48,15 @@ export function normalizeAnswer(survey: SurveyKey, answer: unknown, text: unknow
 const DAY = 86_400_000;
 
 /**
- * The visitor's trait for this survey, merged into visitors.traits (collect.ts traitsPatchSql). Writes only when the
- * value changes, and a `skipped` never replaces an answer. `visitor` is SQL that names the visitor id (a parameter or a
+ * The visitor's trait for this survey, merged into visitors.traits (collect.ts surveyTraitSql). It never replaces the
+ * other traits, and identify()'s cap keeps it. Writes only when the value changes, and a `skipped` never replaces an
+ * answer. `visitor` is SQL that names the visitor id (a parameter or a
  * subquery); `params` are its bindings after the site id.
  */
 function traitStatement(db: D1Database, siteId: string, survey: SurveyKey, answer: string, visitor: string, params: unknown[]): D1PreparedStatement {
   return db
     .prepare(
-      `UPDATE visitors SET traits = ${traitsPatchSql('?2')}
+      `UPDATE visitors SET traits = ${surveyTraitSql('?2')}
        WHERE site_id = ?1 AND id = ${visitor}
          AND json_extract(COALESCE(traits, '{}'), '$.${survey}') IS NOT ?3
          AND (?3 != '${SKIPPED}' OR json_extract(COALESCE(traits, '{}'), '$.${survey}') IS NULL)`,
@@ -64,7 +65,7 @@ function traitStatement(db: D1Database, siteId: string, survey: SurveyKey, answe
 }
 
 /**
- * The statements of one `survey` event: the visitor's answer of the day and their trait (collect.ts traitsPatchSql).
+ * The statements of one `survey` event: the visitor's answer of the day and their trait (collect.ts surveyTraitSql).
  * Empty when the answer is not one to keep. `path` is the page it was given on.
  *
  * One answer per visitor, survey and UTC day: the row's id is the visitor id and the day, so a repeat finds the row and

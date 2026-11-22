@@ -4130,10 +4130,11 @@ founderdata('identify', { user_id: 'u_42', email: 'anna@acme.example', name: 'An
 ```
 
 `user_id` (or `id`), `email` and `name` name the person. Every other key is a trait, stored on the visitor row as JSON
-in `visitors.traits`. Keys are lowercased and must match `[a-z0-9_]{1,40}`; values are text, numbers or true and false,
-stored as text and cut to 100 characters. The first 20 valid keys count, the rest are dropped. A later call merges its
-traits into the stored ones, and a key sent again replaces its value. When the merge would pass 20 keys, the call's
-own traits replace the stored ones. A call that changes nothing writes no row.
+in `visitors.traits`. Keys are lowercased and must match `[a-z0-9_]{1,40}`; values are text, numbers or true and
+false, stored as text and cut to 100 characters. The first 20 valid keys count, the rest are dropped. A later call
+merges its traits into the stored ones, and a key sent again replaces its value. When the merge would pass 20 keys,
+the call's own traits replace the stored ones. The survey traits `heard_about` and `cancel_reason` do not count toward
+the 20, and the call keeps them ([Survey answers](#survey-answers)). A call that changes nothing writes no row.
 
 Where to call it, and how a single-page app on a subdomain joins the marketing site:
 [GUIDE.md, "Identify people"](GUIDE.md#identify-people).
@@ -4309,12 +4310,14 @@ the widget sends when the visitor closes it.
   phone numbers and runs of 6 or more digits replaced by `[removed]`. `heard_about` drops the text of a known key.
 - An event without a visitor id, an unknown survey, or no answer writes nothing and still answers `202`.
 
-A visitor has one answer per survey and UTC day: a `survey_answers` row (migration 0092) whose id is the visitor id and
-the day. The visitor's trait of the same name holds it too (`visitors.traits.heard_about` or `.cancel_reason`, as in
-[`identify()` and traits](#identify-and-traits)). The first answer of the day writes 2 rows, or 1 when the trait
-already holds that answer. The same answer again that day writes nothing. A different answer that day replaces the
-stored one, 2 rows. `skipped` never replaces an answer, in the row or in the trait. Answers work in both editions and
-whether or not a survey is switched on.
+A visitor has one answer per survey and UTC day: a `survey_answers` row (migration 0092) whose id is the visitor id
+and the day. The visitor's trait of the same name holds it too (`visitors.traits.heard_about` or `.cancel_reason`, as
+in [`identify()` and traits](#identify-and-traits)). An answer adds its trait to the others and never replaces them.
+The first answer of the day writes 2 rows, or 1 when the trait already holds that answer. The same answer again that
+day writes nothing. A different answer that day replaces the stored one, 2 rows. `skipped` never replaces an answer,
+in the row or in the trait. Answers work in both editions and whether or not a survey is switched on. An answer from a
+hosting network writes nothing and still answers `202`. [Datacenter visits](GUIDE.md#datacenter-visits) lists those
+networks.
 
 `founderdata('survey', '<survey>')` asks FounderData Pro to show its widget for that survey. It waits for the
 pageview's [tracker config](#tracker-config): when `cfg.sv.on` lists the survey, the script loads

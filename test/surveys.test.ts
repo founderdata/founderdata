@@ -6,6 +6,7 @@ import { resetBudgetForTests } from '../src/worker/budget';
 import { resetKeysForTests } from '../src/worker/keys';
 import { pruneOldData } from '../src/worker/retention';
 import { normalizeAnswer, scrubText } from '../src/worker/surveys';
+import { app } from '../src/worker/index';
 import { startWorker, type TestWorker } from './helpers/worker';
 import { isPro } from './helpers/edition';
 
@@ -128,6 +129,39 @@ describe('surveys: ingest, webhooks, breakdown', () => {
     await w.flush();
     expect((await answers("visitor_id = 'svy-ben-00001'"))[0]).toMatchObject({ answer: 'other', text: 'Call me on [removed], found you on Hacker News' });
     expect(await traits('svy-ben-00001')).toEqual({ plan: 'pro', heard_about: 'other' });
+  });
+
+  it('keeps every trait identify() set when an answer passes the 20 keys, and identify() keeps the answer', async () => {
+    const vid = 'svy-many-0001';
+    await visit(vid);
+    const twenty = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`t${i}`, `v${i}`]));
+    await event({ t: 'identify', vid, sid: `${vid}-s`, p: { user_id: 'u-many', ...twenty } });
+    await w.flush();
+    expect(Object.keys(await traits(vid))).toHaveLength(20);
+    // The answer is a 21st key: it joins the 20 instead of replacing them.
+    expect(await rows(() => answer(vid, 'heard_about', 'linkedin'))).toBe(2);
+    expect(await traits(vid)).toEqual({ ...twenty, heard_about: 'linkedin' });
+    // A later identify() that passes 20 keys replaces the identify traits and keeps the survey trait, so the card stays
+    // answered.
+    await event({ t: 'identify', vid, sid: `${vid}-s`, p: { fresh: 'yes' } });
+    await w.flush();
+    expect(await traits(vid)).toEqual({ heard_about: 'linkedin', fresh: 'yes' });
+    await w.db.prepare(`DELETE FROM survey_answers WHERE visitor_id = '${vid}'`).run();
+  });
+
+  it('drops an answer from a hosting network', async () => {
+    const vid = 'svy-dc-00001';
+    await visit(vid);
+    const req = new Request('http://localhost/api/event', {
+      method: 'POST',
+      headers: { 'user-agent': UA, 'cf-connecting-ip': '3.3.3.3' },
+      body: JSON.stringify({ w: site.id, u: 'https://survey.example/welcome', t: 'survey', vid, sid: `${vid}-s`, n: 'heard_about', p: { a: 'google' } }),
+    });
+    Object.defineProperty(req, 'cf', { value: { asn: 16509 } });
+    const n = await rows(async () => expect((await app.fetch(req, w.env as any, { waitUntil() {}, passThroughOnException() {}, props: {} } as any)).status).toBe(202));
+    expect(n).toBe(0);
+    expect(await answers(`visitor_id = '${vid}'`)).toHaveLength(0);
+    expect(await traits(vid)).toBeNull();
   });
 
   it('keeps the text sent with a known cancel key', async () => {

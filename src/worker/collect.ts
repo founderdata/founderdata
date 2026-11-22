@@ -13,6 +13,7 @@ import { insertVitals, parseVitals, vitalsPath } from './vitals';
 import { proHooks, type RecordConfig, type SurveyConfig } from './pro-hooks';
 import { exposureProps, exposureStatements } from './experiments';
 import { surveyStatements } from './surveys';
+import { SURVEYS } from '../shared/surveys';
 import { mapConfig, mapStatement, type MapConfig } from './page-maps';
 import { errorsConfig, errorStatements, noUrlQuery, recordedActivity } from './errors';
 
@@ -54,13 +55,20 @@ const clip = (s: unknown, n = 255): string | null =>
 
 const isId = (s: unknown): s is string => typeof s === 'string' && /^[\w-]{8,64}$/.test(s);
 
+/** The survey traits (surveys.ts) as an SQL list: outside identify()'s cap, so a survey answer and identify() never drop each other. */
+const SURVEY_TRAITS = `(${SURVEYS.map((k) => `'${k}'`).join(', ')})`;
+
 /**
- * The SQL expression of a visitor's traits after merging the JSON object bound at `param` into them: past 20 keys the
- * new traits replace the stored ones. identify() and survey answers (surveys.ts) share it.
+ * The SQL expression of a visitor's traits after identify() merges the JSON object bound at `param` into them: past 20
+ * keys the call's traits replace the stored ones. The survey traits do not count toward the 20 and are kept. A survey
+ * answer merges with surveyTraitSql instead, which never replaces.
  */
 export const traitsPatchSql = (param = '?6') => `CASE WHEN ${param} IS NULL THEN traits
-                          WHEN (SELECT COUNT(*) FROM json_each(json_patch(COALESCE(traits, '{}'), ${param}))) <= ${MAX_TRAITS} THEN json_patch(COALESCE(traits, '{}'), ${param})
-                          ELSE json(${param}) END`;
+                          WHEN (SELECT COUNT(*) FROM json_each(json_patch(COALESCE(traits, '{}'), ${param})) WHERE key NOT IN ${SURVEY_TRAITS}) <= ${MAX_TRAITS} THEN json_patch(COALESCE(traits, '{}'), ${param})
+                          ELSE json_patch((SELECT json_group_object(key, value) FROM json_each(COALESCE(traits, '{}')) WHERE key IN ${SURVEY_TRAITS}), ${param}) END`;
+
+/** The SQL expression of a visitor's traits with a survey answer (the JSON object at `param`) merged in. */
+export const surveyTraitSql = (param: string) => `json_patch(COALESCE(traits, '{}'), ${param})`;
 
 /** identify() keys that are columns of the visitor row, not traits. */
 const IDENTITY_KEYS = new Set(['user_id', 'id', 'email', 'name']);
@@ -431,7 +439,7 @@ export async function ingest(
     const p = body.p ?? {};
     // A site that calls identify() on every page writes nothing after the first: the update skips a row it would not
     // change. The first email and the first user id also write their entry in visitors_email / visitors_user (0064).
-    // Traits (?6) merge into the stored ones; past 20 keys the call's own traits replace them. They ride on the identity
+    // Traits (?6) merge into the stored ones; past 20 keys the call's own traits replace them, keeping the survey traits. They ride on the identity
     // update when that runs. Alone they go in a second update that sets traits only, so the identity indexes are not
     // rewritten: 1 row. After the first update has run, the second finds nothing to change.
     const traits = traitsPatchSql('?6');
@@ -453,8 +461,10 @@ export async function ingest(
   }
 
   if (t === 'survey') {
-    // A survey answer (surveys.ts): the answer row and the visitor's trait. Writes no session or event.
-    const stmts = surveyStatements(db, site, body, path, now);
+    // A survey answer (surveys.ts): the answer row and the visitor's trait. Writes no session or event. One from a
+    // hosting network is dropped: the card never shows there (surveyDecision), and a bot's trait would hide it later.
+    // The site's survey switch and the edition do not gate it: a site's own question works in core too (docs/API.md).
+    const stmts = facts.datacenter ? [] : surveyStatements(db, site, body, path, now);
     return stmts.length ? rowsWritten(await db.batch(stmts)) : 0;
   }
 
