@@ -74,9 +74,12 @@ export function mapSampleOf(site: Pick<Site, 'map_sample'>): number {
   return Number.isFinite(n) ? Math.max(1, Math.min(100, Math.round(n))) : 100;
 }
 
-/** The click map config of a site, or undefined when click maps are off. */
-export function mapConfig(site: Site): MapConfig | undefined {
-  if (!site.maps_on) return undefined;
+/**
+ * The click map config of a site, or undefined when click maps are off. A visit from a hosting network (datacenter.ts)
+ * gets none, as with errors, recordings, surveys and experiments: it is almost always a bot.
+ */
+export function mapConfig(site: Site, datacenter: 0 | 1 = 0): MapConfig | undefined {
+  if (!site.maps_on || datacenter) return undefined;
   const x = skipPattern(skipList(site.record_skip));
   return x ? { s: mapSampleOf(site), x } : { s: mapSampleOf(site) };
 }
@@ -146,8 +149,8 @@ export function parseMapPayload(h: unknown, fallback: string): MapPayload | null
 
 /**
  * The page_maps row of the map payload `h` a ping carries, or null when there is none to keep: click maps are off,
- * the payload is empty or broken, the page is on the never-record list, or the sample skips this page view. 1 row
- * written either way.
+ * the ping comes from a hosting network, the payload is empty or broken, the page is on the never-record list, or the
+ * sample skips this page view. 1 row written either way.
  *
  * The row starts at the page view's start (now less its age `a`) and is keyed by the tracker's id `i`. A later send of
  * the same page view (the visitor came back to the tab and clicked more) finds that row within MAP_MATCH_MS and
@@ -161,9 +164,10 @@ export function mapStatement(
   path: string,
   device: string | null,
   now: number,
+  datacenter: 0 | 1 = 0,
   random = Math.random,
 ): D1PreparedStatement | null {
-  if (!site.maps_on || !h) return null;
+  if (!site.maps_on || !h || datacenter) return null;
   const m = parseMapPayload(h, path);
   if (!m || isSkipped(m.path, skipList(site.record_skip))) return null;
   const id = m.id ?? Math.floor(random() * 2 ** 31);

@@ -4155,7 +4155,7 @@ In cookie mode the answer is `{ "cfg": { … } }`.
 | `rec` | Record this visit (Pro). The server decides per visit, by the site's share and daily maximum. A visit from a hosting network (see "Datacenter visits" in docs/GUIDE.md) is never recorded. The object holds the recorder's settings: `mask` and `block` are CSS selectors, and Pro may add short keys of its own, such as `v` for the recorder's version. `c: 1` means the site waits for consent (`record_consent`): the script records only once the visitor consented to cookies, with `data-cookies="on"`, an earlier `rt_consent=1` or `founderdata('consent', true)`. Until then it loads nothing and sends no clicks, and no errors unless Catch JavaScript errors is on (`e`). Click maps (`m`) and experiments (`x`) do not wait for consent either: a click map holds no visitor or visit id, and the server picks a visitor's version at the pageview. Remember visitors (`rt_consent=r`) is not consent. `x` is the site's list of pages that are never recorded (`record_skip`, migration 0076), as path prefixes such as `["/dashboard", "/account"]`, and is absent when the list is empty. A page whose path is a prefix, or starts with a prefix and `/`, loads no recorder and sends no clicks or errors. When a single-page app moves to such a page, the recorder stops for the rest of the page load. |
 | `x` | The experiments this page view entered (Pro), as `{ "<key>": "<variant>" }`. The server stores the same map on the visit as the session properties `exp_<key>`, except the winners of stopped experiments, which it only shows. See "Experiments in the tracker". |
 | `e` | `1`: the script sends the page's errors with its ping, also when the visit is not recorded. Set when Catch JavaScript errors is on, or Record visits is on without Wait for consent. These errors do not wait for consent and carry the visit and visitor id. Absent for a visit from a hosting network. See "Errors". |
-| `m` | Click maps are on (Pro). `s` is the percent of page views that send a click map, as in `{ "s": 100 }`. See "Click maps and scroll". |
+| `m` | Click maps are on (Pro). `s` is the percent of page views that send a click map, as in `{ "s": 100 }`. Absent for a visit from a hosting network. See "Click maps and scroll". |
 | `sv` | Surveys (Pro). `on` lists the surveys that are on and that this visitor has not answered or closed, and `show` names the one to show on this page. Absent when there is none. See "Survey answers". |
 
 The list behind `x` is the site setting `record_skip`. `GET /api/sites/<id>` returns it as text with one path per
@@ -4473,7 +4473,8 @@ With click maps on (Pro), the pageview answer carries `cfg.m`:
 
 `s` is the percent of page views the server keeps (Settings, Click maps). `x` is present when the site has pages that
 are never recorded. It is a regular expression for those paths, and on a matching page the script sends no click map.
-The server drops one from such a page too.
+The server drops one from such a page too. A visit from a hosting network gets no `cfg.m`, and the server drops a map
+it sends anyway.
 
 The script then notes every click of the page view, up to 50. A page view lasts until the path changes: a single-page
 move to another path starts a new one, and a change of the query string alone (`/pricing?plan=pro`) does not. Each time

@@ -318,7 +318,7 @@ export async function trackerConfig(
   if (facts.props && Object.keys(facts.props).length) cfg.x = facts.props;
   const e = errorsConfig(site, facts.datacenter);
   if (e) cfg.e = e;
-  const m = mapConfig(site);
+  const m = mapConfig(site, facts.datacenter);
   if (m) cfg.m = m;
   return Object.keys(cfg).length ? cfg : null;
 }
@@ -408,7 +408,7 @@ export async function ingest(
     if (insert) stmts.push(insert);
     // Round 7: the page's errors (errors.ts, a row per distinct error) and its click map (page-maps.ts, 1 row).
     stmts.push(...errorStatements(db, site, body.a, sid, path, ua, now));
-    const map = mapStatement(db, site, body.h, path, device, now);
+    const map = mapStatement(db, site, body.h, path, device, now, facts.datacenter);
     if (map) stmts.push(map);
     // The clicks and errors of the page that ended: 1 row more, only for a recorded visit of a site that records visits
     // (the script marks it; a visit that is not recorded sends its errors for the errors rows above only).

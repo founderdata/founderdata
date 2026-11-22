@@ -113,6 +113,8 @@ describe('click map payload', () => {
     expect(mapConfig(base)).toBeUndefined();
     expect(mapConfig({ ...base, maps_on: 1, map_sample: 25 })).toEqual({ s: 25 });
     expect(mapConfig({ ...base, maps_on: 1, record_skip: '/account' })).toEqual({ s: 100, x: '^(?:/account(?:/|$))' });
+    // A visit from a hosting network gets no click map config.
+    expect(mapConfig({ ...base, maps_on: 1 }, 1)).toBeUndefined();
   });
 
   it('samples by map_sample and skips the never-record list', () => {
@@ -120,13 +122,15 @@ describe('click map payload', () => {
     const site = { id: 's', maps_on: 1, map_sample: 30, record_skip: '/account' } as any;
     const h = { p: '/pricing', s: 50 };
     // The page view's id decides, so every send of one page view gets the same answer.
-    expect(mapStatement(db, site, { ...h, i: 129 }, '/pricing', 'Desktop', 1, () => 0.99)).not.toBeNull();
-    expect(mapStatement(db, site, { ...h, i: 130 }, '/pricing', 'Desktop', 1, () => 0)).toBeNull();
+    expect(mapStatement(db, site, { ...h, i: 129 }, '/pricing', 'Desktop', 1, 0, () => 0.99)).not.toBeNull();
+    expect(mapStatement(db, site, { ...h, i: 130 }, '/pricing', 'Desktop', 1, 0, () => 0)).toBeNull();
     // Without one (an older tracker) the server draws the id: 0.1 * 2^31 ends in 64, kept at 70% and not at 30%.
-    expect(mapStatement(db, site, h, '/pricing', 'Desktop', 1, () => 0.1)).toBeNull();
-    expect(mapStatement(db, { ...site, map_sample: 70 }, h, '/pricing', 'Desktop', 1, () => 0.1)).not.toBeNull();
-    expect(mapStatement(db, site, { p: '/account/billing', s: 50 }, '/', 'Desktop', 1, () => 0)).toBeNull();
-    expect(mapStatement(db, { ...site, maps_on: 0 }, h, '/pricing', 'Desktop', 1, () => 0)).toBeNull();
+    expect(mapStatement(db, site, h, '/pricing', 'Desktop', 1, 0, () => 0.1)).toBeNull();
+    expect(mapStatement(db, { ...site, map_sample: 70 }, h, '/pricing', 'Desktop', 1, 0, () => 0.1)).not.toBeNull();
+    expect(mapStatement(db, site, { p: '/account/billing', s: 50 }, '/', 'Desktop', 1, 0, () => 0)).toBeNull();
+    expect(mapStatement(db, { ...site, maps_on: 0 }, h, '/pricing', 'Desktop', 1, 0, () => 0)).toBeNull();
+    // A ping from a hosting network keeps no map.
+    expect(mapStatement(db, site, h, '/pricing', 'Desktop', 1, 1, () => 0)).toBeNull();
   });
 
   it('reads scroll beside the page speed metrics, and keeps no row for scroll alone', () => {
