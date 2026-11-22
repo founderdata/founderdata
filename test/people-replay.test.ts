@@ -191,12 +191,15 @@ describe('people and recordings in the Worker', () => {
   it('starts a site with a website with Record visits and Remember visitors on, and only with Pro', async () => {
     const created = (await w.admin('/api/sites', { method: 'POST', json: { domain: 'fresh.example' } })).body;
     expect(created).toMatchObject({ record_visits: 1, remember_visitors: 1 });
-    expect(await w.db.prepare('SELECT record_visits, remember_visitors FROM sites WHERE id = ?').bind(created.id).first()).toEqual({ record_visits: 1, remember_visitors: 1 });
+    // Recording counts from creation, so the setup checklist does not call a minutes-old site quiet.
+    expect(await w.db.prepare('SELECT record_visits, remember_visitors, record_on_at FROM sites WHERE id = ?').bind(created.id).first()).toEqual({ record_visits: 1, remember_visitors: 1, record_on_at: created.created_at });
     // An app with a website gets both too.
     expect((await w.admin('/api/sites', { method: 'POST', json: { domain: 'fresh-app.example', app_bundle_id: 'com.example.fresh2' } })).body).toMatchObject({ record_visits: 1, remember_visitors: 1 });
     // An app without a website, an extension and a newsletter start with both off.
     for (const json of [{ app_bundle_id: 'com.example.fresh' }, { domain: 'fresh-ext.example', type: 'extension' }, { domain: 'fresh-news.example', type: 'newsletter' }]) {
-      expect((await w.admin('/api/sites', { method: 'POST', json })).body).toMatchObject({ record_visits: 0, remember_visitors: 0 });
+      const off = (await w.admin('/api/sites', { method: 'POST', json })).body;
+      expect(off).toMatchObject({ record_visits: 0, remember_visitors: 0 });
+      expect((await w.db.prepare('SELECT record_on_at FROM sites WHERE id = ?').bind(off.id).first())!.record_on_at).toBeNull();
     }
     // Core has no switch for either, so a core site starts with both off.
     installPro(null);

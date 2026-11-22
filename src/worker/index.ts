@@ -390,10 +390,12 @@ app.post('/api/sites', async (c) => {
   const on = proHooks() && web ? 1 : 0;
   site.record_visits = on;
   site.remember_visitors = on;
+  // Recording on from the start counts visits from creation, as turning the switch on does (record_on_at, recording.ts).
+  site.record_on_at = on ? site.created_at : null;
   await c.env.DB.prepare(
-    'INSERT INTO sites (id, name, domain, timezone, currency, api_key, dodo_webhook_secret, created_at, app_bundle_id, product_type, record_visits, remember_visitors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO sites (id, name, domain, timezone, currency, api_key, dodo_webhook_secret, created_at, app_bundle_id, product_type, record_visits, remember_visitors, record_on_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
-    .bind(site.id, site.name, site.domain, site.timezone, site.currency, site.api_key, null, site.created_at, site.app_bundle_id, site.product_type, on, on)
+    .bind(site.id, site.name, site.domain, site.timezone, site.currency, site.api_key, null, site.created_at, site.app_bundle_id, site.product_type, on, on, site.record_on_at)
     .run();
   return c.json(publicSite(site));
 });
