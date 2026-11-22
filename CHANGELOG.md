@@ -6,6 +6,27 @@ contains the core release of the same version. The Swift package lists its own c
 
 This file is made from `release.json` by `npm run release` (docs/RELEASING.md). Edit `release.json`, not this file.
 
+## 1.5.0 (2026-11-22)
+
+- A bar on Home's revenue chart opens that day's revenue by site and by source, with the payments behind it.
+- Live keeps every visit of its window in a scrolling list, instead of the newest 12.
+- Send a "How did you hear about us?" answer from your own signup form with founderdata('answer', ...), and the Channel card on Overview has a Heard about tab.
+- Settings > Updates lists every release between your version and the newest one, with what changed in core and in Pro.
+
+FounderData Pro:
+
+- Experiments and feature flags on your website, judged on revenue per visitor and a goal you pick. Experiments from your iOS app sit in the same list, and a chart note marks when each one starts and stops.
+- Needs you on the web and Today in the iPhone app: mail that waits on your answer with your agent's draft, questions from your plan's agent, and what is broken now.
+- Errors: uncaught JavaScript errors grouped into issues and sorted by the paying customers they hit, with an alert for new errors and for resolved ones that come back.
+- Click maps drawn over your live page, scroll depth for every page, and Paths that follow visits up to 3 pages.
+- A survey card asks "How did you hear about us?" and "Why are you canceling?", and cancel reasons also arrive from Stripe, Polar, the App Store and Google Play.
+- People has a Retention view: weekly lifecycle bars and retention by the week people were first seen.
+- Recordings skip idle stretches over 10 seconds, get a short summary, and filter by error, experiment version, channel, paying customer and funnel step.
+- The iPhone app has a Mail tab with Sent, Archive and Trash, filters, search, and replies with files.
+- The Mail inbox lists threads with a received message. A thread you started stays in Sent until someone answers.
+- New websites start with Record visits and Remember visitors on. Sites you added before keep their settings.
+- A key without read:revenue sees no money and does not learn who paid, in experiments, errors, recordings, people and paths.
+
 ## 1.4.0 (2026-11-20)
 
 - The dashboard refuses cookie writes from other origins and sends frame and referrer headers.
