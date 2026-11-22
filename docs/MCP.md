@@ -542,7 +542,8 @@ A viewer login reads dashboards and changes nothing.
 | `update` | `id`, and any of `name`, `description`, `widgets` (replaces the list), `add_widgets` (appended), `update_widgets` (each an `id` plus the fields to change) and `remove_widgets` (ids) | `PATCH /api/v1/dashboards/<id>` |
 | `delete` | `id` | `DELETE /api/v1/dashboards/<id>` |
 
-A widget is `{ "title", "view", "width", "query", "note" }`. `query` takes the arguments of the query tool. `note` is
+A widget is `{ "title", "view", "width", "query", "note" }`, and a goal widget also has `goal`. `query` takes the
+arguments of the query tool. `note` is
 one line under the widget, such as what to look for. A widget sent with an `id` keeps it, which is how a reorder keeps
 each widget in place.
 
@@ -571,6 +572,7 @@ each widget in place.
 | `map` | The world shaded by country in 5 steps, and the top 6 countries listed under it | One metric, `dimensions` is `["country"]`, one site |
 | `funnel` | The visitors who reached each step in order, with the share that continued | Not a `query` call. `sites` with one site, `steps`, and optionally `period` or `from` and `to`, and `filters` |
 | `table` | Every row | Anything `query` takes |
+| `goal` | This calendar month against a monthly target, every site added up in one currency: the amount, the share still to go, a bar split by site with the month's pace after it, last month and the best month, and the 12 months as stacked columns under the goal line | Not a `query` call. `goal`, and `query` is `{ "sites": [...] }` or `{}` for every site |
 
 One metric per line keeps every line on one scale: visitors and revenue never share an axis. Put each metric in its
 own widget. `width` is `third`, `half`, `two_thirds` or `full` of the row on a wide screen. Without it a number takes
@@ -583,15 +585,42 @@ wildcard, so `/blog/*` matches every post and `*` any page. The funnel counts wh
 reaches a step after reaching the one before it, within the range. FounderData has no autocapture, so a click only
 counts when the site sends it as a goal.
 
+A goal widget is `{ "title", "view": "goal", "goal": { "target", "currency", "basis", "fees" }, "query": { "sites" } }`.
+`target` is the monthly amount in minor units of `currency`, so `200000` with `EUR` is €2,000. `basis` is `profit`
+(the default) or `revenue`. Revenue is what `query` counts, net of refunds. Profit is an estimate: each amount after
+its provider's fee. App Store amounts keep Apple's share per product, the same share as `money=net` on
+subscriptions. Other providers lose a percent of each amount and a fixed fee per payment, at their list prices unless
+`fees` sets them:
+
+| Provider | Default fee |
+| --- | --- |
+| `stripe` | 2.9% + 30 |
+| `polar`, `dodo` | 4% + 40 |
+| `lemonsqueezy`, `paddle` | 5% + 50 |
+| `gumroad` | 10% + 50 |
+| `revenuecat` (Google Play and other stores that are not Apple's) | 15% |
+| Others, such as `income` | none |
+
+`fees` is `{ "stripe": { "pct": 1.5, "fixed": 25 } }`. The fixed fee is in minor units of the goal's currency. Tax,
+costs and ad spend are not taken out. Each site converts into the goal's currency at the newest stored exchange rate,
+and a site without one is left out and named in the answer. The goal always shows the current month in the timezone
+most of its sites use, whatever period the page sets. From the 3rd of the month it also projects the month's end at
+the pace so far.
+
+```json
+{ "title": "Road to €2k", "view": "goal", "goal": { "target": 200000, "currency": "EUR", "fees": { "stripe": { "pct": 1.5, "fixed": 25 } } }, "query": {} }
+```
+
 Every chart has a table view in its menu on the page. A dashboard holds 24 widgets, and a deployment 50 dashboards.
 
 A widget without `sites` covers every site. A key kept to some sites always saves the ids of its sites, and it sees
 and changes only the dashboards whose widgets all stay on its sites. Money metrics need `read:revenue`, as in `query`.
-Each answer has `url`, the dashboard's page, to hand to the person. The page has a period control that runs every
+A goal needs `read:revenue` too. Each answer has `url`, the dashboard's page, to hand to the person. The page has a period control that runs every
 widget over one period instead of its own.
 
 A dashboard is one D1 row. Creating, changing and deleting one each write 1 row. Running a widget writes none and
-reads what the same `query` reads.
+reads what the same `query` reads. A goal reads 12 months of its sites' payments, plus one read each of Apple's
+sales report and the exchange rates.
 
 ### The mail tool (Pro)
 
