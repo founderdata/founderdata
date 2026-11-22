@@ -2561,7 +2561,7 @@ The dashboard's routes take a login (an owner for changes; a viewer reads). They
 | --- | --- | --- |
 | `GET /api/sites/<id>/experiments` and `/<key>` | | As above, with names and emails. |
 | `POST /api/sites/<id>/experiments` | `key`, `name`, `kind` (`experiment` or `flag`), `variants` (2 to 4 names, or `{ "key", "weight" }` with weights that add up to 100; the first is the control) or, for a flag, `rollout` (percent on), `paths` (one per line, at most 10), `goal` | Saves a draft. `409` when the key is in use. A key is `[a-z0-9_]{1,40}` and not `new`. |
-| `PATCH /api/sites/<id>/experiments/<key>` | `action` `start` or `stop`, `winner` (with `stop`, or later on a stopped one), `name`, `paths`, `goal`, `variants` or `rollout` | `409` for an 11th running experiment, an 11th stopped one that serves a winner, new versions on a running experiment (a running flag may change its rollout), or a start after a stop. The answer's `experiment.overlaps` names running experiments on the same pages; starting is not refused. |
+| `PATCH /api/sites/<id>/experiments/<key>` | `action` `start` or `stop`, `winner` (with `stop`, or later on a stopped one), `name`, `paths`, `goal`, `variants` or `rollout` | `409` for an 11th running experiment, an 11th stopped one that serves a winner, new versions on a running experiment (a running flag may change its rollout), new pages on one that is not a draft, or a start after a stop. The answer's `experiment.overlaps` names running experiments on the same pages; starting is not refused. |
 | `DELETE /api/sites/<id>/experiments/<key>` | | Deletes it. Visits keep their `exp_<key>`. |
 
 Each change writes the experiment's row and the site's `exp_live` (2 rows). Changes take effect within a minute, as the
