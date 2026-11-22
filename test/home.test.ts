@@ -101,6 +101,22 @@ describe('home: every site with totals, sources, payments and alerts', () => {
     expect(body.more).toBe(false);
   });
 
+  it('names no platform for a payment credited through the source it kept, without a visit row', async () => {
+    await w.db
+      .prepare("INSERT INTO payments (id, site_id, provider, ts, amount, kind, currency, visitor_id, session_id, source, channel) VALUES ('pi_home_kept', ?, 'stripe', ?, 100, 'payment', 'USD', NULL, 'gone-home-id', 'Google', 'Search')")
+      .bind(blog.id, Date.now())
+      .run();
+    try {
+      const { body: h } = await w.admin('/api/home?period=7d&tz=Europe/Berlin');
+      const bar = h.series.find((b: any) => Object.keys(b.revenue).length);
+      const { body } = await w.admin(`/api/home/bucket?period=7d&tz=Europe/Berlin&bucket=${bar.bucket}`);
+      expect(body.list.find((p: any) => p.id === 'pi_home_kept')).toMatchObject({ source: 'Google', channel: 'Search', platform: null });
+      expect(body.list.find((p: any) => p.id === 'pi_home_1')).toMatchObject({ source: 'Google', platform: 'web' });
+    } finally {
+      await w.db.prepare("DELETE FROM payments WHERE id = 'pi_home_kept'").run();
+    }
+  });
+
   it('refuses a bucket that is not a bar of the period', async () => {
     const { status } = await w.admin('/api/home/bucket?period=7d&bucket=2001-01-01');
     expect(status).toBe(400);

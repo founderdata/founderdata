@@ -3878,7 +3878,8 @@ same `period` and `tz` as `/api/home` and `bucket` one of its `series` labels (a
 the bar's height per currency, and `payments` its count with Apple's report units. `sites` and `sources` split that
 revenue the way Home's sources panel does, so each list adds up to `revenue`. `list` holds the bucket's payments, newest
 first, up to 200 (`more` is true when there are others). A payment with `reported: true` is an App Store sale on a day
-Apple's report covers, so the report's amount counts instead of it.
+Apple's report covers, so the report's amount counts instead of it. A payment's `platform` is `web` or `ios`, from its
+visit. It is null when the payment has no visit row, even when it kept a source.
 Each site in `/api/home` has `trend`: `status` (`growing`, `flat`, `declining`, `quiet` or `no_payments`) and
 `revenueChange`, the period's revenue minus the previous period's, in minor units of the site currency. Revenue that moved
 10% or more is growing or declining. Without revenue in either period, visitors decide: 30% or more, from a base of 50

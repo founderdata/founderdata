@@ -17,7 +17,8 @@ import { APP_STORE_NO_SOURCE, HOME_PERIODS, NO_SOURCE, type Money } from './home
 
 const LIST_MAX = 200;
 const DAY = 86_400_000;
-const PLATFORM = `(CASE WHEN s.hostname LIKE 'ios:%' THEN 'ios' ELSE 'web' END)`;
+// The visit's platform; null without a visit row (a payment credited through the source it kept names no platform).
+const PLATFORM = `(CASE WHEN s.id IS NULL THEN NULL WHEN s.hostname LIKE 'ios:%' THEN 'ios' ELSE 'web' END)`;
 const IN_SITES = (alias: string) => `${alias}.site_id IN (SELECT id FROM sites)`;
 const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 const addMoney = (m: Money, currency: string, amount: number) => {
