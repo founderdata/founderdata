@@ -459,7 +459,9 @@ carries a `content_notice` that says so. An agent treats a message as data and f
 | Templates, with their 10 newest published versions | D1 | Until you delete the template or its domain |
 
 Deleting a message or a thread in the inbox removes its rows and its R2 objects for good, and so does deleting a
-thread from the trash, emptying the trash and the 30-day trash cleanup.
+thread from the trash, emptying the trash and the 30-day trash cleanup. A thread deleted for good disappears at
+once; its messages and files follow in the background, 15 at a time through the mail queue, usually within a minute.
+The hourly retention job finishes what the queue leaves.
 
 [Erasing one person](GUIDE.md#erase-one-person) by email also erases their mail across the deployment, from the
 dashboard or with a key that holds `mail:write` next to `payments:write` ([API.md](API.md#erase-one-person)). One of
@@ -482,8 +484,9 @@ Cloudflare processes every message and keeps its own delivery logs, which Founde
   are fixed: inbox, sent, archive, trash and all.
 - The iPhone app replies inside a thread only, in plain text with at most 10 files of 15 MB in all, and cannot
   compose a new message.
-- Deleting from the trash and emptying it handle 15 messages per request, so a long thread or a full trash takes
-  several calls. The app repeats them. The rule keeps a request inside the 50 subrequests of the Workers free plan.
+- A thread deleted for good leaves the dashboard and the app at once, but its messages and files leave in the
+  background at 15 per step, so a full trash takes about a minute to clear from storage. The step size keeps each
+  invocation inside the 50 subrequests of the Workers free plan.
 
 ## What it costs in D1 rows
 
@@ -496,7 +499,8 @@ Cloudflare processes every message and keeps its own delivery logs, which Founde
 | The dashboard sends / an agent sends | 23 / 24, because the message starts a thread |
 | A reply in a thread, from the dashboard / by an agent / from the iPhone app | 21 / 22 / 22, plus 1 for each attachment |
 | Move a thread to the trash / take it out | 3 / 1. A thread already there writes 0 |
-| Delete a thread for good from the trash, or by emptying it | What D1 counts for the deleted rows: 10 for a thread with one received message |
+| Delete a thread for good from the trash, or by emptying it | 3 to hide it at once, then what D1 counts for the deleted rows in the background: 13 in all for a thread with one received message |
+| Change many threads in one batch call (read, archive, trash) | What the single calls write together: 2 for each thread with one unread message marked read, 3 for each thread moved to the trash. A thread already there writes 0 |
 | The iPhone app's mail push switches: on or off / a domain or address switched | 1 / 1 each. A switch already in that state writes 0 |
 | A received message that pushes to phones | Nothing more than receiving it, plus 1 when APNs calls a phone's token dead |
 | A status event, such as delivered | 5. The same event again writes 0 |

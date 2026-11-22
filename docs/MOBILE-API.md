@@ -1082,20 +1082,42 @@ Worker's hourly retention job deletes the thread for good, with its messages and
 ### `DELETE /api/mobile/mail/threads/:id`
 
 Deletes a thread in the trash for good: its messages, their bodies, attachments and raw files, and the thread. It
-cannot be undone. Answers `{ "ok": true, "messages": 15, "remaining": 5 }`: `messages` is how many messages this call
-deleted, `remaining` how many the thread still has. One call deletes at most 15 messages, which keeps it inside the
-subrequests of the Workers free plan. While `remaining` is above 0 the thread stays in the trash with what is left;
-call again until it is 0.
+cannot be undone. Answers `{ "ok": true, "messages": 20, "remaining": 0 }` at once, with `messages` the number of
+messages that go. From then on the thread is in no list, count or read, and a second call answers 404. The messages
+and files leave in the background: 15 right after the answer, the rest through the mail queue, 15 at a time, or the
+hourly retention job when the deployment has no queue. `remaining` is always 0. Older servers deleted 15
+messages per call and answered how many were left, so a client that calls again while `remaining` is above 0 works
+with both.
+
+A new inbound message in a thread whose old messages are still being deleted stays. Once the old messages are gone,
+the thread comes back in the inbox with only the new one.
 
 409 `This thread is not in the trash. Move it to the trash first, then delete it for good.` for a thread outside the
 trash, 404 for an unknown id.
 
 ### `POST /api/mobile/mail/trash/empty`
 
-Deletes threads in the trash for good, longest in the trash first, at most 15 messages per call. No body.
-Answers `{ "deleted": 3, "remaining": 1 }`: `deleted` counts the threads this call removed completely, `remaining` the
-threads still in the trash. Call again while `remaining` is above 0. A call on an empty trash answers
-`{ "deleted": 0, "remaining": 0 }`.
+Deletes every thread in the trash for good in one call, the same way as `DELETE` above. No body. Answers
+`{ "deleted": 4, "remaining": 0 }`: `deleted` counts the threads that left the trash. A call on an empty trash answers
+`{ "deleted": 0, "remaining": 0 }`. Older servers answered in steps of 15 messages, with `remaining` above 0
+until the trash was empty.
+
+### `POST /api/mobile/mail/threads/batch`
+
+One change to many threads in one call, for Select and for Undo. Body:
+
+```json
+{ "ids": ["thr_1", "thr_2"], "action": "trash" }
+```
+
+`action` is one of `read`, `unread`, `archive`, `unarchive`, `trash`, `restore` (out of the trash) or `delete` (for
+good, threads in the trash only, as `DELETE` above). `ids` holds 1 to 500 thread ids. An unknown id, a thread deleted
+for good and a thread already where the action puts it are skipped and write nothing. Answers
+`{ "ok": true, "changed": 2 }`, and for `read` and `unread` also `threads`, the new unread count of each thread that
+changed: `[{ "id": "thr_1", "unread": 0 }]`.
+
+400 `action must be one of read, unread, archive, unarchive, trash, restore, delete.`, `Send ids as a list of thread
+ids.` or `Send at most 500 ids in one call.` An older server answers 404: send one call per thread there.
 
 ### `GET /api/mobile/mail/messages/:id/attachments/:n`
 
