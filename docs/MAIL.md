@@ -111,8 +111,10 @@ message that could not be stored for 7 days is deleted and the Worker's log says
 Only the owner sees it. Viewers and viewer teammates get no mail. The iPhone app has its own view of the inbox, see
 [On the iPhone app](#on-the-iphone-app).
 
-- **Inbox** lists threads with their unread count. Open one to read it, reply, archive it or delete it. HTML mail
-  renders in a sandboxed frame, and remote images stay blocked until you allow them for that message.
+- **Inbox** has three folders: Inbox, Archive and Trash, plus an Unread filter. Open a thread to read it, reply,
+  archive it or move it to the trash. Archive and Trash take effect at once and can be undone for a few seconds (press
+  `z`). In the Trash you can restore a thread, delete it for good, or empty the trash. HTML mail renders in a
+  sandboxed frame, and remote images stay blocked until you allow them for that message.
 - **Sent** lists every sent message with its status and delivery events, from apps, the dashboard and agents. Open
   one to see it as it was sent, while its body is stored. Filter by domain or by template.
 - **Templates** groups by domain the templates you keep here and the kinds of mail your apps send without one. See
@@ -133,7 +135,7 @@ may send 50 replies in 24 hours, or the number in the Worker variable `PHONE_MAI
 Sent tab shows these replies with the source iPhone app.
 
 A thread in the trash is in no other folder and no count: not in the inbox's unread count, the app badge, the
-dashboard's thread list or an agent's. It keeps whether it was archived and goes back there when you take it out. A
+dashboard's other folders or an agent's thread list. The dashboard and the app share the same trash. It keeps whether it was archived and goes back there when you take it out. A
 new message from outside takes it out of the trash and puts it in the inbox, as it does for an archived thread, and
 pushes like any new message. A reply you send into a thread in the trash leaves it there. After 30 days in the trash
 the hourly retention job deletes the thread for good with its messages and files.
