@@ -6,6 +6,7 @@ lists what FounderData does not do, and links the import path if you move.
 | If you use | Read |
 | --- | --- |
 | DataFast | [FounderData vs DataFast](datafast.md) |
+| Google Analytics 4 | [FounderData vs Google Analytics](google-analytics.md) |
 | Plausible, and a short note on Fathom and Umami | [FounderData vs Plausible](plausible.md) |
 | Umami | [FounderData vs Umami](umami.md) |
 | PostHog for experiments, flags, replay, heatmaps, errors or surveys | [FounderData vs PostHog](posthog.md) |
