@@ -195,6 +195,23 @@ checked, so a read looks only at the payments recorded after it; a fresh instanc
 
 ### Setup checklist
 
+**Get started.** The first time the owner opens Home and no site has had its first visit or app event, the dashboard
+opens Get started (`/get-started`) full screen. It has one prompt to paste into a coding agent (Claude Code, Codex,
+Cursor), filled with this deployment's address and each site's id, and an estimate of the time left and of the steps
+that need you. It also lists every step by who does it: your agent, you, or your agent in the browser. Each step opens
+to show what it gets you, the signal that proves it done, and its prompt, command and link. A tracker step has
+**Check now**, which fetches the site's homepage and looks for the tag. While the tab is visible the page asks the
+server every 5 seconds, so "Waiting for your first visit" turns green on its own. A hidden tab stops asking. Pro steps
+sit last, folded, and describe what they get you. No free step waits for them. **I'll finish later** goes to Home and
+does not open Get started again in that browser.
+
+**The Home card.** While a required step is open (the tracker or SDK, a payment provider, payments linked to visits),
+Home pins a setup card: steps done, the one next step with its prompt, and with two or more sites a grid of products by
+tracking, revenue, agent and growth. A cell opens its step on Get started. The close button hides the card for 7 days.
+Settings, Overview reads the same state, so a step counts as done only after its first real signal. A saved payment
+secret shows Waiting until the first payment arrives, and an App Store bundle id shows Waiting until the first
+purchase. Both read `GET /api/v1/setup`. The viewer login sees neither.
+
 Settings, Setup checklist lists every integration with a live status (Working, Needs a look, Broken or Off) and the next step.
 It is for owners. The viewer login and a phone token get 403, and an API key gets 401. After a deploy, open it and work down
 the rows. Core has the cron, payment webhook and email rows. The DataForSEO, Google, X, Meta ads, Apple Search Ads, App

@@ -1,4 +1,5 @@
 import type { Site } from './api';
+import { isAppOnly } from './siteKind';
 
 /**
  * A copy-paste prompt for the site owner's coding AI (Claude Code, Cursor, Copilot),
@@ -7,6 +8,7 @@ import type { Site } from './api';
  * prompt tells the AI to read it from an environment variable.
  */
 export function buildAiPrompt(site: Site, origin: string): string {
+  if (isAppOnly(site)) return buildAppPrompt(site, origin);
   const script = `<script defer data-website-id="${site.id}" src="${origin}/js/script.js"></script>`;
   return `Set up FounderData analytics and revenue attribution in this codebase. FounderData is my own analytics service, similar to DataFast or Plausible. Make the changes directly in the code. Ask me only what you cannot find out by reading the codebase, and ask all of it at once before you change anything.
 
@@ -105,4 +107,58 @@ Always call it with optional chaining (window.founderdata?.(...)), so a blocked 
 3. Which webhooks, settings or environment variables I still have to set up myself.
 4. Which goals you added, and where.
 5. How I can check it: open the site, and in DevTools, Network, a POST to ${origin}/api/event returns 202. The visit shows up in my FounderData dashboard within seconds.`;
+}
+
+
+/**
+ * The prompt for an iOS app without a website: the bundle id first, then the Swift package, purchases (StoreKit or
+ * RevenueCat) and goals, following ios/README.md. No script tag, no web checkout. Like the web prompt it holds no secret.
+ */
+export function buildAppPrompt(site: Site, origin: string): string {
+  const bundle = site.app_bundle_id;
+  return `Set up FounderData analytics and revenue attribution in this iOS app. FounderData is my own analytics service. Make the changes directly in the code. Ask me only what you cannot find out by reading the project, and ask all of it at once before you change anything.
+
+## My FounderData values (correct as written, use them unchanged)
+- Bundle id: ${bundle ?? 'not set yet. Read it from the app target (PRODUCT_BUNDLE_IDENTIFIER) and tell me, so I add it to the site in FounderData. The server refuses app events until it matches.'}
+- Site id: ${site.id}
+- Host: ${origin}
+- Revenue currency: ${site.currency}
+
+## Task 1: add the SDK
+- Check that the app target's bundle id is ${bundle ?? 'the one in FounderData'}. If it differs, stop and tell me.
+- Add the Swift package https://github.com/founderdata/founderdata and link the product FounderDataKit to the app target.
+- In the App's init, call FounderData.configure(siteId: "${site.id}", host: "${origin}"), then FounderData.observeTransactions().
+- On the root view, add .onOpenURL { FounderData.handle(url: $0) } so links can carry campaign data.
+- Name the main screens with .founderDataScreen("Settings") or FounderData.screen("Settings"). Use stable names, not localized titles.
+- On sign-out, call FounderData.reset().
+
+## Task 2: purchases (the most important task)
+First find out how the app sells: search for "Purchases.configure", "RevenueCat", "product.purchase", "StoreKit", "Transaction.updates". Then do the part that fits and skip the other.
+
+### StoreKit 2
+- Buy with try await FounderData.purchase(product, source: .onboarding) (or .settings, .featureGate: where the paywall opened). It adds the app account token, sends the purchase goals and reports the verified transaction.
+- Code that calls product.purchase itself adds .appAccountToken(FounderData.appAccountToken) to the options and passes a verified result to FounderData.track(purchase:).
+- I point App Store Server Notifications V2 at ${origin}/api/webhooks/apple/${site.id} in App Store Connect myself. If a backend already receives them, forward the raw body there unchanged instead, and tell me where.
+
+### RevenueCat
+- Right after Purchases.configure, call Purchases.shared.attribution.setAttributes(FounderData.revenueCatAttributes).
+- Set the same attributes again after Purchases.shared.logIn, after FounderData.reset() and before each purchase. The id changes at those points.
+- Wrap each purchase: try await FounderData.trackPurchase(product: package.storeProduct.productIdentifier, source: source) { let r = try await Purchases.shared.purchase(package: package); return r.userCancelled ? .cancelled : .purchased }
+- I add the webhook ${origin}/api/webhooks/revenuecat/${site.id} in RevenueCat myself. Skip App Store Server Notifications in this case.
+
+## Task 3: the paywall and onboarding
+- When a paywall appears, call FounderData.paywallViewed(source: .onboarding) with the source that opened it.
+- At each onboarding step call FounderData.onboardingStep(1, "welcome"), FounderData.onboardingStep(2, "name") and so on, in the order the user sees them, and FounderData.onboardingComplete() at the end.
+- After sign-in, call FounderData.identify(userId: user.id, email: user.email, name: user.name).
+
+## Rules
+- Keep the changes small and in the existing code style. Leave unrelated code alone.
+- Hardcode no secrets. This setup needs none.
+- Debug builds may pass debugHost: "http://localhost:8787" to configure. Release builds always use the host above.
+
+## When you are done, reply with
+1. Every file you changed, and why.
+2. How the app sells (StoreKit or RevenueCat) and which purchase paths now go through FounderData.
+3. What I still have to set up myself: the bundle id in FounderData, the App Store notification URL or the RevenueCat webhook.
+4. How I can check it: run the app in the Simulator. The first app session shows up in my FounderData dashboard within seconds.`;
 }

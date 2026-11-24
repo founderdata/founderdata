@@ -25,6 +25,8 @@ export const Pages = {
   // Custom dashboards (/dashboards) that agents build over MCP: Pro's page (slot `dashboardsPage`), the Pro card in core.
   Dashboards: (proUi?.slots.dashboardsPage ?? Upsell) as Preloadable<ComponentType<{ id: string | null }>>,
   Live: lazyNamed(() => import('../pages/Live'), 'Live'),
+  // Get started (/get-started): the owner's first run, full screen (docs/GUIDE.md, "Setup checklist").
+  GetStarted: lazyNamed(() => import('../pages/GetStarted'), 'GetStarted'),
   SharePage: lazyNamed(() => import('../pages/SharePage'), 'SharePage'),
   Join: lazyNamed(() => import('../pages/Join'), 'Join'),
   Login: lazyNamed(() => import('../pages/Login'), 'Login'),

@@ -15,10 +15,13 @@ import { SiteCards } from '../components/home/SiteCards';
 import { Payments, Sources } from '../components/home/SourcesPayments';
 import type { HomeData } from '../components/home/types';
 import { VisitorsChart } from '../components/home/VisitorsChart';
+import { SetupCard } from '../components/onboarding/SetupCard';
 import { LiveCard } from '../components/live/LiveCard';
 import { Reveal, Skeleton, StatusChip } from '../components/ui';
 import { api, isViewer } from '../lib/api';
+import { cardDismissed, dismissCard, getStartedSkipped, homeSetupView } from '../lib/setup';
 import { useApi } from '../lib/useApi';
+import { useSetupState } from '../lib/useSetupState';
 import type { GrowthData } from '../../shared/growth';
 
 function usePeriod(): [string, (p: string) => void] {
@@ -69,9 +72,22 @@ export function Home() {
   const hasApps = !!sites?.some((s) => s.hasApp);
   const hasSites = !!sites?.length;
 
+  // Setup (GET /api/v1/setup): the first run opens Get started full screen, later Home pins the setup card.
+  const setup = useSetupState({ enabled: !viewer });
+  const [dismissed, setDismissed] = useState(() => cardDismissed());
+  const setupView = homeSetupView(setup.state, { viewer, skipped: getStartedSkipped(), dismissed });
   useEffect(() => {
-    if (data && !data.sites.length && !isViewer()) setAdding(true);
-  }, [data]);
+    if (setupView !== 'get-started') return;
+    // Replace, so Back from Get started does not land here and bounce again. ?setup= (a sample) comes along.
+    const sample = new URLSearchParams(window.location.search).get('setup');
+    window.history.replaceState(null, '', `/get-started${sample ? `?setup=${encodeURIComponent(sample)}` : ''}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, [setupView]);
+
+  // Without the setup route (an older Worker), a deployment with no sites opens Add site at once, as before.
+  useEffect(() => {
+    if (data && !data.sites.length && !isViewer() && setup.ready && !setup.state) setAdding(true);
+  }, [data, setup.ready, setup.state]);
 
   // ?demo=1 plays LiveCard's built-in fixture (screenshots, a deployment without traffic yet).
   const liveDemo = useMemo(() => new URLSearchParams(window.location.search).get('demo') === '1', []);
@@ -132,7 +148,20 @@ export function Home() {
           </div>
         )}
 
-        {!data ? (
+        {setupView === 'card' && setup.state && (
+          <Reveal className="mb-4">
+            <SetupCard
+              state={setup.state}
+              sample={setup.sample}
+              onDismiss={() => {
+                dismissCard();
+                setDismissed(true);
+              }}
+            />
+          </Reveal>
+        )}
+
+        {!data || (!viewer && !setup.ready) || setupView === 'get-started' ? (
           error ? <HomeError inline={false} message={error} onRetry={() => setReload((n) => n + 1)} /> : <HomeSkeleton />
         ) : !hasSites ? (
           <Reveal>

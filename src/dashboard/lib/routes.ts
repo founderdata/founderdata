@@ -21,6 +21,7 @@ export type Route =
   | { page: 'dashboards'; id: string | null }
   | { page: 'notifications' }
   | { page: 'live' }
+  | { page: 'getStarted' }
   | { page: 'settings'; siteId: string }
   | { page: 'dashboard'; siteId: string; view: View };
 
@@ -67,6 +68,8 @@ export function matchRoute(path: string, viewer: boolean = isViewer()): Route {
   if (board) return { page: 'dashboards', id: board[1] ?? null };
   // The full-screen live view: the globe, who is online and the last hour's payments (pages/Live.tsx).
   if (/^\/live\/?$/.test(path)) return { page: 'live' };
+  // Get started: the owner's setup, full screen (pages/GetStarted.tsx). The viewer login lands on the home page.
+  if (/^\/get-started\/?$/.test(path) && !viewer) return { page: 'getStarted' };
   // Alert channels hold webhook URLs: the owner's only. The viewer login lands on the home page.
   if (/^\/notifications\/?$/.test(path) && !viewer) return { page: 'notifications' };
   const settings = /^\/site\/([\w-]+)\/settings\/?$/.exec(path);
@@ -90,6 +93,7 @@ export function kindOf(route: Route): FallbackKind {
     case 'settings':
       return 'settings';
     case 'live':
+    case 'getStarted':
       return 'plain';
     default:
       return 'list';
@@ -113,6 +117,8 @@ function chunksOf(route: Route) {
       return [Pages.Notifications];
     case 'live':
       return [Pages.Live];
+    case 'getStarted':
+      return [Pages.GetStarted];
     case 'settings':
       return [Pages.Settings];
     case 'dashboard':
