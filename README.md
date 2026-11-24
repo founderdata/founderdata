@@ -20,9 +20,21 @@ for every site.
 
 ![The FounderData dashboard with visitors, revenue, sources and paying customers](docs/dashboard.png)
 
+## Set it up with your agent
+
+Paste this into Claude Code, Codex or Cursor:
+
+```text
+Set up FounderData for me. Clone https://github.com/founderdata/founderdata and follow skills/founderdata-setup/SKILL.md.
+```
+
+The agent asks what it needs once (your sites, EU-only data or not, your payment provider), then deploys, installs the
+tracker, connects payments and connects itself. You sign in, paste secrets into a page it never sees and approve any
+spend. [docs/AGENT-SETUP.md](docs/AGENT-SETUP.md) lists who does what and the safety rules.
+
 ## Quick start
 
-You need Node.js 20 or later and a free Cloudflare account.
+Doing it yourself instead? You need Node.js 20 or later and a free Cloudflare account.
 
 ```bash
 git clone https://github.com/founderdata/founderdata.git
@@ -34,9 +46,6 @@ npm run setup
 `npm run setup` signs you in to Cloudflare, creates the database, deploys the Worker and prints your dashboard URL.
 Open it and log in with the password saved in `~/.config/founderdata/admin-password`. [Install](#install) has the
 details.
-
-You can also hand [AGENTS.md](AGENTS.md) to a coding agent such as Claude Code or Cursor. Its "Deploy a fresh copy"
-section takes the agent through the same steps and says when to ask you.
 
 Cloudflare's free plan covers about 3,100 web visits a day. [What it costs](#what-it-costs) has the numbers.
 

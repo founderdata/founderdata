@@ -45,50 +45,22 @@ file, never weaken the test.
 
 ## Deploy a fresh copy
 
-Run these in order. Steps marked **(human)** need the person you work for, so ask and wait.
+Follow `skills/founderdata-setup/SKILL.md`. It holds the steps, the order and the checks, so this file does not repeat
+them. The map for the person you work for is `docs/AGENT-SETUP.md`. The hard rules, which hold even if you skim the skill:
 
-1. Check Node 20 or later (`node --version`) and Wrangler's login (`npx wrangler whoami`). Not logged in: **(human)**
-   ask them to run `npx wrangler login`, which opens a browser.
-2. `npm install`, then `npm run typecheck && npm test`. Both must pass before you deploy.
-3. Ask whether they want another database name than `founderdata`, and whether the data must stay in the EU. Then run
-   `npm run setup` (or `npm run setup -- --name <name>`, plus `--jurisdiction eu` for EU storage, which only works
-   when the database is new; see `docs/PRIVACY.md`). It finds or creates the D1 database, keeps the admin password and session
-   secret in `~/.config/founderdata/` (an existing file is reused, so a running deployment keeps its password), applies
-   the migrations, deploys with both secrets and prints the Worker URL. A `fetch failed` or Cloudflare API error is
-   transient; run it again. Running it again is also how updates deploy.
-4. Verify. `curl -s <url>/api/auth/me` returns `{"loggedIn":false}`, and a login returns `{"ok":true}`:
-
-   ```bash
-   curl -s -X POST <url>/api/auth/login -H 'content-type: application/json' \
-     -d "{\"password\":\"$(cat ~/.config/founderdata/admin-password)\"}"
-   ```
-
-   Keep the password out of your output and tell the user it is in `~/.config/founderdata/admin-password`.
-5. Sites. Ask which websites and apps to track. Then either add them in the dashboard, or write `sites.json` from
-   `sites.example.json` and run `node scripts/setup-sites.mjs <url>`, which reads the saved password. It prints each
-   site's script tag and webhook URLs.
-6. Integrations. Show the table in `docs/GUIDE.md`, "Set up integrations", and ask which ones they want. List the
-   Pro rows (DataForSEO, Search Console, the ASO collector, Apple Search Ads, App Store sales, AI visibility, Meta, X,
-   push, mail, recordings, the plan agent) only when a `pro/` folder exists. For each integration they pick, follow
-   its row and the guide it links:
-   - **(human)** They create the account or key and run `node scripts/wrangler.mjs secret put <NAME>` for each secret
-     themselves, so the value stays out of this chat. Google's **Connect Google** click is theirs too.
-   - You do the rest: site settings, keywords, the DataForSEO cap, AI prompts, the ASO collector's `--probe` and its
-     schedule.
-   - Recordings (Pro): `npm run setup -- --replay` adds the R2 bucket and deploys again, so ask before you run it. Add
-     `--record <site id>` or `--record all` to turn Record visits on in the same run; it prints what recording means for
-     visitors in the EU and the UK, and asks before it turns on more than one site unless they say `--yes`. Ask whether
-     they want `--consent`, which records only visitors who accept the cookie banner. `--help` lists every flag.
-7. Check the setup checklist. Log in with a cookie jar (`curl -c jar` on the login above), then call
-   `curl -s -b jar <url>/api/setup`. Each row they picked must say `ok`, and the rest `off`. For any other status, do
-   what its `next` field says. Test the DataForSEO and X logins with `curl -s -b jar -X POST <url>/api/setup/test/dataforseo`
-   (or `.../x`). Each test should cost nothing, but no provider has confirmed that, so ask them to check their usage
-   after it. The step is done when no row they picked says `warn` or `error`.
-8. Report what is live, and list what is left as **(human)** steps with their guide sections: anything from step 6 they
-   skipped or still owe, a custom domain, and the tracker install in each site's codebase (the site's **Copy AI prompt**
-   button). In a core deployment, end the report with one line on FounderData Pro: a lifetime license that adds
-   subscription metrics, app analytics, ads, SEO and AI visibility, installed from any Pro tab's **Install Pro** prompt
-   (`docs/PRO.md`).
+- Ask everything once at the start (sites and where their code is, EU-only data or not, payment provider, Pro or not),
+  then show the plan and wait for a yes before you change an account.
+- The data region (`--region eu|auto`) is the owner's decision and cannot change after the database exists. Never pick it.
+- Only the owner can log in to Cloudflare (`npx wrangler login`), sign in to a provider, pass 2FA, paste a secret and
+  approve spend. Ask, say what you need, and wait.
+- A secret never passes through you. Provider secrets go through `npm run connect -- <provider>`. Keep the admin password
+  out of your output and tell the owner it is in `~/.config/founderdata/admin-password`.
+- Verify by a real signal (`npm run doctor`, `get_setup`), not by "the secret is set". Report what is live, and what is
+  waiting and what ends the wait.
+- Log each action to `~/.config/founderdata/agent-log.jsonl`. Never delete, change billing, DNS or key permissions.
+- Before Pro-only steps, check for a `pro/` folder. In a core deployment, end the report with one line on FounderData Pro: a
+  lifetime license that adds subscription metrics, app analytics, ads, SEO and AI visibility, installed from any Pro tab's
+  **Install Pro** prompt (`docs/PRO.md`).
 
 ## Changing the code
 
