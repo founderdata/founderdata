@@ -6,51 +6,12 @@
  * components live in components/onboarding/.
  */
 
-export type StepStatus = 'done' | 'waiting' | 'todo' | 'broken' | 'off' | 'locked';
-export type Who = 'agent' | 'you' | 'browser';
-export type StepGroup = 'deploy' | 'track' | 'revenue' | 'growth' | 'agent';
+// The shape is the Worker's own (src/shared/setup-steps.ts), so a change on either side fails the typecheck.
+import type { SetupSiteSummary, SetupState, Step, StepGroup, StepStatus, StepWho } from '../../shared/setup-steps';
 
-export interface Step {
-  /** Stable: 'deploy', 'cron', 'email', 'agent-key', 'agent-used', 'tracker:<site>', 'sdk:<site>', 'payments:<site>' ... */
-  id: string;
-  group: StepGroup;
-  /** null for a step of the whole deployment. */
-  site: { id: string; name: string } | null;
-  title: string;
-  outcome: string;
-  status: StepStatus;
-  who: Who;
-  required: boolean;
-  evidence: string | null;
-  next: string | null;
-  prompt: string | null;
-  skill: string | null;
-  url: string | null;
-  command: string | null;
-  secrets?: { name: string; set: boolean }[];
-  cost: string | null;
-  pro?: boolean;
-}
-
-export interface SetupSite {
-  id: string;
-  name: string;
-  kind: 'web' | 'app' | 'both';
-  done: number;
-  total: number;
-  next: string | null;
-}
-
-export interface SetupState {
-  edition: 'core' | 'pro';
-  version: string;
-  origin: string;
-  now: number;
-  progress: { done: number; total: number; required_done: number; required_total: number };
-  next: Step | null;
-  steps: Step[];
-  sites: SetupSite[];
-}
+export type { SetupState, Step, StepGroup, StepStatus };
+export type Who = StepWho;
+export type SetupSite = SetupSiteSummary;
 
 /** The part of a step id before the site: 'tracker' for 'tracker:abc'. */
 export const kindOfStep = (id: string) => id.split(':')[0];
