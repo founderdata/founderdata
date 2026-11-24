@@ -24,6 +24,8 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "connect": "node scripts/connect.mjs",
     "dev": "concurrently -k -n api,web \"node scripts/wrangler.mjs dev --port 8787\" \"vite\"",
     "dev:api": "node scripts/wrangler.mjs dev --port 8787",
     "dev:web": "vite",
@@ -63,7 +65,7 @@
     "typescript": "^5.9.3",
     "vite": "^6.4.5",
     "vitest": "^3.2.7",
-    "wrangler": "^4.152.0"
+    "wrangler": "4.164.0"
   },
   "overrides": {
     "rrweb": "2.2.0",
