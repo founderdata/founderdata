@@ -94,8 +94,69 @@ numbers when you come back to the tab after a minute or more.
 
 ## Deploy
 
-`npm run setup` does the whole install on your Cloudflare account (see the [README](../README.md#install)). To do it
-by hand instead:
+`npm run setup` does the whole install on your Cloudflare account (see the [README](../README.md#install)). A new
+database needs one decision first: where its data lives. Cloudflare can't move a database later. At a terminal, setup
+asks. Without one, it stops with exit code 2 and prints the two commands to pick from:
+
+```bash
+npm run setup -- --region eu      # EU only (docs/PRIVACY.md)
+npm run setup -- --region auto    # anywhere; Cloudflare places it near you
+```
+
+`--jurisdiction eu` still works and means the same as `--region eu`. A database that exists gets no question, so
+running setup again to deploy an update works as it always did.
+
+### Setup with a coding agent
+
+Three commands are built for an agent that runs them without a terminal. Each prints text by default and one JSON
+object with `--json`. For clean JSON, run `npm run --silent doctor -- --json` or `node scripts/doctor.mjs --json`,
+because npm prints its own lines first. All three end with the same exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Done |
+| 1 | Something is left to do, and the output says what |
+| 2 | A decision or an input is missing: the region of a new database, a site id, a flag |
+| 3 | Only you can do the next step: `npx wrangler login`, a paste, a workers.dev subdomain |
+| 4 | Something failed |
+
+**`npm run setup`.** `--dry-run` lists every action it would take and changes nothing: the database it creates and
+where, the number of migrations, the deploy and the secrets it sets, by name. Without a Wrangler login and without a
+terminal, setup exits 3 and says to run `npx wrangler login`, instead of waiting for a browser. A login with several
+Cloudflare accounts exits 2 with their ids; pick one with `CLOUDFLARE_ACCOUNT_ID=<id> npm run setup`. An account without
+a workers.dev subdomain gets one line with the dashboard link that fixes it. After a deploy, setup saves the dashboard
+address in `~/.config/founderdata/url`, where doctor and connect read it.
+
+**`npm run doctor`.** Checks the install and prints the one next step. It only reads, and makes no billed call. It
+checks Node, the dependencies, the Wrangler login, the config and its database, the files in `~/.config/founderdata/`
+(by name), the migrations not applied yet, whether the address answers, and whether the saved password logs in. Then it
+reads `GET /api/v1/setup` and shows its steps and `next`. A deployment from before that route answers 404, and doctor
+says to run `npm run setup`. `--url` sets the address and `--site` narrows the steps to one site. The JSON is
+`{ ok, code, local, deployed, setup, next }`, with `setup` the answer of `/api/v1/setup` (null when it is missing).
+
+**`npm run connect -- <provider>`.** Stores a key without the agent seeing it. It opens a page on `127.0.0.1` in your
+browser, with a link to where the provider shows the value and a field to paste it into. The page saves once and closes
+after 10 minutes. The value goes to `wrangler secret put` (Worker secrets) or to the site's settings (payment webhook
+secrets), and the agent gets only `{"ok":true,"provider":"stripe","site":"SITE_ID","set":["stripe_webhook_secret"],"verified":true}`.
+`verified` is true once `wrangler secret list` names the secret, or the site answers the setting as set.
+
+```bash
+npm run connect -- list                                  # every provider, and what it stores where
+npm run connect -- stripe --site SITE_ID                 # the paste page
+npm run connect -- stripe --site SITE_ID --stdin         # type it hidden in the terminal, or pipe it in
+npm run connect -- app-store-connect --file ~/Downloads/AuthKey_XXXXXXXXXX.p8 --delete-file
+npm run connect -- app-store-connect --watch-downloads   # waits for AuthKey_*.p8 in ~/Downloads
+npm run connect -- generate revenuecat --site SITE_ID    # makes the header, saves it, shows it once on the page
+```
+
+Apple lets you download a `.p8` key once, so `--watch-downloads` picks it up as it lands and reads the key id from the
+file name. `--delete-file` removes the file once the key is stored. `--secret NAME` stores only some of a provider's
+values. Gumroad has nothing to paste but the seller id: connect makes the ping URL and shows it on the page.
+
+Setup and connect append each action to `~/.config/founderdata/agent-log.jsonl` as `{ at, cmd, action, ok }`, by name.
+No secret goes into it.
+
+To do it by hand instead:
 
 ```bash
 npm install
