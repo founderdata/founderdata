@@ -105,7 +105,8 @@ export function lastTest(state: State, name: string): Row['last_test'] {
   }
 }
 
-function cronRow(state: State, now: number): Row {
+/** The cron row; GET /api/v1/setup maps it onto its `cron` step (setup-state.ts). */
+export function cronRow(state: State, now: number): Row {
   const five = state.get('tick:five');
   const hourly = state.get('tick:hourly');
   const fiveFresh = !!five && now - five.at <= TICK_FRESH_MS;
@@ -266,13 +267,16 @@ export const withTimeout =
     f(url, { ...init, signal: AbortSignal.timeout(TEST_TIMEOUT_MS) });
 
 /** Claims a test button. False when the last claim is younger than TEST_GAP_MS. One row written when it is granted, none when it is not. */
-export async function claimTest(db: D1Database, name: string, now: number): Promise<boolean> {
+export const claimTest = (db: D1Database, name: string, now: number) => claimKey(db, `test:${name}`, now);
+
+/** Claims one cron_state row for a rate-limited check (a test button, the install check of setup-state.ts). */
+export async function claimKey(db: D1Database, key: string, now: number): Promise<boolean> {
   const r = await db
     .prepare(
       `INSERT INTO cron_state (key, value, at) VALUES (?1, '{"ok":false,"message":"The test did not finish."}', ?2)
        ON CONFLICT (key) DO UPDATE SET value = '{"ok":false,"message":"The test did not finish."}', at = excluded.at WHERE at <= excluded.at - ?3`,
     )
-    .bind(`test:${name}`, now, TEST_GAP_MS)
+    .bind(key, now, TEST_GAP_MS)
     .run();
   return (r.meta?.changes ?? 0) > 0;
 }

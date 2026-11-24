@@ -11806,6 +11806,303 @@
         }
       }
     },
+    "/api/v1/setup": {
+      "get": {
+        "operationId": "getSetup",
+        "summary": "Every setup step with a status that a real signal backs",
+        "description": "The owner's login, or a key with read: a key sees the sites it covers, plus the steps of the whole deployment. ?site= narrows to one site. Reads D1 in one batch and calls nobody. A viewer gets 403. Secrets appear as names and booleans only.",
+        "tags": [
+          "Read"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "site",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "One site id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The setup state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "edition": {
+                      "type": "string",
+                      "enum": [
+                        "core",
+                        "pro"
+                      ]
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "origin": {
+                      "type": "string"
+                    },
+                    "now": {
+                      "type": "integer"
+                    },
+                    "progress": {
+                      "type": "object",
+                      "properties": {
+                        "done": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "required_done": {
+                          "type": "integer"
+                        },
+                        "required_total": {
+                          "type": "integer"
+                        }
+                      },
+                      "description": "Off and locked steps do not count."
+                    },
+                    "next": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/SetupStep"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Broken first, then required todo, required waiting, optional todo, optional waiting."
+                    },
+                    "steps": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SetupStep"
+                      }
+                    },
+                    "sites": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "web",
+                              "app",
+                              "both"
+                            ]
+                          },
+                          "done": {
+                            "type": "integer"
+                          },
+                          "total": {
+                            "type": "integer"
+                          },
+                          "next": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "The id of the site's next step."
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "edition",
+                    "version",
+                    "origin",
+                    "now",
+                    "progress",
+                    "next",
+                    "steps",
+                    "sites"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No login and no key, or an unknown key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A viewer, a key without read, or a site the key does not cover",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No site has this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/verify-install": {
+      "post": {
+        "operationId": "verifyInstall",
+        "summary": "Fetch a site's homepage and look for its tracker tag",
+        "description": "Fetches https://<domain>/ with a 5 second timeout and reads data-website-id. found is tag, none or other-site-id. One check per site every 15 seconds; the outcome shows in GET /api/v1/setup. An app without a website answers 400.",
+        "tags": [
+          "Read"
+        ],
+        "security": [
+          {
+            "scopedKey": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "site"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "found": {
+                      "type": "string",
+                      "enum": [
+                        "tag",
+                        "none",
+                        "other-site-id"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "site": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "found",
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No site in the body, or an app without a website",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No login and no key, or an unknown key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A viewer, a key without read, or a site the key does not cover",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No site has this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "A check of this site ran in the last 15 seconds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/aso/reviews": {
       "get": {
         "operationId": "getAsoReviews",
@@ -23126,6 +23423,148 @@
           "text",
           "text_cut",
           "attachments"
+        ]
+      },
+      "SetupStep": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable: deploy, cron, email, site, agent-key, agent-used, tracker:<site>, sdk:<site>, payments:<site>, attribution:<site>, apple:<site>, and Pro's growth steps."
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "deploy",
+              "track",
+              "revenue",
+              "growth",
+              "agent"
+            ]
+          },
+          "site": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "What the owner gets, one sentence."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "waiting",
+              "todo",
+              "broken",
+              "off",
+              "locked"
+            ],
+            "description": "done needs a real signal: a visit, an app session, a payment, a payment linked to a visit, an App Store notification, a key call. waiting: set up, no signal yet. broken: set up and failing. off: optional and not chosen. locked: needs FounderData Pro."
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "you",
+              "browser"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Paste-ready text for a coding agent. Never holds a secret."
+          },
+          "skill": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Repo path of the guide the agent follows."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secrets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "set": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "description": "Names and whether each is set. Never a value."
+          },
+          "cost": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pro": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "group",
+          "site",
+          "title",
+          "outcome",
+          "status",
+          "who",
+          "required",
+          "evidence",
+          "next",
+          "prompt",
+          "skill",
+          "url",
+          "command",
+          "cost"
         ]
       }
     },

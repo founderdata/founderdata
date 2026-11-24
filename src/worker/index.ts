@@ -40,6 +40,7 @@ import { handlePolarWebhook } from './polar';
 import { maskProviderSecrets, patchProviderSettings, PROVIDER_FIELDS } from './providers';
 import { commissionOf, patchCommission } from './commission';
 import { recordTick, registerSetupRoutes } from './setup-checklist';
+import { registerSetupStateRoutes } from './setup-state';
 import { registerStripeImportRoutes, stopIdleImports } from './stripe-import';
 import { registerImportRoutes } from './imports';
 import { attributionCoverage, breakdown, customers, funnel, makeCtx, overview, pageOf, revenueByProvider, visitorProfile, visitors, type FunnelStep } from './stats';
@@ -575,6 +576,8 @@ app.delete('/api/sites/:id', async (c) => {
       ).bind(id),
       // The first web and app visit the nightly scan found (src/worker/sources.ts).
       c.env.DB.prepare('DELETE FROM cron_state WHERE key = ?').bind(`since:${id}`),
+      // The setup state's install check and first Apple notification (src/worker/setup-state.ts).
+      c.env.DB.prepare('DELETE FROM cron_state WHERE key IN (?, ?)').bind(`verify:${id}`, `apple:${id}`),
       c.env.DB.prepare('DELETE FROM sites WHERE id = ?').bind(id),
     ),
   );
@@ -641,6 +644,8 @@ registerStripeImportRoutes(app);
 registerImportRoutes(app);
 // The setup checklist and its two test buttons, owner only (src/worker/setup-checklist.ts, docs/GUIDE.md).
 registerSetupRoutes(app);
+// The setup state for the onboarding, doctor and get_setup, owner or key with read (src/worker/setup-state.ts, docs/API.md).
+registerSetupStateRoutes(app);
 // Lists come in pages (?offset=&limit=, 200 by default); X-Next-Offset is set when another page exists.
 app.get('/api/sites/:id/customers', async (c) => {
   const { rows, next } = await customers(makeCtx(c), pageOf(c.req.query()));

@@ -6,6 +6,7 @@ import { announce, pusherOf, type Pusher } from './notify';
 import { creditedSession, currencyDecimals, recordPayment, recordSignal, SANDBOX_PROVIDER } from './payments';
 import { appleSubscriptionEvent, recordSubscription, type AppleNotice } from './subscriptions';
 import { storeCancelStatement } from './surveys';
+import { noteAppleNotification } from './setup-state';
 import type { StoreReason } from '../shared/surveys';
 
 /** The fields of a StoreKit 2 / App Store Server API JWSTransactionDecodedPayload that we use. */
@@ -262,6 +263,8 @@ export async function handleAppleWebhook(c: Context<AppEnv>) {
   if (data.bundleId !== site.app_bundle_id) {
     return c.json({ error: `notification is for ${data.bundleId}, this site expects ${site.app_bundle_id}` }, 400);
   }
+  // The setup state's real signal for this step (setup-state.ts): one row the first time, none after.
+  await noteAppleNotification(c.env.DB, site.id, Date.now()).catch(() => undefined);
   if (data.environment !== 'Production' && !site.accept_sandbox) return c.json({ ok: true, ignored: 'sandbox' });
 
   const type = n.notificationType ?? '';

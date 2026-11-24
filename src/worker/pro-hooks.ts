@@ -25,6 +25,8 @@ import type { BreakdownRow, Ctx } from './stats';
 import type { NetShares } from './commission';
 import type { SourceHealth, SourceProbe } from './sources';
 import type { Row as SetupRow } from './setup-checklist';
+import type { SetupSite } from './setup-state';
+import type { Step } from '../shared/setup-steps';
 import type { MapWhere, PageClicks } from './page-maps';
 
 type App = Hono<AppEnv>;
@@ -177,9 +179,9 @@ export interface Pro {
   forgetSite?(siteId: string): void;
 
   // ---- builder A
-  /** Builds the tools the MCP server adds to core's nine (mcp.ts calls it once, at load). Each names the tool it follows in `after`, so tools/list keeps one order. */
+  /** Builds the tools the MCP server adds to core's ten (mcp.ts calls it once, at load). Each names the tool it follows in `after`, so tools/list keeps one order. */
   mcpTools?(): McpTool[];
-  /** MCP prompts: the agent skills (each skills/NAME/SKILL.md, bundled by pro/scripts/sync-skills.mjs). Core has none. */
+  /** MCP prompts: Pro's agent skills (each skills/NAME/SKILL.md, bundled by pro/scripts/sync-skills.mjs). They join core's (src/worker/core-skills.ts); one with a core skill's name replaces it. */
   skills?: { name: string; title: string; description: string; body: string }[];
 
   /** MRR of one site at `at` and at `from`, and its paying subscriptions: the Overview's MRR (share.ts siteMrr). Undefined without subscriptions. Core has no MRR. */
@@ -209,6 +211,13 @@ export interface Pro {
    * `state` holds the cron_state rows core read ('tick:*' and 'test:*').
    */
   setupRows?(env: Env, ctx: { origin: string; now: number; state: Map<string, { value: string; at: number }> }): Promise<SetupRow[]>;
+  /**
+   * Steps Pro adds to GET /api/v1/setup (setup-state.ts), in the `growth` group or any other: Search Console, keyword
+   * ranks, AI answers, App Store sales, Apple Search Ads, Meta ads, the plan and the nightly schedule. `sites` are the
+   * sites the caller sees, each secret as a boolean; `state` holds the cron_state rows core read. Without the hook core
+   * lists the same outcomes as `locked` steps. A step's status needs a real signal for `done` (docs/API.md, "Setup state").
+   */
+  setupSteps?(env: Env, ctx: { origin: string; now: number; sites: SetupSite[]; state: Map<string, { value: string; at: number }> }): Promise<Step[]>;
   /** Test buttons behind POST /api/setup/test/:name, by name (a row's `test`). Core has none. */
   setupTests?: Record<string, (env: Env) => Promise<{ ok: boolean; message: string }>>;
   // ---- builder B

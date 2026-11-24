@@ -4,8 +4,8 @@ Your deployment runs an MCP server at `/mcp`. Claude Code, Cursor, VS Code and o
 questions about your numbers. Ask "which landing pages made money last month" and the agent calls `get_breakdown` with
 `dim=entry_page` and last month's dates.
 
-FounderData core has nine tools: `whoami`, `get_definitions`, `get_overview`, `get_breakdown`, `get_timeseries`,
-`get_customers`, `get_web_vitals`, `list_notes` and `add_note`. FounderData Pro adds the rest (subscriptions, SEO, ad
+FounderData core has ten tools: `whoami`, `get_setup`, `get_definitions`, `get_overview`, `get_breakdown`,
+`get_timeseries`, `get_customers`, `get_web_vitals`, `list_notes` and `add_note`. FounderData Pro adds the rest (subscriptions, SEO, ad
 reports, app reports, the research log, alert rules and the agent workflows below). Sections and tools marked Pro need
 FounderData Pro ([PRO.md](PRO.md)).
 
@@ -287,6 +287,20 @@ done, dropped, measured and still measuring, and the verdicts beside the text, s
 and what FounderData measured. The `founderdata-run-plan` skill walks through the loop. [API.md](API.md#plan-pro) has
 every field.
 
+## Setting up with an agent
+
+`get_setup` answers what is set up and what is left ([API.md](API.md#setup-state)). Each step has a status, who acts,
+the signal behind it and a prompt to paste into the agent. A step is `done` only after a real signal: the first visit,
+the first payment, a payment linked to a visit, Apple's first notification. A secret that is set only makes it
+`waiting`. `next` is the one step to do now, so the agent loops: read `next`, do it, call `get_setup` again.
+
+Core serves its own skills as MCP prompts. They live in `skills/<name>/SKILL.md` in this repository, and
+`npm run sync:skills` bundles them into the Worker after an edit. A test fails when the bundle is stale.
+
+| Skill | For |
+| --- | --- |
+| `founderdata-setup` | Setting up FounderData with the owner: deploy, sites, the tracker or SDK, payments with attribution, each step checked with `get_setup` |
+
 ## Skills (Pro)
 
 FounderData Pro ships twelve workflows. They live in the Pro repository. Each says which tools to call in which order
@@ -308,7 +322,7 @@ and what to write back:
 | `founderdata-flag-mail` | A scheduled run over the mail: flag what the owner must answer, with what was checked, and write drafts for Today |
 
 **Install: connect the MCP server.** That is the one step. A Pro server answers `prompts/list` and `prompts/get` with
-the twelve skills, so every client that shows MCP prompts has them. A core server answers an empty list. In Claude Code they are slash commands such as
+the twelve skills after core's, so every client that shows MCP prompts has them. A core server answers core's skills only. A Pro skill with a core skill's name takes its place. In Claude Code they are slash commands such as
 `/mcp__founderdata__founderdata-weekly-review`. Each prompt takes an optional `site` argument.
 
 To have Claude Code or Codex pick a skill without being asked, copy the twelve skill folders from your Pro checkout into
@@ -386,6 +400,7 @@ object such as `{"country": "DE"}`; `get_definitions` lists its keys under `defi
 
 | Tool | Edition | Route | Answers |
 | --- | --- | --- | --- |
+| `get_setup` | Core | `/api/v1/setup` | Every setup step with its status, who acts, the signal behind it, a prompt for the agent and the next step. `done` needs a real signal. With `site`, one site and the deployment's steps. Read-only. See [Setting up with an agent](#setting-up-with-an-agent). |
 | `whoami` | Core | `/api/v1/whoami` | The key: name, scopes and what each allows, the sites it covers with their names, the expiry, and the deployed version. With `read`, each site's `tracking_since` and `sources`: the status of each integration, and the failing or stale ones with `last_error`. In Pro, `switches` says whether recordings, errors, click maps and surveys are on, with the Settings link for each. Works for every key. The server tells agents to call it first. |
 | `query` | Pro | `POST /api/v1/query` | Metrics by up to 2 dimensions, a day, week or month bucket and the site, for one site or every site the key covers. See [The query tool](#the-query-tool-pro). |
 | `dashboards` | Pro | `/api/v1/dashboards` | Custom dashboards, with an `action`: list, get, create, update and delete. Each widget is a `query` call saved with a view, and the dashboard runs it when the page opens. Reads need `read`, changes `dashboards:write`. Takes no `site`. See [Custom dashboards](#custom-dashboards-pro). |
@@ -773,7 +788,7 @@ and "signed up" join with "and".
 ### The tool budget
 
 A client loads `tools/list` into every turn, so the budget is its size: at most 60,000 characters without the output
-schemas, about 15,000 tokens. A test in the Pro repository fails above it. The count is a guide, 39 at most: a new report
+schemas, about 15,000 tokens. A test in the Pro repository fails above it. The count is a guide, 40 at most: a new report
 becomes a view or an argument of a tool first. Mail is one tool with sixteen actions for that reason, and so is
 `dashboards`. `get_people` is one tool for the People list and one person's story, and `get_recordings` one tool with a
 view for the patterns, the list and one recording. The plan's five tools moved the cap
@@ -782,7 +797,9 @@ Round 7 added views and arguments, not tools, and cut field lists that the outpu
 carry. After its critique fixes `tools/list` was 59,571 characters without the output schemas. Release 1.5 adds Today's
 `flag_thread`, `save_draft` and `waiting` to `mail`: 59,866 characters, under a target of 59,900 that the test pins. With
 the output schemas it is 110,426 characters. A client that loads the output schemas into every turn pays the larger
-number.
+number. `get_setup` added a 40th tool for 444 characters. The field lists of `get_overview`, `get_customers`,
+`list_notes` and `get_web_vitals`, which their output schemas already carry, gave back 422, so the list grew by 22
+characters. A setup state is not a report, so it did not become a view of another tool. The count guide is 40.
 
 Round 6 folded six tools into views. The old names answer one more release with an error that names the new call:
 

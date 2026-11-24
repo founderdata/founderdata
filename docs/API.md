@@ -4047,9 +4047,122 @@ No login needed, the token is the credential. `GET` answers `{ "name": "...", "r
 when it expired or was used. `POST { "password": "..." }` sets the password (12 to 200 characters), signs the person in
 with a cookie and answers `{ "ok": true, "role": "admin" | "viewer", "name": "..." }`.
 
+## Setup state
+
+Every step of a deployment's setup, each with a status that a real signal backs. The dashboard's onboarding,
+`npm run doctor` and the MCP tool `get_setup` read the same answer, so an agent and the owner see one list.
+
+Who may read it: the owner's login (the admin password, or a teammate with the owner role), or a key with `read`. A key
+sees the sites it covers, plus the steps of the whole deployment. A viewer gets 403, a key without `read` 403, no login
+401. A script with the saved admin password signs in with `POST /api/auth/login` and sends the cookie.
+
+### `GET /api/v1/setup`
+
+`?site=<id>` narrows the answer to one site and the deployment's steps. A site the key does not cover answers 403, an
+unknown id 404. It reads D1 in one batch and calls nobody. It writes no row for the login. A key's call counts in the
+key's usage, as every key call does: 1 row a minute at most.
+
+```json
+{ "edition": "core", "version": "1.5.0", "origin": "https://founderdata.example.com", "now": 1767225600000,
+  "progress": { "done": 4, "total": 9, "required_done": 3, "required_total": 6 },
+  "next": { "id": "payments:SITE_ID", "...": "the whole step" },
+  "steps": [
+    { "id": "tracker:SITE_ID", "group": "track", "site": { "id": "SITE_ID", "name": "Acme" },
+      "title": "Install the tracker", "outcome": "Every visit with the post, search or ad that brought it.",
+      "status": "done", "who": "agent", "required": true, "evidence": "Last visit 4 minutes ago.",
+      "next": null, "prompt": null, "skill": "skills/founderdata-setup/SKILL.md",
+      "url": "/site/SITE_ID/settings#install", "command": null, "cost": "Free" },
+    { "id": "payments:SITE_ID", "group": "revenue", "site": { "id": "SITE_ID", "name": "Acme" },
+      "title": "Connect payments", "outcome": "Every payment in FounderData the moment it happens.",
+      "status": "waiting", "who": "browser", "required": true,
+      "evidence": "Stripe is set. No payment has arrived yet.",
+      "next": "Send a test event from Stripe, or make a test purchase.",
+      "prompt": "Check that Stripe sends payments to FounderData for Acme. ...",
+      "skill": "skills/founderdata-connect/stripe.md", "url": "/site/SITE_ID/settings#stripe",
+      "command": "npm run connect -- stripe --site SITE_ID",
+      "secrets": [{ "name": "stripe_webhook_secret", "set": true }, { "name": "dodo_webhook_secret", "set": false }],
+      "cost": "Free" }
+  ],
+  "sites": [{ "id": "SITE_ID", "name": "Acme", "kind": "web", "done": 2, "total": 3, "next": "payments:SITE_ID" }] }
+```
+
+A step has these fields:
+
+| Field | |
+| --- | --- |
+| `id` | Stable. See the table below. |
+| `group` | `deploy`, `track`, `revenue`, `agent` or `growth`. `steps` come in that order. |
+| `site` | `{ id, name }`, or `null` for a step of the whole deployment. |
+| `title`, `outcome` | What to do, and what the owner gets from it, one sentence each. |
+| `status` | `done`, `waiting`, `todo`, `broken`, `off` or `locked`. |
+| `who` | `agent`: the coding agent does it alone. `you`: only the owner can. `browser`: the agent drives a browser and the owner signs in. |
+| `required` | Deploy, the first site, a tracker or SDK per site, and per site one payment provider with attribution. |
+| `evidence` | The signal behind the status, such as "Last visit 4 minutes ago." `null` when there is none. |
+| `next` | One sentence on what to do. `null` when the step is done. |
+| `prompt` | Text to paste into a coding agent, with the site's id, domain and this deployment's address. It never holds a secret. `null` when the step is done. |
+| `skill` | The repository path of the guide the agent follows. |
+| `url` | A provider's page, or a dashboard path such as `/site/SITE_ID/settings#stripe`. |
+| `command` | A command to run in the FounderData checkout, such as `npm run connect -- stripe --site SITE_ID`. |
+| `secrets` | Names and whether each is set. Never a value, a prefix or a length. Site settings use their field name (`stripe_webhook_secret`), Worker secrets theirs (`RESEND_API_KEY`). |
+| `cost` | What the step costs, or `null`. |
+| `pro` | `true` on a step that needs FounderData Pro. |
+
+`done` needs a real signal. A secret that is set makes a step `waiting`, never `done`. `waiting` means set up with no
+signal yet. `broken` means set up and failing. `off` is an optional step nobody chose. `locked` is a step of
+FounderData Pro in core: it says what it unlocks and is never `next`.
+
+| Step | Done when | Otherwise |
+| --- | --- | --- |
+| `deploy` | Always: the Worker answered. | |
+| `cron` | The `*/5` cron ran in the last 35 minutes. | `waiting` before the first heartbeat, `broken` when it stopped or the old hourly cron is listed. |
+| `email` | A sender is set (Resend or the `EMAIL` binding) and an email alert channel exists. | `todo` with a sender and no channel, `off` without a sender. |
+| `site` | The deployment has a site. | `todo`. |
+| `tracker:<site>` | A web session exists. | `waiting` after the install check found the tag, `broken` when it found another site's id, else `todo`. |
+| `sdk:<site>` | An app session exists. | `todo`. |
+| `payments:<site>` | A payment arrived from a provider other than the App Store. | `broken` while a provider's deliveries fail the signature check (last 24 hours), `waiting` with a secret set, else `todo`. `off` for an app that has no RevenueCat. |
+| `attribution:<site>` | A payment is linked to a visit. | `waiting` with the count of unlinked payments ("3 payments, none linked to a visit."), or before the first payment. `todo` before payments. |
+| `apple:<site>` | App Store Server Notifications reached the site once, Apple's test notification included. | `broken` while notifications fail the signature check. `todo` for an app without a website that has no RevenueCat, else `off`. |
+| `agent-key` | An API key exists. | `todo`. |
+| `agent-used` | A key was used, or a key is calling now. | `waiting` with a key, else `todo`. |
+
+Core lists these Pro steps as `locked`: `google:<site>` and `meta:<site>` for each website, `dataforseo`, `ai-engines`,
+`asc-sales` and `apple-search-ads` with an app, `plan:<site>` for each site, and `schedule`. FounderData Pro fills
+them with real statuses.
+
+`next` is the step to do now: the first `broken` one, then the first required `todo`, then the first required
+`waiting`, then the optional ones in the same order. `progress` and each site's `done` and `total` leave out `off` and
+`locked` steps. `sites[].next` is the id of that site's next step. `kind` is `web`, `app` (an app without a website) or
+`both`.
+
+Rows read: one batch of 3 statements plus 4 per site and 1 per payment provider with a secret. Each is an index seek
+that stops early: 1 session for a site with one platform, the newest 300 for a site with both, the newest 200 payments,
+and up to 100 unlinked payments.
+
+### `POST /api/v1/setup/verify-install`
+
+`{ "site": "SITE_ID" }`. The Worker fetches `https://<domain>/` with a 5 second timeout and reads the
+`data-website-id` of the page's tags, as an attribute or in serialized props (Next.js).
+
+```json
+{ "ok": true, "found": "tag", "message": "The tag for this site is on https://acme.example/. The step turns done with the first visit.",
+  "url": "https://acme.example/", "site": "SITE_ID", "at": 1767225600000 }
+```
+
+`found` is `tag`, `none` or `other-site-id`. A timeout, an error page or an unreachable host is `none` with a message
+that says which. A tag that JavaScript adds after the page loads does not show in the HTML, so `none` is not proof: the
+first visit turns the tracker step done either way. The outcome shows in `GET /api/v1/setup` as the tracker step's
+evidence.
+
+One check per site every 15 seconds; a second one answers 429 with `Retry-After: 15`. Each check writes 2 rows (the
+claim and its outcome, in one `cron_state` row). An app without a website answers 400. Same auth as `GET`; a `POST`
+signed in by cookie must come from the dashboard's origin.
+
+The first App Store notification of a site writes 1 row more, once per site, so the `apple:<site>` step knows it
+arrived.
+
 ## Setup checklist
 
-The checklist in Settings ([GUIDE.md](GUIDE.md#setup-checklist)). These routes are for the dashboard login and need an owner:
+The checklist in Settings ([GUIDE.md](GUIDE.md#setup-checklist)). For agents and the onboarding, [Setup state](#setup-state) has every step with a status that a real signal backs. These routes are for the dashboard login and need an owner:
 the admin password or a teammate with the role `owner`. A viewer and a phone token get 403. An API key gets 401. A `POST`
 from another origin answers 403, as the team routes do: a different `Origin`, or a `Sec-Fetch-Site` other than `same-origin`
 or `none`. Scripts that send neither header pass.

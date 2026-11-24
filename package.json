@@ -37,7 +37,8 @@
     "deploy": "vite build && node scripts/wrangler.mjs d1 migrations apply DB --remote && node scripts/wrangler.mjs deploy",
     "seed": "node scripts/seed-demo.mjs && node scripts/wrangler.mjs d1 execute DB --local --file .wrangler/seed.sql",
     "smoke": "node scripts/smoke.mjs",
-    "check:core": "node scripts/edition.mjs check-core"
+    "check:core": "node scripts/edition.mjs check-core",
+    "sync:skills": "node scripts/sync-core-skills.mjs"
   },
   "dependencies": {
     "hono": "^4.13.19",

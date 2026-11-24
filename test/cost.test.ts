@@ -290,7 +290,9 @@ describe('free-plan cost: D1 rows written per write path', () => {
     };
     // Auto-renew off is a cancellation: its row, its inbox row and Apple's reason for "Why they cancel" (1 answer row,
     // src/worker/surveys.ts storeCancelStatement). The EXPIRED of the same period finds that answer and writes none.
-    expect(await rows('App Store auto-renew off (notification), with its inbox row and the store reason', () => notice('DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_DISABLED'))).toBe(3);
+    // The site's first notification also writes the setup state's marker (setup-state.ts noteAppleNotification): 1 row,
+    // once per site, none after.
+    expect(await rows('App Store auto-renew off (notification, the first of the site), with its inbox row, the store reason and the setup marker', () => notice('DID_CHANGE_RENEWAL_STATUS', 'AUTO_RENEW_DISABLED'))).toBe(4);
     expect(await rows('App Store failed renewal (notification), with its inbox row', () => notice('DID_FAIL_TO_RENEW', 'GRACE_PERIOD'))).toBe(2);
     expect(await rows('App Store expiry of the same period (notification; its reason is stored already)', () => notice('EXPIRED', 'VOLUNTARY'))).toBe(1);
     const reason = await w.db.prepare("SELECT answer, via, subscription_id, visitor_id FROM survey_answers WHERE site_id = ? AND survey = 'cancel_reason' AND subscription_id = '3100000001'").bind(site.id).all<any>();
