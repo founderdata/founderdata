@@ -1,5 +1,5 @@
 {
-  "regular": 2999,
+  "regular": 9999,
   "tiers": [
     {
       "price": 499,
@@ -10,19 +10,23 @@
       "seats": 10
     },
     {
-      "price": 1499,
+      "price": 1999,
+      "seats": 10
+    },
+    {
+      "price": 3999,
+      "seats": 15
+    },
+    {
+      "price": 5999,
       "seats": 20
     },
     {
-      "price": 1999,
-      "seats": 30
-    },
-    {
-      "price": 2499,
-      "seats": 50
+      "price": 7999,
+      "seats": 25
     }
   ],
   "sold": 13,
   "checkout": "https://buy.polar.sh/polar_cl_VXmKrwlw4IIWM6GhohnTzJZN5nMhtpjbcy7I63PRvbm",
-  "updated": "2026-11-22T00:27:14Z"
+  "updated": "2026-11-24T04:30:31Z"
 }
