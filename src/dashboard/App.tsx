@@ -110,6 +110,8 @@ function Routes({ path }: { path: string }) {
       return <Pages.Notifications />;
     case 'live':
       return <Pages.Live />;
+    case 'getStarted':
+      return <Pages.GetStarted />;
     // Keyed by site: useApi keeps the last answer while a new URL loads, which suits a period change and would show one
     // site's numbers under another site's name on a site switch.
     case 'settings':

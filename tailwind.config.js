@@ -13,6 +13,8 @@ export default {
     extend: {
       fontFamily: {
         sans: ['"Inter Variable"', 'Inter', '"Inter Fallback"', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+        // One accent word in an onboarding headline (docs/DESIGN.md, Type). Nowhere else.
+        serif: ['"Instrument Serif"', '"Iowan Old Style"', 'Georgia', 'serif'],
       },
       // The type scale on top of Tailwind's sizes: display for a page title, stat for a headline number.
       fontSize: {
@@ -20,6 +22,8 @@ export default {
         title: ['17px', { lineHeight: '24px', letterSpacing: '-0.012em', fontWeight: '600' }],
         stat: ['26px', { lineHeight: '32px', letterSpacing: '-0.025em', fontWeight: '600' }],
         micro: ['11px', { lineHeight: '16px', letterSpacing: '0.04em', fontWeight: '500' }],
+        // The onboarding headline: the landing page's calm large type, 40 px on a phone up to 60 px.
+        hero: ['clamp(2.5rem, 1.6rem + 3.2vw, 3.75rem)', { lineHeight: '1.02', letterSpacing: '-0.045em', fontWeight: '460' }],
       },
       borderColor: { DEFAULT: v('border-default') },
       colors: {

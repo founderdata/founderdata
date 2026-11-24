@@ -164,7 +164,8 @@ function providerStatus(site: Site, key: string, configured: boolean): CardStatu
   if (refused) return { tone: 'error', label: 'Refused', detail: `${plural(refused.count, 'delivery', 'deliveries')} refused, bad signature` };
   if (!configured) return { tone: 'neutral', label: 'Not connected' };
   const last = site.last_payments?.[key];
-  return { tone: 'ok', label: 'Connected', detail: last ? `Last payment ${agoMs(last)}` : 'Connected, no payment yet' };
+  // A saved secret is not a working connection: only a payment that arrived shows the webhook works.
+  return last ? { tone: 'ok', label: 'Connected', detail: `Last payment ${agoMs(last)}` } : { tone: 'info', label: 'Waiting', detail: 'Secret saved, no payment yet' };
 }
 
 export function statusFor(id: string, site: Site, d: SetupData): CardStatus | null {
@@ -202,7 +203,8 @@ export function statusFor(id: string, site: Site, d: SetupData): CardStatus | nu
       const refused = site.refused_webhooks?.app_store;
       if (refused) return { tone: 'error', label: 'Refused', detail: `${plural(refused.count, 'notification')} refused` };
       const last = site.last_payments?.app_store;
-      return { tone: 'ok', label: 'Ready', detail: last ? `Last purchase ${agoMs(last)}` : 'No purchase yet' };
+      // A bundle id alone proves nothing: the row is ok once Apple's first notification or purchase arrived.
+      return last ? { tone: 'ok', label: 'Receiving', detail: `Last purchase ${agoMs(last)}` } : { tone: 'info', label: 'Waiting', detail: 'No App Store purchase yet' };
     }
     case 'apple-search-ads': {
       const a = d.asa;
