@@ -15,7 +15,7 @@ prices were read on 3 November. They may have changed.
 | | Astro | FounderData |
 | --- | --- | --- |
 | Where it runs | A Mac app, macOS 14 or later. Ranks update only while the app runs | Your Cloudflare account. Hosted ranks run on the cron. The free collector script runs on a machine you pick |
-| Price | $9 a month billed yearly at $108, one Mac, 14-day refund instead of a trial | Core is free under MIT. The ASO tab is in FounderData Pro, €29.99 or $29.99 once. Hosted ranks cost DataForSEO's price, an estimated $26 to $52 a month for 720 keyword and country pairs checked daily. Those prices are unverified |
+| Price | $9 a month billed yearly at $108, one Mac, 14-day refund instead of a trial | Core is free under MIT. The ASO tab is in FounderData Pro, €99.99 or $99.99 once. Hosted ranks cost DataForSEO's price, an estimated $26 to $52 a month for 720 keyword and country pairs checked daily. Those prices are unverified |
 | Keywords and countries | No cap on keywords or apps. 91 of 175 storefronts | 200 keywords, 10 countries and 5 competitors per app, 1,000 keyword and country pairs in all. 50 of the 52 App Store countries FounderData tracks work with hosted ranks |
 | Rank history | In the Mac app's database | 90 days shown in the tab. Older snapshots stay in the database |
 | Popularity | Apple Search Ads popularity | Apple Ads Platform API search popularity, by week |

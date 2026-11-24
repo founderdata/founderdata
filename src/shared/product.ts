@@ -31,10 +31,10 @@ export const PRO_CHECKOUT_URL = 'https://buy.polar.sh/polar_cl_VXmKrwlw4IIWM6Gho
  * The price after launch, in minor units, VAT included. The checkout takes euros and dollars at this number. During
  * launch a capped Polar discount on PRO_CHECKOUT_URL lowers it step by step, and Polar enforces each cap.
  */
-export const PRO_REGULAR = 2999;
+export const PRO_REGULAR = 9999;
 
 /** The price after launch, in both currencies the checkout takes. */
-export const PRO_PRICE = '€29.99 or $29.99';
+export const PRO_PRICE = '€99.99 or $99.99';
 
 /**
  * The live launch offer, as JSON (src/shared/offer.ts): the price after launch, the launch steps and how many

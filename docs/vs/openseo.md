@@ -4,7 +4,7 @@ OpenSEO is an open-source (MIT) SEO research tool, also hosted, built around Dat
 that costs cents, rank tracking with schedules, backlinks, its own site crawler and an MCP server with OAuth and agent
 skills. It runs on the same stack as FounderData, Cloudflare Workers and D1, or in Docker.
 
-FounderData is analytics and revenue. Its SEO tab, in FounderData Pro, €29.99 or $29.99 once, tracks Google ranks and Search Console too, and its edge is that
+FounderData is analytics and revenue. Its SEO tab, in FounderData Pro, €99.99 or $99.99 once, tracks Google ranks and Search Console too, and its edge is that
 search ties to visits, customers and revenue. Many people run both.
 
 Checked in November 2026. OpenSEO figures come from its README, release notes and pricing page, read on 6 November. They
@@ -14,7 +14,7 @@ may have changed.
 
 | | OpenSEO | FounderData |
 | --- | --- | --- |
-| Hosting and license | MIT. Hosted, Docker, or Cloudflare | Core is MIT. The SEO tab, rank tracking and AI visibility are in FounderData Pro, €29.99 or $29.99 once. Cloudflare Workers and D1 only |
+| Hosting and license | MIT. Hosted, Docker, or Cloudflare | Core is MIT. The SEO tab, rank tracking and AI visibility are in FounderData Pro, €99.99 or $99.99 once. Cloudflare Workers and D1 only |
 | Hosted price | $10, $30 and $100 a month, including $10, $36 and $120 of usage. The hosted plan adds 28% to DataForSEO calls | No hosted plan |
 | Data provider | Your DataForSEO key. Self-hosters pay DataForSEO directly | Your DataForSEO login, for ranks and research. Your own keys for AI engines |
 | Keyword research | About $0.05 a search on the hosted plan. Intent badges, wildcards, city volume | Suggestions with volume and difficulty, and the keywords a domain ranks for. Each costs DataForSEO's price per call and is cached 30 days in the research log |

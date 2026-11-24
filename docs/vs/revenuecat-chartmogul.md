@@ -16,7 +16,7 @@ have changed.
 | | RevenueCat | ChartMogul | FounderData |
 | --- | --- | --- | --- |
 | What it is | SDK, entitlements and charts for in-app subscriptions | Subscription analytics for Stripe and other billing sources | Analytics with attribution. Reads Stripe, App Store, RevenueCat and more |
-| Price | Free up to $2,500 of monthly tracked revenue, then 1% of tracked revenue. Charts included | Free up to $120,000 ARR. Starter $69 to $849 a month, $57 to $707 billed yearly. Pro $119 to $1,439. Priced by ARR | Core is free under MIT. Subscription metrics, cohorts and the iPhone app are in FounderData Pro, €29.99 or $29.99 once |
+| Price | Free up to $2,500 of monthly tracked revenue, then 1% of tracked revenue. Charts included | Free up to $120,000 ARR. Starter $69 to $849 a month, $57 to $707 billed yearly. Pro $119 to $1,439. Priced by ARR | Core is free under MIT. Subscription metrics, cohorts and the iPhone app are in FounderData Pro, €99.99 or $99.99 once |
 | MRR and movement | Yes | Yes | In Pro: new, churned, trials, trial to paid, LTV, refunds and failed payments |
 | Split by source | Apple Search Ads campaign, ad group, keyword, country, offering | Segments by plan or MRR band | Channel, referrer, campaign, product and provider. Web and App Store in one table. Apple Search Ads spend and ROAS per campaign and keyword |
 | Cohorts | Cohort Explorer, windows from 7 days to unbounded | Logo retention by cohort | In Pro, a monthly grid by signup month, customers or revenue kept, split by plan, provider, channel or referrer, with a click through to the subscriptions |

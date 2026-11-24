@@ -7,7 +7,7 @@ engines and adds prompt volumes, a fact check of what engines say about you and 
 paid plans are Enterprise only.
 
 FounderData asks the engines' APIs with your own keys, so a check is a model with a search tool and not a replay of what a
-buyer sees. In exchange it ties AI referrals to customers and revenue. AI visibility is part of FounderData Pro, €29.99 or $29.99 once,
+buyer sees. In exchange it ties AI referrals to customers and revenue. AI visibility is part of FounderData Pro, €99.99 or $99.99 once,
 and after that it costs your API bills.
 
 Checked in November 2026. Prices and engine lists come from each vendor's pricing and docs pages, read on 6 November, and
@@ -17,7 +17,7 @@ may have changed. FounderData's token and search prices come from providers' pag
 
 | | Peec | Profound | FounderData |
 | --- | --- | --- | --- |
-| Price | From $95 a month for 50 prompts on 3 models, daily, which is 4,500 answers a month | Free 7-day trial with 50 prompts on 3 engines, then Enterprise only | Core is free under MIT. AI visibility is in FounderData Pro, €29.99 or $29.99 once. Then about $45 a month in API bills for 50 prompts a day on the three cheapest engines, with a default cap of $20 a site you raise first |
+| Price | From $95 a month for 50 prompts on 3 models, daily, which is 4,500 answers a month | Free 7-day trial with 50 prompts on 3 engines, then Enterprise only | Core is free under MIT. AI visibility is in FounderData Pro, €99.99 or $99.99 once. Then about $45 a month in API bills for 50 prompts a day on the three cheapest engines, with a default cap of $20 a site you raise first |
 | Engines | ChatGPT, AI Mode, AI Overviews, Copilot, Gemini and Naver. Claude, Grok and others on Enterprise through the API | ChatGPT, Perplexity, Claude, Gemini, Copilot, DeepSeek, AI Overviews, AI Mode and more | OpenAI, Anthropic and Gemini on your keys, plus Google AI Overviews and Perplexity through DataForSEO. Perplexity also runs on its own key, a path that has only run against mocks. The DataForSEO path is the main one. No Copilot, AI Mode, Grok or DeepSeek |
 | How answers are collected | Browser automation as a logged-out user | Not disclosed | Each engine's API with web search on. Not a replay of the consumer app |
 | Metrics | Visibility, position, sentiment, cited domains and sources, competitors, recommendations | Visibility score, citations, sentiment, fact check, prompt volumes, shopping | Mention rate per engine and prompt, cited domains and URLs, whether your pages are cited, share of voice against competitors, position, positive, neutral and negative counts per engine, this week against last |

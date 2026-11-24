@@ -5,7 +5,7 @@ getting you to a first useful number fast. A one-minute script install, Stripe a
 a settings page, a live visitor globe, tweets pinned on the chart and a ChatGPT app are the parts its users praise.
 
 FounderData is the self-hosted alternative. Core is free under MIT. It covers the same revenue-per-source question and
-adds iOS apps. FounderData Pro, €29.99 or $29.99 once, adds SEO, App Store ranks and AI visibility. In return you deploy and maintain it
+adds iOS apps. FounderData Pro, €99.99 or $99.99 once, adds SEO, App Store ranks and AI visibility. In return you deploy and maintain it
 yourself.
 
 Checked in November 2026. DataFast prices come from the tier table in its own pricing page code, read on 3 November, and
@@ -16,7 +16,7 @@ its features from its docs and changelog, read on 6 November. They may have chan
 | | DataFast | FounderData |
 | --- | --- | --- |
 | Hosting and license | Hosted only, closed source | Your own Cloudflare account, MIT |
-| Price | Starter $9 a month for 10,000 events, $19 for 100,000, $29 for 200,000, $49 for 500,000, $69 for 1 million. Growth $19, $39, $59, $99 and $139 at the same volumes. Yearly is 10 times monthly. 14-day trial, no free tier | Core is free. Pro is €29.99 or $29.99 once. The Cloudflare free plan covers about 3,100 web visits a day. Workers Paid is $5 a month |
+| Price | Starter $9 a month for 10,000 events, $19 for 100,000, $29 for 200,000, $49 for 500,000, $69 for 1 million. Growth $19, $39, $59, $99 and $139 at the same volumes. Yearly is 10 times monthly. 14-day trial, no free tier | Core is free. Pro is €99.99 or $99.99 once. The Cloudflare free plan covers about 3,100 web visits a day. Workers Paid is $5 a month |
 | Sites and seats | Starter 1 site and 1 member. Growth 30 sites and 30 members | Sites share one deployment and one daily write budget. Core has one admin password and one shared viewer password. Pro adds teammates as owner or viewer for every site, with no single sign-on and no per-site permissions |
 | History kept | Starter 3 years, Growth 5 years or more | 24 months of visits by default, set with `RETENTION_MONTHS` |
 | Over the limit | Tracking continues and the dashboard locks until you upgrade | Past a daily write cap, website events are dropped until 00:00 UTC. You set the cap per site |

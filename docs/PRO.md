@@ -7,7 +7,7 @@ Polar, Lemon Squeezy, Paddle, Gumroad, the App Store and RevenueCat, and ties ea
 buyer. It also has goals, funnels, page speed, alerts, the weekly report, CSV export, GDPR erasure, share links, the
 read API and an MCP server with 9 tools.
 
-**Pro** is core plus a `pro/` folder from a private repository. After launch it costs €29.99 or $29.99
+**Pro** is core plus a `pro/` folder from a private repository. After launch it costs €99.99 or $99.99
 including VAT, paid once, with every update. One license covers all your sites and apps. During launch the price
 starts lower and rises in steps ([Price](#price)). Pro adds:
 
@@ -38,7 +38,7 @@ subscription your providers send. When you switch to Pro, the Pro reports cover 
 
 ## Price
 
-The launch price rises in steps as licenses sell, up to €29.99. Each step is a capped discount on the one Polar
+The launch price rises in steps as licenses sell, up to €99.99. Each step is a capped discount on the one Polar
 checkout, and Polar enforces the cap, so the checkout charges the current step's price even when the dashboard is a few
 minutes behind. Polar shows the final price before you pay. Prices include VAT.
 
@@ -51,7 +51,7 @@ launch price:
 
 ```json
 {
-  "regular": 2999,
+  "regular": 9999,
   "tiers": [{ "price": 499, "seats": 5 }, { "price": 999, "seats": 10 }],
   "sold": 7,
   "checkout": "https://buy.polar.sh/...",
@@ -62,7 +62,7 @@ launch price:
 The steps follow each other: with the file above, licenses 1 to 5 cost €4.99 and licenses 6 to 15 cost €9.99.
 `checkout` is optional and replaces the built-in checkout link; it must be an https link on `buy.polar.sh` or
 `polar.sh`. Each step must cost more than the one before. When the file can't be read, or a value is missing or out of
-range, the dashboard shows €29.99 and no launch price. `src/shared/offer.ts` checks the file.
+range, the dashboard shows €99.99 and no launch price. `src/shared/offer.ts` checks the file.
 
 ## Buy
 
