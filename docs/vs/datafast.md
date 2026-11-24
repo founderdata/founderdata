@@ -30,7 +30,7 @@ its features from its docs and changelog, read on 6 November. They may have chan
 | iOS and Android | React Native and Expo SDK, a mobile app the docs call an MVP | Swift SDK with StoreKit 2 and RevenueCat. Pro adds onboarding and paywall funnels, App Store sales, ASO, and an iPhone app you build with your own Apple team. No Android |
 | AI visibility | An add-on at $99 a month for 50 prompts on ChatGPT only, or $399 for 100 prompts on three engines. It was not on a public page, and we could not confirm it is live | In Pro, OpenAI, Anthropic and Gemini on your own keys, plus Google AI Overviews and Perplexity through DataForSEO. About $45 a month in API bills for 50 prompts on three engines |
 | AI crawler traffic | Server package with IP verification, 100,000 requests a cycle included | In Pro, your server forwards bot hits to an endpoint. Counts per bot and page. No IP is received |
-| Agents | Remote MCP with OAuth and about 60 tools, a CLI, a ChatGPT app | MCP with a pasted `fdk_` key and chart notes that agents review with a before and after verdict. 9 tools in core. Pro has 39, twelve workflows served as MCP prompts and a research log |
+| Agents | Remote MCP with OAuth and about 60 tools, a CLI, a ChatGPT app | MCP with a pasted `fdk_` key and chart notes that agents review with a before and after verdict. 10 tools in core. Pro has 40, twelve workflows served as MCP prompts and a research log |
 | Data out | No export file in its terms, a REST API at 60 calls a minute | CSV export of every panel, visit, event, payment and subscription, a read API, a share link |
 | Install | Plugins and guides for WordPress, Shopify, GTM, Webflow, Framer, Wix, Squarespace and Bubble | One script tag, and a Copy AI prompt button that has your coding agent do the install |
 
@@ -48,7 +48,7 @@ its features from its docs and changelog, read on 6 November. They may have chan
 - **No hosted version.** Cloudflare Workers and D1 only, no Docker image, no Postgres.
 - **Setup is a terminal job.** `npm run setup` deploys, but X, Google and DataForSEO each need a secret. Settings, Setup
   checklist tests the DataForSEO login and the X token live and says which row is broken.
-- **A large MCP tool set in Pro.** 39 tools, and no OAuth sign-in for ChatGPT or claude.ai connectors.
+- **A large MCP tool set in Pro.** 40 tools, and no OAuth sign-in for ChatGPT or claude.ai connectors.
 - **No iPhone app from the App Store.** You build it yourself.
 
 ## Moving over

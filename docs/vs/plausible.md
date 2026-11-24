@@ -24,7 +24,7 @@ its docs, read on 6 November. They may have changed.
 | Import in | Google Analytics 4 through its API, and CSV. GA4 revenue is not imported | A Plausible export ZIP. Other tools' files may work, and only Plausible's is tested |
 | Export out | A ZIP of CSVs, each capped at the top 300 rows, or a full-site export of daily CSVs | CSV export of every panel, visit, event, payment and subscription |
 | API | Stats API v2, 600 requests an hour on Business | A read API with scoped keys, 120 new answers a minute per key |
-| Agents | No official MCP server. A community one exists, with no support from Plausible | MCP with scoped keys, 9 tools in core. Pro has 39 tools and twelve workflows |
+| Agents | No official MCP server. A community one exists, with no support from Plausible | MCP with scoped keys, 10 tools in core. Pro has 40 tools and twelve workflows |
 | iOS apps | Not covered | Swift SDK, StoreKit 2 and RevenueCat in core. Onboarding and paywall funnels, retention, Apple Search Ads and ASO in Pro |
 | AI referrals | Shows traffic from ChatGPT, Perplexity and Claude | The same, with the customers and revenue that followed. Pro adds an AI visibility runner |
 
