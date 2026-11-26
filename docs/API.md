@@ -668,12 +668,15 @@ view, and the page runs it when it opens. The MCP tool `dashboards` calls these 
 | `DELETE /api/v1/dashboards/<id>` | `dashboards:write` | `{ ok: true, id }`. Writes 1 row |
 
 A widget is `{ id, title, view, width, query, note }`: `view` is `number`, `line`, `column`, `bar`, `map`, `funnel`,
-`table` or `goal`, `width` is `third`, `half`, `two_thirds` or `full`, and `query` takes the body of `POST /api/v1/query`. A
+`table`, `goal` or `search`, `width` is `third`, `half`, `two_thirds` or `full`, and `query` takes the body of `POST /api/v1/query`. A
 funnel's `query` is `{ sites: [one site], steps, period }` instead, with 2 to 8 steps of
 `{ type: "page" | "goal", value, label }`. A goal widget has `goal: { target, currency, basis, fees }` and a `query` of
 `{ sites }` or `{}`. Running it answers `goal`, `month`, `day`, `days_in_month`, `days_left`, `current`, `projected`,
 `last_month`, `best`, `sites`, `months`, `not_converted` and `fees`, with every amount in minor units of the goal's
-currency. [MCP.md](MCP.md#custom-dashboards-pro) explains how profit is counted. `created_by` and `updated_by` hold the
+currency. [MCP.md](MCP.md#custom-dashboards-pro) explains how profit is counted. A search widget's `query` is
+`{ sites: [one site], period, from, to }`. Running it answers `search`: `site_id`, `name`, `domain`, `from`, `to`,
+`prev_from`, `prev_to`, `first_day`, `through` and `days`, the rows `[date, clicks, impressions, position]` from
+`prev_from` to `to`. `created_by` and `updated_by` hold the
 key's name, or `owner` for the dashboard login. A `400` names the widget and the field, such as
 `widgets[1]: A line needs a time dimension in dimensions: day, week or month.` A key kept to some sites gets `404` for
 a dashboard with a widget on another site, and every widget it saves names its sites. Money metrics need

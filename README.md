@@ -222,8 +222,8 @@ their category (through RevenueCat or Apple's notifications). See [Surveys](docs
 - All 39 MCP tools, with `query`, which answers metrics by up to 2 dimensions and a day, week or month for every site a
   key covers in one call ([docs/MCP.md](docs/MCP.md#the-query-tool-pro)), alert rules, the research log and twelve agent
   skills.
-- Custom dashboards that your agent builds over MCP: numbers, lines, columns, bars, a country map, funnels and tables, run live when
-  you open the page ([docs/MCP.md](docs/MCP.md#custom-dashboards-pro)).
+- Custom dashboards that your agent builds over MCP: numbers, lines, columns, bars, a country map, funnels, tables and
+  each site's Search Console charts, run live when you open the page ([docs/MCP.md](docs/MCP.md#custom-dashboards-pro)).
 - Teammates with their own login, as owner or viewer.
 
 **What Pro does not do.** Surveys are the two fixed ones, how people heard of you and why they cancel, with no survey
