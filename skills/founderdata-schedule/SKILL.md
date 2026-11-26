@@ -40,7 +40,7 @@ any step has status `broken`, stop, append one line to `~/.config/founderdata/ag
 Make a separate key named `nightly` with the scopes the prompt needs: `read`, `read:revenue`, `notes:write` (core), plus
 `research:write` for the plan (Pro). Reuse the snippet in `skills/founderdata-setup/references/agent-connect.md` with that
 name and write the result to `~/.config/founderdata/nightly-key` (mode 600). Leave out `spend:seo` and `spend:ai` unless the
-human said yes to unattended spend, because those scopes let a nightly run buy DataForSEO calls or AI checks. Settings,
+human said yes to unattended spend, because those scopes let a scheduled run buy DataForSEO calls or AI checks. Settings,
 Agents shows the key's last use, and the human revokes it alone.
 
 ## 3. The pre-flight  [agent]

@@ -37,7 +37,7 @@ Then it shows a plan: every step, who does it, how long it takes and what it cos
 | Check revenue attribution | watches for the first linked payment | make one cheap purchase and refund it (your money, your yes) | 5 min |
 | Connect the agent | makes a scoped key, adds the MCP server | restart the agent session once | 2 min |
 | Pro growth steps | connects Search Console, keyword ranks, AI answers and more, one by one | sign in, paste, agree each cost | 5 to 15 min each |
-| A nightly run | writes the schedule and a pre-flight | confirm the time and the budget cap | 10 min |
+| A scheduled run | writes the schedule and a pre-flight | confirm the time and the budget cap | 10 min |
 
 The times are budgets the skills hold the agent to, not measurements. Core should take well under an hour, most of it
 waiting for a deploy and your first visit. Setup is not "done" when a
