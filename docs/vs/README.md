@@ -7,6 +7,7 @@ lists what FounderData does not do, and links the import path if you move.
 | --- | --- |
 | DataFast | [FounderData vs DataFast](datafast.md) |
 | Plausible, and a short note on Fathom and Umami | [FounderData vs Plausible](plausible.md) |
+| Umami | [FounderData vs Umami](umami.md) |
 | PostHog for experiments, flags, replay, heatmaps, errors or surveys | [FounderData vs PostHog](posthog.md) |
 | OpenSEO | [FounderData vs OpenSEO](openseo.md) |
 | Astro or Appfigures for App Store keywords | [FounderData vs Astro](astro.md) |
