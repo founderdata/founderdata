@@ -1,8 +1,26 @@
 {
-  "version": "1.5.0",
-  "date": "2026-11-22",
-  "notes": "A bar on Home's revenue chart opens that day's revenue by site and by source, with the payments behind it. Live keeps every visit of its window in a scrolling list, instead of the newest 12. Send a \"How did you hear about us?\" answer from your own signup form with founderdata('answer', ...), and the Channel card on Overview has a Heard about tab. Settings > Updates lists every release between your version and the newest one, with what changed in core and in Pro. FounderData Pro: Experiments and feature flags on your website, judged on revenue per visitor and a goal you pick. Experiments from your iOS app sit in the same list, and a chart note marks when each one starts and stops. Needs you on the web and Today in the iPhone app: mail that waits on your answer with your agent's draft, questions from your plan's agent, and what is broken now. Errors: uncaught JavaScript errors grouped into issues and sorted by the paying customers they hit, with an alert for new errors and for resolved ones that come back. Click maps drawn over your live page, scroll depth for every page, and Paths that follow visits up to 3 pages. A survey card asks \"How did you hear about us?\" and \"Why are you canceling?\", and cancel reasons also arrive from Stripe, Polar, the App Store and Google Play. People has a Retention view: weekly lifecycle bars and retention by the week people were first seen. Recordings skip idle stretches over 10 seconds, get a short summary, and filter by error, experiment version, channel, paying customer and funnel step. The iPhone app has a Mail tab with Sent, Archive and Trash, filters, search, and replies with files. The Mail inbox lists threads with a received message. A thread you started stays in Sent until someone answers. New websites start with Record visits and Remember visitors on. Sites you added before keep their settings. A key without read:revenue sees no money and does not learn who paid, in experiments, errors, recordings, people and paths.",
+  "version": "1.5.1",
+  "date": "2026-11-26",
+  "notes": "Your coding agent can set FounderData up from one prompt. It deploys, adds your sites, installs the tracker, connects your payment provider and connects itself over MCP. docs/AGENT-SETUP.md has the prompt. Home shows a setup card while a required step is open, with the next step and a prompt for your agent. A new install opens Get started on its first visit. A payment provider whose secret you saved reads Waiting until its first payment arrives, instead of Connected. npm run doctor checks your install without changing anything and names the next step. npm run connect opens a page on your own machine where you paste a provider's secret, so your agent never sees it. Agents read the setup steps with the get_setup MCP tool or GET /api/v1/setup. FounderData Pro: Custom dashboards have a goal widget. It adds up this month across your sites in one currency against a monthly target, as revenue or as profit after Apple's share and each provider's fee. Custom dashboards have a search widget with one site's Search Console clicks, impressions, click-through rate and average position side by side. The Mail page has Inbox, Archive and Trash folders and an Unread filter. You can undo Archive and Trash for a few seconds, and restore a thread, delete it for good or empty the trash. In the iPhone app, Mail changes many threads in one go with one Undo, and Delete for good and Empty Trash finish at once. A thread you delete for good takes no more replies and puts no card in Today.",
   "releases": [
+    {
+      "version": "1.5.1",
+      "date": "2026-11-26",
+      "core": [
+        "Your coding agent can set FounderData up from one prompt. It deploys, adds your sites, installs the tracker, connects your payment provider and connects itself over MCP. docs/AGENT-SETUP.md has the prompt.",
+        "Home shows a setup card while a required step is open, with the next step and a prompt for your agent. A new install opens Get started on its first visit.",
+        "A payment provider whose secret you saved reads Waiting until its first payment arrives, instead of Connected.",
+        "npm run doctor checks your install without changing anything and names the next step. npm run connect opens a page on your own machine where you paste a provider's secret, so your agent never sees it.",
+        "Agents read the setup steps with the get_setup MCP tool or GET /api/v1/setup."
+      ],
+      "pro": [
+        "Custom dashboards have a goal widget. It adds up this month across your sites in one currency against a monthly target, as revenue or as profit after Apple's share and each provider's fee.",
+        "Custom dashboards have a search widget with one site's Search Console clicks, impressions, click-through rate and average position side by side.",
+        "The Mail page has Inbox, Archive and Trash folders and an Unread filter. You can undo Archive and Trash for a few seconds, and restore a thread, delete it for good or empty the trash.",
+        "In the iPhone app, Mail changes many threads in one go with one Undo, and Delete for good and Empty Trash finish at once.",
+        "A thread you delete for good takes no more replies and puts no card in Today."
+      ]
+    },
     {
       "version": "1.5.0",
       "date": "2026-11-22",

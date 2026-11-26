@@ -6,6 +6,22 @@ contains the core release of the same version. The Swift package lists its own c
 
 This file is made from `release.json` by `npm run release` (docs/RELEASING.md). Edit `release.json`, not this file.
 
+## 1.5.1 (2026-11-26)
+
+- Your coding agent can set FounderData up from one prompt. It deploys, adds your sites, installs the tracker, connects your payment provider and connects itself over MCP. docs/AGENT-SETUP.md has the prompt.
+- Home shows a setup card while a required step is open, with the next step and a prompt for your agent. A new install opens Get started on its first visit.
+- A payment provider whose secret you saved reads Waiting until its first payment arrives, instead of Connected.
+- npm run doctor checks your install without changing anything and names the next step. npm run connect opens a page on your own machine where you paste a provider's secret, so your agent never sees it.
+- Agents read the setup steps with the get_setup MCP tool or GET /api/v1/setup.
+
+FounderData Pro:
+
+- Custom dashboards have a goal widget. It adds up this month across your sites in one currency against a monthly target, as revenue or as profit after Apple's share and each provider's fee.
+- Custom dashboards have a search widget with one site's Search Console clicks, impressions, click-through rate and average position side by side.
+- The Mail page has Inbox, Archive and Trash folders and an Unread filter. You can undo Archive and Trash for a few seconds, and restore a thread, delete it for good or empty the trash.
+- In the iPhone app, Mail changes many threads in one go with one Undo, and Delete for good and Empty Trash finish at once.
+- A thread you delete for good takes no more replies and puts no card in Today.
+
 ## 1.5.0 (2026-11-22)
 
 - A bar on Home's revenue chart opens that day's revenue by site and by source, with the payments behind it.
