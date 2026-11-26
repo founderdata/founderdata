@@ -543,7 +543,7 @@ A viewer login reads dashboards and changes nothing.
 | `delete` | `id` | `DELETE /api/v1/dashboards/<id>` |
 
 A widget is `{ "title", "view", "width", "query", "note" }`, and a goal widget also has `goal`. `query` takes the
-arguments of the query tool. `note` is
+arguments of the query tool, except in a funnel, goal or search widget. `note` is
 one line under the widget, such as what to look for. A widget sent with an `id` keeps it, which is how a reorder keeps
 each widget in place.
 
@@ -572,11 +572,12 @@ each widget in place.
 | `map` | The world shaded by country in 5 steps, and the top 6 countries listed under it | One metric, `dimensions` is `["country"]`, one site |
 | `funnel` | The visitors who reached each step in order, with the share that continued | Not a `query` call. `sites` with one site, `steps`, and optionally `period` or `from` and `to`, and `filters` |
 | `table` | Every row | Anything `query` takes |
+| `search` | One site's Search Console clicks, impressions, click-through rate and average position, four charts side by side | Not a `query` call. `sites` with one site, and optionally `period` or `from` and `to` |
 | `goal` | This calendar month against a monthly target, every site added up in one currency: the amount, the share still to go, a bar split by site with the month's pace after it, last month and the best month, and the 12 months as stacked columns under the goal line | Not a `query` call. `goal`, and `query` is `{ "sites": [...] }` or `{}` for every site |
 
 One metric per line keeps every line on one scale: visitors and revenue never share an axis. Put each metric in its
 own widget. `width` is `third`, `half`, `two_thirds` or `full` of the row on a wide screen. Without it a number takes
-a third, a line the full row, and every other view half. Without `view`, a time bucket draws a line, a dimension a
+a third, a line, goal or search widget the full row, and every other view half. Without `view`, a time bucket draws a line, a dimension a
 table, totals a number, and a query with `steps` a funnel.
 
 A funnel has 2 to 8 steps. A step is `{ "type": "page", "value": "/pricing" }` or
@@ -611,6 +612,21 @@ the pace so far.
 { "title": "Road to €2k", "view": "goal", "goal": { "target": 200000, "currency": "EUR", "fees": { "stripe": { "pct": 1.5, "fixed": 25 } } }, "query": {} }
 ```
 
+A search widget is `{ "title", "view": "search", "query": { "sites": ["SITE_ID"], "period": "90d" } }`. It charts the
+Search Console days the SEO tab holds for that site ([SEO.md](SEO.md)), so a site needs a Search Console connection or
+a pushed `gsc_daily` part. One widget per site stacks every site's search traffic on one page. The default period is
+`90d`. A rolling period ends on the last day Search Console has, which is 2 to 3 days back, and `today`, `yesterday`,
+`24h` and `48h` show 7 days. Up to 91 days draw one point a day, longer ranges one a week. Position 1 is at the top of
+its chart. The change against the period before shows when the stored days cover all of that period. Pointing at a day
+shows its four numbers, and the site's name opens its SEO tab. A key without `read:revenue` may save one.
+
+```json
+{ "action": "create", "name": "Search", "widgets": [
+  { "title": "Shop", "view": "search", "query": { "sites": ["SITE_ID"] } },
+  { "title": "Blog", "view": "search", "query": { "sites": ["OTHER_SITE_ID"] } }
+] }
+```
+
 Every chart has a table view in its menu on the page. A dashboard holds 24 widgets, and a deployment 50 dashboards.
 
 A widget without `sites` covers every site. A key kept to some sites always saves the ids of its sites, and it sees
@@ -620,7 +636,7 @@ widget over one period instead of its own.
 
 A dashboard is one D1 row. Creating, changing and deleting one each write 1 row. Running a widget writes none and
 reads what the same `query` reads. A goal reads 12 months of its sites' payments, plus one read each of Apple's
-sales report and the exchange rates.
+sales report and the exchange rates. A search widget reads one site's two stored SEO parts, `gsc_daily` and `meta`.
 
 ### The mail tool (Pro)
 
