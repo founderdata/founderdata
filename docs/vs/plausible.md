@@ -50,7 +50,8 @@ its docs, read on 6 November. They may have changed.
 
 ## A note on Fathom, Umami and PostHog
 
-We did not write a page for Fathom. What we found, from the docs and changelogs of Fathom and Umami in November 2026:
+Fathom has its own page: [FounderData vs Fathom](fathom.md). What we found, from the docs and changelogs of Fathom and
+Umami in November 2026:
 
 - **Fathom** keeps EU visitors on EU servers by default, added an AI assistant and an AI tab in October 2026, and
   imports GA4. It has no payment provider connection, only event values.

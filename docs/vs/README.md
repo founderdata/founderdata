@@ -9,6 +9,7 @@ lists what FounderData does not do, and links the import path if you move.
 | Google Analytics 4 | [FounderData vs Google Analytics](google-analytics.md) |
 | Plausible, and a short note on Fathom and Umami | [FounderData vs Plausible](plausible.md) |
 | Umami | [FounderData vs Umami](umami.md) |
+| Fathom | [FounderData vs Fathom](fathom.md) |
 | PostHog for experiments, flags, replay, heatmaps, errors or surveys | [FounderData vs PostHog](posthog.md) |
 | OpenSEO | [FounderData vs OpenSEO](openseo.md) |
 | Astro or Appfigures for App Store keywords | [FounderData vs Astro](astro.md) |
